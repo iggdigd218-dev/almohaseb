@@ -4,13 +4,9 @@
 //   2) ربط شبكي / متجر متعدد الأجهزة → معالج إنشاء/انضمام مجموعة الموجود.
 // بعد اختيار البطاقة يظهر إعداد مصغّر: اسم المتجر + العملة الأساسية.
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../core/accounting.dart';
 import '../core/factory_reset.dart';
@@ -18,8 +14,6 @@ import '../core/security.dart';
 import '../core/sfx.dart';
 import '../core/theme.dart';
 import '../core/cloud_config.dart';
-import '../core/media_paths.dart';
-import '../data/google_drive_service.dart';
 import '../data/providers.dart';
 import '../data/repository.dart';
 import '../data/sync/account_workspace.dart';
@@ -115,28 +109,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     }
   }
 
-  /// إكمال الإعداد المحلي: اسم المتجر والعملة ونمط الاستخدام.
-  ///
-  /// (دفعة 65) يثبّت أيضاً `account.type`: الاختيار الشبكي = مؤسسة
-  /// (`enterprise`) والشخصي = فردي (`individual`). ويُرقّى تلقائياً إلى
-  /// `enterprise` عند الانضمام الفعلي لمجموعة.
-  Future<void> _completeSetup() async {
-    Sfx.click();
-    final repo = ref.read(repoProvider);
-    try {
-      await completeOnboarding(
-        repo,
-        storeName: _name,
-        currencyCode: _currency,
-      );
-      await repo.setSetting(
-          'account.type', _choice == 'network' ? 'enterprise' : 'individual');
-      bump(ref);
-    } catch (_) {
-      // حتى لو فشل الحفظ لأي سبب لا نحبس المستخدم في شاشة الإعداد.
-    }
-  }
-
   /// الانتقال إلى الشاشة الرئيسية (وإلى معالج المجموعة عند الاختيار الشبكي).
   Future<void> _finishAndNavigate() async {
     if (!mounted) return;
@@ -218,6 +190,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     Sfx.click();
     final repo = ref.read(repoProvider);
     final db = await repo.database;
+    if (!mounted) return;
     final auth = GoogleAuthService(db);
 
     String statusText = 'جاري فتح نافذة اختيار حساب Google...';

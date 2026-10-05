@@ -20,6 +20,7 @@ import 'package:http/http.dart' as http;
 import '../repository.dart';
 import '../../core/license_model.dart';
 import 'device_id.dart';
+import 'workspace_service.dart';
 
 /// مدة التجربة الحالية: شهر كامل (30 يوماً) — تُضبط
 /// لاحقاً بتغيير هذا الثابت وحده.

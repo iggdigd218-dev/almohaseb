@@ -177,6 +177,8 @@ class Repo {
     } catch (_) {}
   }
 
+  String? get deviceId => _deviceId;
+
   String get requireDeviceId {
     if (_deviceId == null) {
       // (دفعة 57) إنهاء التراجع الصامت 'DEVICE-UNKNOWN': معرف زائف كان
