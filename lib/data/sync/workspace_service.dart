@@ -132,15 +132,24 @@ Future<String> ensureWorkspace(Database db, {Repo? repo}) async {
       return defaultWorkspaceId;
     }
     final newId = generateWorkspaceId();
-    await db.update(
+    final now = DateTime.now().toIso8601String();
+    final baseRow = defaultRows.first;
+    await db.insert(
       'workspaces',
       {
         'id': newId,
-        if (accountEmail != null && accountEmail.isNotEmpty)
-          'owner_email': accountEmail,
-        'updated_at': DateTime.now().toIso8601String(),
+        'name': (baseRow['name'] as String?)?.isNotEmpty == true
+            ? baseRow['name']
+            : 'متجري',
+        'owner_google_id': baseRow['owner_google_id'] ?? '',
+        'owner_email': (accountEmail != null && accountEmail.isNotEmpty)
+            ? accountEmail
+            : (baseRow['owner_email'] ?? ''),
+        'owner_name': baseRow['owner_name'] ?? '',
+        'created_at': baseRow['created_at'] ?? now,
+        'updated_at': now,
       },
-      where: "id = 'default'",
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
     for (final t in const [
       'devices',
@@ -159,7 +168,8 @@ Future<String> ensureWorkspace(Database db, {Repo? repo}) async {
     ]) {
       try {
         await db.update(t, {'workspace_id': newId},
-            where: "workspace_id = 'default' OR workspace_id IS NULL OR workspace_id = ''");
+            where:
+                "workspace_id = 'default' OR workspace_id IS NULL OR workspace_id = ''");
       } catch (_) {}
     }
     await repo?.setSetting(_workspaceIdSetting, newId);

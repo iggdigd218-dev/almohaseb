@@ -316,10 +316,15 @@ class SubscriptionGuard {
     try {
       final st = await repo.settings();
       final bound = (st['sync.workspaceId'] ?? '').toString().trim();
-      if (bound.isNotEmpty && bound != 'default') return bound;
+      if (bound.isNotEmpty &&
+          (bound != 'default' || debugForceLegacyWorkspaceId)) {
+        return bound;
+      }
     } catch (_) {}
     final cur = repo.requireWorkspaceId;
-    if (cur.isNotEmpty && cur != 'default') return cur;
+    if (cur.isNotEmpty && (cur != 'default' || debugForceLegacyWorkspaceId)) {
+      return cur;
+    }
     try {
       final db = await repo.database;
       final rows = await db.query(
@@ -331,7 +336,6 @@ class SubscriptionGuard {
       if (rows.isNotEmpty) {
         final realId = '${rows.first['id'] ?? ''}'.trim();
         if (realId.isNotEmpty) {
-          await repo.setSetting('sync.workspaceId', realId);
           repo.debugSetWorkspaceId(realId);
           return realId;
         }

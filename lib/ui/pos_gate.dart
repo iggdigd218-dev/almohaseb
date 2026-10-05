@@ -79,10 +79,10 @@ class _SectionTile extends StatelessWidget {
               const Spacer(),
               Text(
                 label,
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 15.5,
+                  fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: AppColors.textOf(context),
                 ),
@@ -143,45 +143,50 @@ class PosSectionsGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final w = MediaQuery.sizeOf(context).width;
-    final cross = w >= 1000 ? 4 : (w >= 600 ? 3 : 2);
     final allCount = _countOf(null);
     final generalCount = _countOf(kGeneralSectionId);
 
-    return GridView.count(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 96),
-      crossAxisCount: cross,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 1.08,
-      children: [
-        _SectionTile(
-          label: 'كل الأقسام',
-          icon: IconCatalog.of('apps'),
-          tone: AppTone.blue,
-          subtitle: 'كل الأصناف في مكان واحد',
-          count: allCount,
-          onTap: () => onOpen(null),
-        ),
-        if (generalCount > 0)
-          _SectionTile(
-            label: 'عام',
-            icon: IconCatalog.of('category'),
-            tone: AppTone.sand,
-            subtitle: 'أصناف بلا قسم',
-            count: generalCount,
-            onTap: () => onOpen(kGeneralSectionId),
-          ),
-        for (final s in sections)
-          _SectionTile(
-            label: s.name,
-            icon: IconCatalog.of(s.effectiveIcon),
-            tone: toneOf(s.colorHex.isNotEmpty ? s.colorHex : ''),
-            subtitle: '${roots.where((c) => c.sectionId == s.id).length} فئة',
-            count: _countOf(s.id),
-            onTap: () => onOpen(s.id),
-          ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final cross = w >= 760 ? 4 : (w >= 480 ? 3 : 2);
+        return GridView.count(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 96),
+          crossAxisCount: cross,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 1.08,
+          children: [
+            _SectionTile(
+              label: 'كل الأقسام',
+              icon: IconCatalog.of('apps'),
+              tone: AppTone.blue,
+              subtitle: 'كل الأصناف في مكان واحد',
+              count: allCount,
+              onTap: () => onOpen(null),
+            ),
+            if (generalCount > 0)
+              _SectionTile(
+                label: 'عام',
+                icon: IconCatalog.of('category'),
+                tone: AppTone.sand,
+                subtitle: 'أصناف بلا قسم',
+                count: generalCount,
+                onTap: () => onOpen(kGeneralSectionId),
+              ),
+            for (final s in sections)
+              _SectionTile(
+                label: s.name,
+                icon: IconCatalog.of(s.effectiveIcon),
+                tone: toneOf(s.colorHex.isNotEmpty ? s.colorHex : ''),
+                subtitle:
+                    '${roots.where((c) => c.sectionId == s.id).length} فئة',
+                count: _countOf(s.id),
+                onTap: () => onOpen(s.id),
+              ),
+          ],
+        );
+      },
     );
   }
 }

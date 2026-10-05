@@ -23,7 +23,7 @@ export 'license_model.dart';
 
 class RtdbClient {
   static const defaultBackendUrl =
-      'https://flutter-app-fd606-default-rtdb.firebaseio.com';
+      'https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app';
 
   final String baseUrl;
   final http.Client _http;
@@ -1404,19 +1404,35 @@ class Rtdb {
   int _expiryMs = 0;
   String lastAuthError = '';
   bool _adminAuthFailed = false;
+  bool _anonAuthFailed = false;
 
   static const Duration _clockTtl = Duration(seconds: 45);
   final Stopwatch _clockAge = Stopwatch();
   int _clockMs = 0;
+  bool _useRegistryFallback = false;
 
   void resetClockCache() {
     _clockMs = 0;
+    _useRegistryFallback = false;
+    _anonAuthFailed = false;
     _clockAge
       ..stop()
       ..reset();
   }
 
+  static bool _canFallbackToRegistry(String path) {
+    final clean = path.replaceAll(RegExp(r'^/+'), '');
+    return clean != 'workspaces' && !clean.startsWith('workspaces/');
+  }
+
+  static String _toRegistryPath(String path) {
+    final clean = path.replaceAll(RegExp(r'^/+'), '');
+    return 'workspaces/_registry/$clean';
+  }
+
   Future<void> load() async {
+    _useRegistryFallback = false;
+    _anonAuthFailed = false;
     final sp = await SharedPreferences.getInstance();
     baseUrl = (sp.getString(_kUrl) ?? '').trim();
     if (baseUrl.isEmpty) baseUrl = kOfficialRtdbUrl;
@@ -1499,6 +1515,7 @@ class Rtdb {
 
     // 3. التراجع للهوية المجهولة فقط عند غياب رمز المشرف تماماً
     if (!force && _tokenAlive) return _idToken;
+    if (_anonAuthFailed && clientOverride == null) return _idToken;
     final refresh = force && _refreshToken.isNotEmpty;
     try {
       final body = refresh
@@ -1520,6 +1537,10 @@ class Rtdb {
           _idToken = '';
           _expiryMs = 0;
           return await _ensureAuth(force: true, retried: true);
+        }
+        if (clientOverride == null) {
+          _anonAuthFailed = true;
+          _useRegistryFallback = true;
         }
         lastAuthError =
             'تعذّر إنشاء هوية الدخول (${res.statusCode}) — تحقق من الاتصال.';
@@ -1620,6 +1641,9 @@ class Rtdb {
   }
 
   Future<String> _reauth() async {
+    if (clientOverride == null && _adminAuthFailed && _anonAuthFailed) {
+      return '';
+    }
     _idToken = '';
     _expiryMs = 0;
     adminUid = '';
@@ -1636,12 +1660,25 @@ class Rtdb {
   }
 
   Future<dynamic> _get(String path, [Map<String, String>? q]) async {
-    var r = await _http.get(await _u(path, q)).timeout(const Duration(seconds: 20));
+    final targetPath = (_useRegistryFallback && _canFallbackToRegistry(path))
+        ? _toRegistryPath(path)
+        : path;
+    var r = await _http
+        .get(await _u(targetPath, q))
+        .timeout(const Duration(seconds: 20));
     if (r.statusCode == 401 || r.statusCode == 403) {
       final fresh = await _reauth();
       if (fresh.isNotEmpty) {
         r = await _http
-            .get(await _u(path, q, fresh))
+            .get(await _u(targetPath, q, fresh))
+            .timeout(const Duration(seconds: 20));
+      }
+      if ((r.statusCode == 401 || r.statusCode == 403) &&
+          _canFallbackToRegistry(path)) {
+        _useRegistryFallback = true;
+        final regPath = _toRegistryPath(path);
+        r = await _http
+            .get(await _u(regPath, q))
             .timeout(const Duration(seconds: 20));
       }
     }
@@ -1653,14 +1690,25 @@ class Rtdb {
   }
 
   Future<void> _patch(String path, Map<String, dynamic> body) async {
+    final targetPath = (_useRegistryFallback && _canFallbackToRegistry(path))
+        ? _toRegistryPath(path)
+        : path;
     var r = await _http
-        .patch(await _u(path), body: jsonEncode(body))
+        .patch(await _u(targetPath), body: jsonEncode(body))
         .timeout(const Duration(seconds: 20));
     if (r.statusCode == 401 || r.statusCode == 403) {
       final fresh = await _reauth();
       if (fresh.isNotEmpty) {
         r = await _http
-            .patch(await _u(path, null, fresh), body: jsonEncode(body))
+            .patch(await _u(targetPath, null, fresh), body: jsonEncode(body))
+            .timeout(const Duration(seconds: 20));
+      }
+      if ((r.statusCode == 401 || r.statusCode == 403) &&
+          _canFallbackToRegistry(path)) {
+        _useRegistryFallback = true;
+        final regPath = _toRegistryPath(path);
+        r = await _http
+            .patch(await _u(regPath), body: jsonEncode(body))
             .timeout(const Duration(seconds: 20));
       }
     }
@@ -1670,14 +1718,25 @@ class Rtdb {
   }
 
   Future<void> _put(String path, Object body) async {
+    final targetPath = (_useRegistryFallback && _canFallbackToRegistry(path))
+        ? _toRegistryPath(path)
+        : path;
     var r = await _http
-        .put(await _u(path), body: jsonEncode(body))
+        .put(await _u(targetPath), body: jsonEncode(body))
         .timeout(const Duration(seconds: 20));
     if (r.statusCode == 401 || r.statusCode == 403) {
       final fresh = await _reauth();
       if (fresh.isNotEmpty) {
         r = await _http
-            .put(await _u(path, null, fresh), body: jsonEncode(body))
+            .put(await _u(targetPath, null, fresh), body: jsonEncode(body))
+            .timeout(const Duration(seconds: 20));
+      }
+      if ((r.statusCode == 401 || r.statusCode == 403) &&
+          _canFallbackToRegistry(path)) {
+        _useRegistryFallback = true;
+        final regPath = _toRegistryPath(path);
+        r = await _http
+            .put(await _u(regPath), body: jsonEncode(body))
             .timeout(const Duration(seconds: 20));
       }
     }
@@ -1687,14 +1746,25 @@ class Rtdb {
   }
 
   Future<void> _delete(String path) async {
+    final targetPath = (_useRegistryFallback && _canFallbackToRegistry(path))
+        ? _toRegistryPath(path)
+        : path;
     var r = await _http
-        .delete(await _u(path))
+        .delete(await _u(targetPath))
         .timeout(const Duration(seconds: 20));
     if (r.statusCode == 401 || r.statusCode == 403) {
       final fresh = await _reauth();
       if (fresh.isNotEmpty) {
         r = await _http
-            .delete(await _u(path, null, fresh))
+            .delete(await _u(targetPath, null, fresh))
+            .timeout(const Duration(seconds: 20));
+      }
+      if ((r.statusCode == 401 || r.statusCode == 403) &&
+          _canFallbackToRegistry(path)) {
+        _useRegistryFallback = true;
+        final regPath = _toRegistryPath(path);
+        r = await _http
+            .delete(await _u(regPath))
             .timeout(const Duration(seconds: 20));
       }
     }
@@ -1716,15 +1786,32 @@ class Rtdb {
     if (!force && _clockMs > 0 && _clockAge.elapsed < _clockTtl) {
       return _clockMs + _clockAge.elapsedMilliseconds;
     }
-    await _put('server_clock', {'.sv': 'timestamp'});
-    final v = await _get('server_clock');
-    final ms = asMs(v);
-    if (ms <= 0) throw Exception('تعذّر قراءة ساعة الخادم');
-    _clockMs = ms;
-    _clockAge
-      ..reset()
-      ..start();
-    return ms;
+    try {
+      await _put('server_clock', {'.sv': 'timestamp'});
+      final v = await _get('server_clock');
+      final ms = v is Map ? asMs(v['now'] ?? v['ts'] ?? v['timestamp']) : asMs(v);
+      if (ms > 0) {
+        _clockMs = ms;
+        _clockAge
+          ..reset()
+          ..start();
+        return ms;
+      }
+    } catch (_) {
+      if (clientOverride == null) {
+        final fallback = DateTime.now().millisecondsSinceEpoch;
+        _clockMs = fallback;
+        _clockAge
+          ..reset()
+          ..start();
+        return fallback;
+      }
+      rethrow;
+    }
+    if (clientOverride == null) {
+      return DateTime.now().millisecondsSinceEpoch;
+    }
+    throw Exception('تعذّر قراءة ساعة الخادم');
   }
 
   Future<List<T>> _gather<T>(List<Future<T?> Function()> tasks,
@@ -1784,6 +1871,49 @@ class Rtdb {
         }
       }
     } catch (_) {}
+
+    // (3) عقدة الاشتراك أو الأجهزة المتصلة (للمنشآت الفردية والجديدة قبل تكوين roster).
+    try {
+      final s = await _get('workspaces/$enc/subscription');
+      if (s is Map) {
+        final subDev = asStr(s['deviceId'] ??
+                s['device_id'] ??
+                s['deviceRef'] ??
+                s['device_ref'])
+            .trim()
+            .toUpperCase();
+        if (subDev == devId) {
+          return _DevHit(
+            ws: ws,
+            seen: _msOf(s['last_seen_at'] ?? s['lastSeenAt']),
+            upd: _msOf(s['updated_at']),
+            owner: 1,
+            planned: asStr(s['plan_type']).isNotEmpty ? 1 : 0,
+          );
+        }
+      }
+    } catch (_) {}
+
+    try {
+      final devs = await _get('workspaces/$enc/devices');
+      if (devs is Map) {
+        for (final e in devs.entries) {
+          final row = e.value is Map ? e.value as Map : const {};
+          final rowDev = asStr(row['deviceId'] ?? row['device_id'] ?? e.key)
+              .trim()
+              .toUpperCase();
+          if ('${e.key}'.toUpperCase() == devId || rowDev == devId) {
+            return _DevHit(
+              ws: ws,
+              seen: _msOf(row['last_seen_at'] ?? row['lastSeenAt']),
+              owner: 1,
+              planned: 1,
+            );
+          }
+        }
+      }
+    } catch (_) {}
+
     return null;
   }
 
@@ -1801,11 +1931,49 @@ class Rtdb {
     // (1) بصمة تفعيل 32-hex.
     if (RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(id)) {
       final t = await _get('trials/${Uri.encodeComponent(id)}');
-      if (t is Map && asStr(t['workspace_id']).isNotEmpty) {
-        return asStr(t['workspace_id']);
+      if (t is Map) {
+        final ws = asStr(t['workspace_id'] ?? t['workspaceId']);
+        if (ws.isNotEmpty) return ws;
+      }
+      if (clientOverride == null) {
+        try {
+          final keys = await _get('workspaces', {'shallow': 'true'});
+          final wsKeys = keys is Map
+              ? keys.keys
+                  .map((k) => '$k')
+                  .where((k) => !k.startsWith('_') && k != 'default')
+                  .take(kMaxWorkspaceScan)
+                  .toList()
+              : <String>[];
+          for (final ws in wsKeys) {
+            final enc = Uri.encodeComponent(ws);
+            final sub = await _get('workspaces/$enc/subscription');
+            if (sub is Map &&
+                asStr(sub['device_fingerprint']).toLowerCase() ==
+                    id.toLowerCase()) {
+              return ws;
+            }
+          }
+        } catch (_) {}
       }
       throw Exception('لم يُعثر على مساحة عمل مرتبطة بهذه البصمة.\n'
           'تأكد أن العميل فتح التطبيق مرة واحدة على الأقل بعد التثبيت.');
+    }
+
+    // (1-ب) إن كان الإدخال بريد العميل الإلكتروني، نحوله عبر فهرس الحسابات
+    if (clientOverride == null && id.contains('@')) {
+      try {
+        final emails = await _get('workspaces/_registry/emails_index');
+        if (emails is Map) {
+          for (final v in emails.values) {
+            if (v is Map &&
+                asStr(v['email']).trim().toLowerCase() == id.toLowerCase()) {
+              final ws = asStr(v['workspaceId'] ?? v['workspace_id']);
+              if (ws.isNotEmpty) return ws;
+            }
+          }
+        }
+      } catch (_) {}
     }
 
     // (2) معرف جهاز DEVICE-… ⇒ بحث متعدد الطبقات + ربط تلقائي:
@@ -1822,21 +1990,38 @@ class Rtdb {
       if (trials is Map) {
         for (final v in trials.values) {
           if (v is! Map) continue;
-          final ws = asStr(v['workspace_id']);
-          if (asStr(v['device_id']).toUpperCase() == devId && ws.isNotEmpty) {
+          final ws = asStr(v['workspace_id'] ?? v['workspaceId']);
+          final entryDev = asStr(v['device_id'] ?? v['deviceId']).toUpperCase();
+          if (entryDev == devId && ws.isNotEmpty) {
             return ws;
           }
-          if (ws.isNotEmpty && asStr(v['device_id']).isEmpty) {
+          if (ws.isNotEmpty && entryDev.isEmpty) {
             unlabeled.add(ws);
           }
         }
+      }
+      if (clientOverride == null) {
+        try {
+          final directIdx =
+              await _get('workspaces/_registry/device_index/${Uri.encodeComponent(devId)}');
+          if (directIdx is Map) {
+            final ws = asStr(directIdx['workspace_id'] ?? directIdx['workspaceId']);
+            if (ws.isNotEmpty) return ws;
+          }
+        } catch (_) {}
       }
 
       // (ب) مسح المساحات — **طلب واحد** لمفاتيح المساحات (كان يُطلق مرتين
       // في الشكل القديم) ثم مسح متوازٍ بسقف [kMaxWorkspaceScan].
       final keys = await _get('workspaces', {'shallow': 'true'});
       final wsKeys = keys is Map
-          ? keys.keys.map((k) => '$k').take(kMaxWorkspaceScan).toList()
+          ? keys.keys
+              .map((k) => '$k')
+              .where((k) =>
+                  !k.startsWith('_') &&
+                  (clientOverride != null || k != 'default'))
+              .take(kMaxWorkspaceScan)
+              .toList()
           : <String>[];
 
       final hits = await _gather<_DevHit>(
@@ -1897,6 +2082,13 @@ class Rtdb {
     final ws =
         await _get('workspaces/${Uri.encodeComponent(id)}', {'shallow': 'true'});
     if (ws != null) return id;
+    // إذا أدخل العميل أو المشرف الكود المختصر بدون بادئة DEVICE- (مثل FFNQXRJ3KDL9)
+    if (clientOverride == null &&
+        RegExp(r'^[A-Z0-9]{8,20}$', caseSensitive: false).hasMatch(id)) {
+      try {
+        return await resolveWorkspaceId('DEVICE-${id.toUpperCase()}');
+      } catch (_) {}
+    }
     throw Exception('لا توجد مساحة عمل بهذا المعرف في قاعدة البيانات.');
   }
 
@@ -1945,7 +2137,7 @@ class Rtdb {
     if (extend) {
       final cur = await _get('workspaces/$enc/subscription');
       if (cur is Map) {
-        final curExp = asMs(cur['expires_at']);
+        final curExp = asMs(cur['expires_at'] ?? cur['expiryDate']);
         if (curExp > now) base = curExp;
       }
     }
@@ -1954,9 +2146,11 @@ class Rtdb {
     final subPayload = <String, dynamic>{
       'status': 'active',
       'is_active': true,
+      'is_frozen': false,
       'plan_type': plan,
       'max_devices': seats,
       'expires_at': expires,
+      'expiryDate': expires,
       'activated_at': now,
       'updated_at': now,
       'activated_by': 'license_admin',
@@ -1976,6 +2170,12 @@ class Rtdb {
         'advanced_invoicing': true,
       },
     };
+    if (RegExp(r'^DEVICE-', caseSensitive: false).hasMatch(rawInput.trim())) {
+      final cleanDev = rawInput.trim().toUpperCase();
+      subPayload['device_ref'] = cleanDev;
+      subPayload['deviceId'] = cleanDev;
+      subPayload['device_id'] = cleanDev;
+    }
     if (clientName.trim().isNotEmpty) {
       subPayload['clientName'] = clientName.trim();
       subPayload['client_name'] = clientName.trim();
@@ -2042,8 +2242,12 @@ class Rtdb {
   Future<List<SubscriberEntry>> recentSubscribers({int limit = 30}) async {
     final keys = await _get('workspaces', {'shallow': 'true'});
     if (keys is! Map || keys.isEmpty) return const [];
-    final wsKeys =
-        keys.keys.map((k) => '$k').take(kMaxSubscriberScan).toList();
+    final wsKeys = keys.keys
+        .map((k) => '$k')
+        .where((k) =>
+            !k.startsWith('_') && (clientOverride != null || k != 'default'))
+        .take(kMaxSubscriberScan)
+        .toList();
 
     final rows = await _gather<List<SubscriberEntry>>(
       [for (final ws in wsKeys) () => _readWorkspaceEntries(ws)],
@@ -2285,16 +2489,57 @@ class Rtdb {
   Future<List<ConnectedDevice>> getConnectedDevices(String wsId) async {
     final enc = Uri.encodeComponent(wsId);
     final res = await _get('workspaces/$enc/devices');
-    if (res is! Map) return [];
-    return res.entries
-        .map((e) => ConnectedDevice.fromJson('${e.key}', e.value as Map))
-        .toList();
+    final byId = <String, ConnectedDevice>{};
+    if (res is Map) {
+      for (final e in res.entries) {
+        if (e.value is Map) {
+          final d = ConnectedDevice.fromJson('${e.key}', e.value as Map);
+          byId[d.deviceId] = d;
+        }
+      }
+    }
+    if (clientOverride == null) {
+      try {
+        final roster = await _get('workspaces/$enc/roster');
+        if (roster is Map) {
+          for (final e in roster.entries) {
+            final id = '${e.key}';
+            if (!byId.containsKey(id) && e.value is Map) {
+              final r = e.value as Map;
+              byId[id] = ConnectedDevice(
+                deviceId: id,
+                deviceName: asStr(r['device_name'] ?? r['name']).isNotEmpty
+                    ? asStr(r['device_name'] ?? r['name'])
+                    : id,
+                platform: asStr(r['platform']).isNotEmpty
+                    ? asStr(r['platform'])
+                    : 'Android',
+                model: asStr(r['model']).isNotEmpty
+                    ? asStr(r['model'])
+                    : (asInt(r['is_owner']) == 1 ? 'جهاز المدير' : 'جهاز عضو'),
+                lastSeenAt: _msOf(
+                    r['last_seen_at'] ?? r['last_sync_at'] ?? r['updated_at']),
+              );
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return byId.values.toList();
   }
 
   Future<void> kickDevice(String wsId, String deviceId) async {
     final enc = Uri.encodeComponent(wsId);
     final devEnc = Uri.encodeComponent(deviceId);
     await _delete('workspaces/$enc/devices/$devEnc');
+    if (clientOverride == null) {
+      try {
+        await _patch('workspaces/$enc/roster/$devEnc', {
+          'revoked': 1,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        });
+      } catch (_) {}
+    }
     await _put('workspaces/$enc/revoked_devices/$devEnc', {
       'kicked_at': DateTime.now().millisecondsSinceEpoch,
     });
@@ -2303,10 +2548,21 @@ class Rtdb {
   /// 5. أمر النسخ الفوري عن بعد (Remote Instant Backup)
   Future<void> requestInstantBackup(String wsId) async {
     final enc = Uri.encodeComponent(wsId);
+    final now = DateTime.now().millisecondsSinceEpoch;
     await _patch('workspaces/$enc/remote_commands', {
       'request_backup': true,
-      'requested_at': DateTime.now().millisecondsSinceEpoch,
+      'force_backup': true,
+      'requested_at': now,
     });
+    if (clientOverride == null) {
+      try {
+        await _patch('workspaces/$enc/commands', {
+          'force_backup': true,
+          'request_backup': true,
+          'requested_at': now,
+        });
+      } catch (_) {}
+    }
   }
 
   /// 1. إرسال إشعار وتنبيه موجه لعميل محدد (Direct Push Alert)
@@ -2639,6 +2895,7 @@ class Rtdb {
       final keys = await _get('workspaces', {'shallow': 'true'});
       if (keys is Map) {
         for (final ws in keys.keys) {
+          if ('$ws'.startsWith('_')) continue;
           final enc = Uri.encodeComponent('$ws');
           final msgs = await _get('workspaces/$enc/group_chat_messages');
           if (msgs is Map) {
@@ -2688,11 +2945,19 @@ class _DevHit {
     return b.planned.compareTo(a.planned);
   }
 }
-
 extension RtdbMetrics on Rtdb {
   Future<AdminMetrics> metrics() async {
     final keys = await _get('workspaces', {'shallow': 'true'});
     if (keys is! Map || keys.isEmpty) {
+      return const AdminMetrics(
+          totalWorkspaces: 0, activePaid: 0, activeTrials: 0, expired: 0);
+    }
+    final validWsKeys = keys.keys
+        .map((k) => '$k')
+        .where((k) =>
+            !k.startsWith('_') && (clientOverride != null || k != 'default'))
+        .toList();
+    if (validWsKeys.isEmpty) {
       return const AdminMetrics(
           totalWorkspaces: 0, activePaid: 0, activeTrials: 0, expired: 0);
     }
@@ -2709,7 +2974,7 @@ extension RtdbMetrics on Rtdb {
       }
     }
     final missing =
-        keys.keys.map((k) => '$k').where((w) => !byWs.containsKey(w)).toList();
+        validWsKeys.where((w) => !byWs.containsKey(w)).toList();
     if (missing.isNotEmpty) {
       await _gather<Map?>(
         [
@@ -2729,8 +2994,8 @@ extension RtdbMetrics on Rtdb {
 
     int paid = 0, trials = 0, expired = 0, noPlan = 0, expiringIn7Days = 0;
     const sevenDaysMs = 7 * 86400 * 1000;
-    for (final ws in keys.keys) {
-      final sub = byWs['$ws'];
+    for (final ws in validWsKeys) {
+      final sub = byWs[ws];
       if (sub == null) {
         noPlan++;
         continue;
@@ -2776,7 +3041,7 @@ extension RtdbMetrics on Rtdb {
     } catch (_) {}
 
     return AdminMetrics(
-      totalWorkspaces: keys.length,
+      totalWorkspaces: validWsKeys.length,
       activePaid: paid,
       activeTrials: trials,
       expired: expired,

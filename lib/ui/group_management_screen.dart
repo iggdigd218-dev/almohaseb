@@ -531,19 +531,26 @@ class _DevicesTabState extends ConsumerState<_DevicesTab> {
           if (mounted) bump(ref);
         }
 
-        return FutureBuilder<Map<String, Object?>?>(
-          future: repo.ownDeviceRow(),
-          builder: (ctx, snap) {
-            final own = snap.data;
-            final ownId = own?['id'] as String?;
+        final hostRow =
+            list.where((r) => ((r['is_owner'] ?? 0) as int) == 1).toList();
+        final hostId =
+            hostRow.isNotEmpty ? hostRow.first['id'] as String : null;
+        final myDevId = repo.deviceId;
+        final initialOwn = list
+                .where((r) => myDevId != null && r['id'] == myDevId)
+                .firstOrNull ??
+            (hostRow.isNotEmpty ? hostRow.first : null);
+
+        return Builder(
+          builder: (ctx) {
+            final own = initialOwn;
+            final ownId = (own?['id'] as String?) ?? myDevId ?? hostId;
             final amITheOwner =
                 own != null && ((own['is_owner'] ?? 0) as int) == 1;
-            final hostRow =
-                list.where((r) => ((r['is_owner'] ?? 0) as int) == 1).toList();
-            final hostId =
-                hostRow.isNotEmpty ? hostRow.first['id'] as String : null;
-            final memberDevices =
-                list.where((d) => d['id'] != ownId).toList();
+            final memberDevices = list
+                .where((d) =>
+                    d['id'] != ownId && ((d['is_owner'] ?? 0) as int) != 1)
+                .toList();
 
             return RefreshIndicator(
               onRefresh: () async => bump(ref),
