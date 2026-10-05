@@ -205,6 +205,15 @@ class AccountWorkspace {
       return AccountLinkOutcome.failed;
     }
     try {
+      // جهاز عضو في مجموعة لا يُمَسّ ولا تُبدّل مساحته عند ربط حساب Google.
+      if (await repo.workspaceMode() == 'member') {
+        await FirebaseAuthRest.saveSession(repo, account);
+        if (account.email.trim().isNotEmpty) {
+          await repo.setSetting('account.email', account.email.trim());
+        }
+        return AccountLinkOutcome.memberUntouched;
+      }
+
       // ══ (حارس الربط بالبريد والمساحة الواحدة) ══
       // الفهرس السحابي للبريد (emails_index) هو المرجع السيادي الأول:
       // كل بريد لديه مساحة واحدة فقط في السحابة وتُسترجع بكامل بياناتها فور تسجيل الدخول.
@@ -233,14 +242,16 @@ class AccountWorkspace {
               toWorkspaceId: remoteWs,
             ).timeout(const Duration(seconds: 8),
                 onTimeout: () => AccountLinkOutcome.failed);
-            if (outcome == AccountLinkOutcome.switched) {
-              await FirebaseAuthRest.saveSession(repo, account);
-              if (account.email.trim().isNotEmpty) {
-                await repo.setSetting('account.email', account.email.trim());
+            if (outcome != AccountLinkOutcome.failed) {
+              if (outcome == AccountLinkOutcome.switched) {
+                await FirebaseAuthRest.saveSession(repo, account);
+                if (account.email.trim().isNotEmpty) {
+                  await repo.setSetting('account.email', account.email.trim());
+                }
+                await repo.restoreManagerOwnership();
+                await repo.checkAndAutoPromoteManager();
+                await repo.ensureSelfPermissionRow(roleCode: 'admin');
               }
-              await repo.restoreManagerOwnership();
-              await repo.checkAndAutoPromoteManager();
-              await repo.ensureSelfPermissionRow(roleCode: 'admin');
               return outcome;
             }
           } catch (_) {}
@@ -257,9 +268,9 @@ class AccountWorkspace {
       await repo.ensureSelfPermissionRow(roleCode: 'admin');
 
       if (backendUrl.isNotEmpty) {
-        // تشغيل الفهرس السحابي في الخلفية صامتاً حتى لا يعلق الإقلاع أو الدخول
-        unawaited(_afterLink(repo, backendUrl, account, repo.requireWorkspaceId)
-            .catchError((_) {}));
+        await _afterLink(repo, backendUrl, account, repo.requireWorkspaceId)
+            .timeout(const Duration(seconds: 4), onTimeout: () {})
+            .catchError((_) {});
       }
       return AccountLinkOutcome.migrated;
     } catch (_) {

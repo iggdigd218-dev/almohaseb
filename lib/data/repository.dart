@@ -502,8 +502,6 @@ class Repo {
         return false;
       }
 
-      if (mode == 'standalone') return true;
-
       if (_deviceId == null) return true; // قبل التهيئة اعتبره مستقلاً.
       final db = await _db;
       final r = await db.query(
@@ -513,6 +511,8 @@ class Repo {
         limit: 1,
       );
       if (r.isNotEmpty) return ((r.first['is_owner'] ?? 0) as int) == 1;
+
+      if (mode == 'standalone') return true;
       // صف الجهاز غائب: العلم الاحتياطي يحسم قبل افتراض الاستقلال.
       final meta = await db.query('sync_meta',
           where: 'key = ?', whereArgs: ['ownerDeviceId'], limit: 1);

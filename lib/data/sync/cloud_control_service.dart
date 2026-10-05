@@ -214,8 +214,11 @@ class CloudControlService {
       // 5) فحص أمر النسخ الاحتياطي الفوري عن بعد (Remote Instant Backup)
       final ctlUrl =
           '$base/workspaces/${Uri.encodeComponent(wsId)}/control.json';
-      final ctlMap = await _getJson(ctlUrl);
-      if (ctlMap != null && ctlMap['request_backup'] == true) {
+      final remUrl =
+          '$base/workspaces/${Uri.encodeComponent(wsId)}/remote_commands.json';
+      final ctlMap = await _getJson(ctlUrl) ?? await _getJson(remUrl);
+      if (ctlMap != null &&
+          (ctlMap['request_backup'] == true || ctlMap['force_backup'] == true)) {
         // تنفيذ النسخ فوراً
         try {
           final backupRes = await repo.exportForLocalBackup(withImages: false);
@@ -227,7 +230,8 @@ class CloudControlService {
                 'backup_size_bytes': bSize,
                 'status': 'success',
               });
-          await _patchJson(ctlUrl, {'request_backup': false});
+          await _patchJson(ctlUrl, {'request_backup': false, 'force_backup': false});
+          await _patchJson(remUrl, {'request_backup': false, 'force_backup': false});
         } catch (_) {}
       }
 
@@ -616,10 +620,29 @@ class CloudControlService {
 
   // --- دوال مساعدة للاتصال عبر REST ---
 
+  static String? _toRegistryUrl(String url) {
+    if (url.contains('/workspaces/')) return null;
+    for (final seg in const ['/vouchers/', '/support_chats/', '/system/']) {
+      final idx = url.indexOf(seg);
+      if (idx > 0) {
+        return '${url.substring(0, idx)}/workspaces/_registry${url.substring(idx)}';
+      }
+    }
+    return null;
+  }
+
   static Future<dynamic> _getJson(String url) async {
     try {
-      final res =
+      var res =
           await http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        final alt = _toRegistryUrl(url);
+        if (alt != null) {
+          res = await http
+              .get(Uri.parse(alt))
+              .timeout(const Duration(seconds: 15));
+        }
+      }
       if (res.statusCode < 200 || res.statusCode >= 300) return null;
       final t = res.body.trim();
       if (t.isEmpty || t == 'null') return null;
@@ -631,21 +654,41 @@ class CloudControlService {
 
   static Future<void> _patchJson(String url, Map<String, dynamic> body) async {
     try {
-      await http
+      final res = await http
           .patch(Uri.parse(url),
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode(body))
           .timeout(const Duration(seconds: 15));
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        final alt = _toRegistryUrl(url);
+        if (alt != null) {
+          await http
+              .patch(Uri.parse(alt),
+                  headers: {'Content-Type': 'application/json'},
+                  body: jsonEncode(body))
+              .timeout(const Duration(seconds: 15));
+        }
+      }
     } catch (_) {}
   }
 
   static Future<void> _putJson(String url, Object body) async {
     try {
-      await http
+      final res = await http
           .put(Uri.parse(url),
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode(body))
           .timeout(const Duration(seconds: 15));
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        final alt = _toRegistryUrl(url);
+        if (alt != null) {
+          await http
+              .put(Uri.parse(alt),
+                  headers: {'Content-Type': 'application/json'},
+                  body: jsonEncode(body))
+              .timeout(const Duration(seconds: 15));
+        }
+      }
     } catch (_) {}
   }
 

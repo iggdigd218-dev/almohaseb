@@ -2422,13 +2422,13 @@ class _Drawer extends ConsumerWidget {
         ? false
         : (isOwner || effectiveRole == UserRole.admin || effectiveRole == UserRole.agent);
 
+    // (3.70.0) «إدارة المجموعة» مشروطة بحساب Google موثّق (جدول google_auth).
+    final googleLinked = ref.watch(googleLinkedProvider).valueOrNull ?? false;
     final items = _DrawerItems.of(
       user: user,
       isOwner: isOwner,
-      workspaceMode: wsMode,
+      workspaceMode: (wsMode == 'standalone' && googleLinked) ? 'host' : wsMode,
     );
-    // (3.70.0) «إدارة المجموعة» مشروطة بحساب Google موثّق (جدول google_auth).
-    final googleLinked = ref.watch(googleLinkedProvider).valueOrNull ?? false;
     final dark = Theme.of(context).brightness == Brightness.dark;
 
     final (roleLabel, roleColor, roleIcon) = switch (effectiveRole) {
@@ -2749,14 +2749,18 @@ class _Drawer extends ConsumerWidget {
                                     : AppColors.text2Of(context),
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                'وضع المبيعات (POS)',
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: navMode == NavAppMode.pos
-                                      ? Colors.white
-                                      : AppColors.text2Of(context),
+                              Flexible(
+                                child: Text(
+                                  'وضع المبيعات (POS)',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: navMode == NavAppMode.pos
+                                        ? Colors.white
+                                        : AppColors.text2Of(context),
+                                  ),
                                 ),
                               ),
                             ],
@@ -2809,14 +2813,18 @@ class _Drawer extends ConsumerWidget {
                                     : AppColors.text2Of(context),
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                'وضع المحاسبة',
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: navMode == NavAppMode.ledger
-                                      ? Colors.white
-                                      : AppColors.text2Of(context),
+                              Flexible(
+                                child: Text(
+                                  'وضع المحاسبة',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: navMode == NavAppMode.ledger
+                                        ? Colors.white
+                                        : AppColors.text2Of(context),
+                                  ),
                                 ),
                               ),
                             ],

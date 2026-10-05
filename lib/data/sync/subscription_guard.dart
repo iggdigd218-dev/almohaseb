@@ -342,6 +342,14 @@ class SubscriptionGuard {
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode({'ts': {'.sv': 'timestamp'}}))
           .timeout(const Duration(seconds: 15));
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        final regUrl = '$base/workspaces/_registry/server_clock.json';
+        res = await http
+            .put(Uri.parse(regUrl),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({'ts': {'.sv': 'timestamp'}}))
+            .timeout(const Duration(seconds: 15));
+      }
     } catch (_) {
       return _serverNowFromDateHeader(base);
     }
@@ -353,7 +361,7 @@ class SubscriptionGuard {
       return _serverNowFromDateHeader(base);
     }
     final m = jsonDecode(res.body);
-    final ts = m is Map ? m['ts'] : null;
+    final ts = m is Map ? (m['ts'] ?? m['now'] ?? m['timestamp']) : m;
     final tsMs = ts is int ? ts : (ts is num ? ts.toInt() : 0);
     if (tsMs > 0) {
       // تقاطع: ختم منحرف >10 دقائق عن ترويسة الخادم = مصدر مشبوه.
@@ -640,8 +648,10 @@ class SubscriptionGuard {
       final wsSub = '${_wsRoot(backendUrl, workspaceId)}/subscription.json';
       var rec = await _readJson(wsSub);
       final now = await serverNowMs(backendUrl);
-      if (rec == null) {
-        // لا عقدة اشتراك بعد — فعّل التجربة الآن (أول استخدام سحابي).
+      if (rec == null ||
+          (_asInt(rec['expires_at']) <= 0 &&
+              '${rec['status'] ?? ''}'.trim().isEmpty)) {
+        // لا عقدة اشتراك بعد (أو عقدة نبض أولية بلا تاريخ انتهاء) — فعّل التجربة الآن.
         final st = await ensureTrialStarted(repo,
             backendUrl: backendUrl, workspaceId: workspaceId);
         _cache(st);
@@ -925,9 +935,22 @@ class SubscriptionGuard {
     return int.tryParse('$v') ?? 0;
   }
 
+  static String? _toRegistryTrialUrl(String url) {
+    final idx = url.indexOf('/trials/');
+    if (idx <= 0 || url.contains('/workspaces/')) return null;
+    return '${url.substring(0, idx)}/workspaces/_registry${url.substring(idx)}';
+  }
+
   static Future<Map<String, dynamic>?> _readJson(String url) async {
-    final res =
+    var res =
         await http.get(Uri.parse(url)).timeout(const Duration(seconds: 20));
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      final alt = _toRegistryTrialUrl(url);
+      if (alt != null) {
+        res =
+            await http.get(Uri.parse(alt)).timeout(const Duration(seconds: 20));
+      }
+    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw StateError('subscription-http-${res.statusCode}');
     }
@@ -938,11 +961,21 @@ class SubscriptionGuard {
   }
 
   static Future<void> _putJson(String url, Object body) async {
-    final res = await http
+    var res = await http
         .put(Uri.parse(url),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body))
         .timeout(const Duration(seconds: 20));
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      final alt = _toRegistryTrialUrl(url);
+      if (alt != null) {
+        res = await http
+            .put(Uri.parse(alt),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode(body))
+            .timeout(const Duration(seconds: 20));
+      }
+    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw StateError('subscription-put-http-${res.statusCode}');
     }

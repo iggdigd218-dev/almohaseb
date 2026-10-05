@@ -1656,8 +1656,16 @@ class SubscriberCard extends StatelessWidget {
                 subtitle: Text(entry.isFrozen ? 'إلغاء شاشة القفل والسماح للمستخدم بالدخول' : 'إظهار شاشة قفل مانعة للنزاعات أو تأخر السداد'),
                 onTap: () async {
                   Navigator.pop(ctx);
-                  await Rtdb.instance.toggleFreezeSubscriber(entry.workspaceId, !entry.isFrozen);
-                  onRefresh?.call();
+                  try {
+                    await Rtdb.instance.toggleFreezeSubscriber(entry.workspaceId, !entry.isFrozen);
+                    onRefresh?.call();
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
                 },
               ),
               ListTile(
@@ -1666,8 +1674,16 @@ class SubscriberCard extends StatelessWidget {
                 subtitle: const Text('مسح كود الجهاز لإتاحة تفعيله على هاتف جديد'),
                 onTap: () async {
                   Navigator.pop(ctx);
-                  await Rtdb.instance.unlinkSubscriberDevice(entry.workspaceId);
-                  onRefresh?.call();
+                  try {
+                    await Rtdb.instance.unlinkSubscriberDevice(entry.workspaceId);
+                    onRefresh?.call();
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
                 },
               ),
               ListTile(
@@ -1694,11 +1710,19 @@ class SubscriberCard extends StatelessWidget {
                 subtitle: const Text('إرسال إشارة للتطبيق لأخذ نسخة سحابية في الخلفية فوراً'),
                 onTap: () async {
                   Navigator.pop(ctx);
-                  await Rtdb.instance.requestInstantBackup(entry.workspaceId);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('تم إرسال إشارة النسخ الفوري للجهاز ✓')),
-                    );
+                  try {
+                    await Rtdb.instance.requestInstantBackup(entry.workspaceId);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('تم إرسال إشارة النسخ الفوري للجهاز ✓')),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+                      );
+                    }
                   }
                 },
               ),
@@ -2548,24 +2572,30 @@ class _SystemControlScreenState extends State<SystemControlScreen> {
   }
 
   Future<void> _loadSystemSettings() async {
-    final maint = await Rtdb.instance.getMaintenanceMode();
-    if (maint != null && mounted) {
-      setState(() {
-        _maintActive = maint['is_active'] == true;
-        _maintMsg.text = '${maint['message'] ?? ''}';
-      });
-    }
+    try {
+      final maint = await Rtdb.instance.getMaintenanceMode();
+      if (maint != null && mounted) {
+        setState(() {
+          _maintActive = maint['is_active'] == true;
+          _maintMsg.text = '${maint['message'] ?? ''}';
+        });
+      }
+    } catch (_) {}
 
-    final policy = await Rtdb.instance.getForceUpdatePolicy();
-    if (policy != null && mounted) {
-      setState(() {
-        _minBuildCtrl.text = '${policy['min_build'] ?? '162'}';
-        _minVerCtrl.text = '${policy['min_version'] ?? '3.81.0'}';
-      });
-    }
+    try {
+      final policy = await Rtdb.instance.getForceUpdatePolicy();
+      if (policy != null && mounted) {
+        setState(() {
+          _minBuildCtrl.text = '${policy['min_build'] ?? '162'}';
+          _minVerCtrl.text = '${policy['min_version'] ?? '3.81.0'}';
+        });
+      }
+    } catch (_) {}
 
-    final ret = await Rtdb.instance.getGroupChatRetentionDays();
-    if (mounted) setState(() => _retentionDays = ret);
+    try {
+      final ret = await Rtdb.instance.getGroupChatRetentionDays();
+      if (mounted) setState(() => _retentionDays = ret);
+    } catch (_) {}
   }
 
   @override
