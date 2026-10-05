@@ -17,7 +17,6 @@ import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'firebase_StaticConfig.dart';
 import 'license_model.dart';
 
 export 'license_model.dart';
@@ -60,7 +59,7 @@ class RtdbClient {
         DateTime.now().isBefore(_tokenExpiry!)) {
       return _cachedIdToken;
     }
-    final apiKey = AdminFirebaseConfig.webApiKey;
+    const apiKey = kFirebaseApiKey;
     if (apiKey.isEmpty) return null;
     try {
       final uri = Uri.parse(
