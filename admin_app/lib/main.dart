@@ -6,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:url_launcher/url_launcher.dart';
 
+import 'admin_updater.dart';
 import 'license_model.dart';
 import 'rtdb.dart';
 
@@ -125,14 +126,49 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
+  AdminUpdateInfo? _updateInfo;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAdminUpdateOnStart();
+  }
+
+  Future<void> _checkAdminUpdateOnStart() async {
+    try {
+      final info = await AdminUpdateService().check();
+      if (!mounted) return;
+      setState(() => _updateInfo = info);
+      if (info.hasUpdate && mounted) {
+        showAdminUpdateDialog(context, initialInfo: info);
+      }
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
+    final hasUpdate = _updateInfo?.hasUpdate ?? false;
     return Scaffold(
       appBar: AppBar(
         title: const Text('☁️ مركز التحكم السحابي والتراخيص',
             style: TextStyle(fontWeight: FontWeight.w800)),
         actions: [
+          IconButton(
+            tooltip: 'تحديثات تطبيق التراخيص (v$adminFullVersion)',
+            icon: Badge(
+              isLabelVisible: hasUpdate,
+              backgroundColor: Colors.redAccent,
+              child: Icon(
+                Icons.system_update_alt_rounded,
+                color: hasUpdate ? const Color(0xFF7C3AED) : null,
+              ),
+            ),
+            onPressed: () async {
+              await showAdminUpdateDialog(context);
+              final latest = await AdminUpdateService().check();
+              if (mounted) setState(() => _updateInfo = latest);
+            },
+          ),
           IconButton(
             tooltip: 'إعدادات الاتصال بقاعدة البيانات',
             icon: const Icon(Icons.settings_outlined),
@@ -2603,6 +2639,8 @@ class _SystemControlScreenState extends State<SystemControlScreen> {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
+        const AdminSelfUpdateCard(),
+        const SizedBox(height: 10),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(14),

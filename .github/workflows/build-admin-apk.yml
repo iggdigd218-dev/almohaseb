@@ -63,6 +63,16 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Ensure admin_updater.dart matches pubspec.yaml
+        run: |
+          VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
+          NAME="${VER%%+*}"; BUILD="${VER##*+}"
+          IFS='.' read -r MAJ MIN PAT <<< "$NAME"
+          sed -i "s/const String kAdminAppVersion = .*/const String kAdminAppVersion = '$NAME';/" lib/admin_updater.dart
+          sed -i "s/const int kAdminAppBuild = .*/const int kAdminAppBuild = $BUILD;/" lib/admin_updater.dart
+          sed -i "s/AdminSemVer([0-9]*, [0-9]*, [0-9]*, kAdminAppBuild)/AdminSemVer($MAJ, $MIN, $PAT, kAdminAppBuild)/" lib/admin_updater.dart
+          echo "Verified admin_updater.dart matches $NAME+$BUILD"
+
       - name: Run tests
         run: flutter test
 
@@ -79,6 +89,32 @@ jobs:
           cp build/app/outputs/apk/release/app-x86_64-release.apk ../license-admin-x64.apk
           ls -lh ../license-admin.apk
 
+      - name: Generate admin version manifest (admin_version.json)
+        run: |
+          VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
+          NAME="${VER%%+*}"; BUILD="${VER##*+}"
+          NOTES=$(python3 -c "import json,os; p='release_notes.txt'; lines=[l.strip() for l in open(p,encoding='utf-8').read().splitlines() if l.strip()] if os.path.exists(p) else ['تحديث تطبيق مدير التراخيص']; lines=lines[:3]; t='\\n'.join(lines); print(json.dumps(t,ensure_ascii=False)[1:-1])")
+          cat > ../admin_version.json <<EOF
+          {
+            "version": "$NAME+$BUILD",
+            "releaseUrl": "https://github.com/${{ github.repository }}/releases/tag/admin-latest",
+            "downloads": {
+              "android": "https://github.com/${{ github.repository }}/releases/download/admin-latest/license-admin.apk",
+              "androidVariants": {
+                "arm64": "https://github.com/${{ github.repository }}/releases/download/admin-latest/license-admin.apk",
+                "armv7": "https://github.com/${{ github.repository }}/releases/download/admin-latest/license-admin-armv7.apk",
+                "x64": "https://github.com/${{ github.repository }}/releases/download/admin-latest/license-admin-x64.apk"
+              }
+            },
+            "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "notes": "$NOTES"
+          }
+          EOF
+          cat ../admin_version.json
+          curl -s -X PUT -H "Content-Type: application/json; charset=utf-8" \
+            -d @../admin_version.json \
+            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/admin_version_manifest.json" || true
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -87,6 +123,7 @@ jobs:
             license-admin.apk
             license-admin-armv7.apk
             license-admin-x64.apk
+            admin_version.json
           retention-days: 30
 
       - name: Attach to admin release
@@ -109,6 +146,7 @@ jobs:
             license-admin.apk
             license-admin-armv7.apk
             license-admin-x64.apk
+            admin_version.json
           fail_on_unmatched_files: true
           prerelease: false
           make_latest: false
