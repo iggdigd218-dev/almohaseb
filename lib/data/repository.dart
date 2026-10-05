@@ -5935,7 +5935,7 @@ class Repo {
   /// (الاسترداد الفوري لسيادة المدير)
   /// يعيد فوراً لجهاز المستخدم صفة المالك (is_owner=1) ووضع المساحة (host)
   /// ودور المدير الكامل (admin) مع كل الصلاحيات.
-  Future<void> restoreManagerOwnership() async {
+  Future<void> restoreManagerOwnership({bool syncToCloud = true}) async {
     final db = await _db;
     final now = DateTime.now().toIso8601String();
     final ownId = requireDeviceId;
@@ -5993,7 +5993,7 @@ class Repo {
       }
     });
     await setSetting('account.type', 'enterprise');
-    unawaited(() async {
+    if (syncToCloud) {
       try {
         final st = await settings();
         final url = effectiveBackendUrl(st['cloudBackendUrl']);
@@ -6010,7 +6010,7 @@ class Repo {
               .timeout(const Duration(seconds: 6));
         }
       } catch (_) {}
-    }());
+    }
   }
 
   /// حذف البيانات المحلية واستيراد نسخة السحابة كلياً كما هي

@@ -255,6 +255,9 @@ class AccountWorkspace {
                 }
                 await repo.checkAndAutoPromoteManager();
                 await repo.ensureSelfPermissionRow(roleCode: 'admin');
+                await _afterLink(repo, backendUrl, account, remoteWs)
+                    .timeout(const Duration(seconds: 6), onTimeout: () {})
+                    .catchError((_) {});
               }
               return outcome;
             }
@@ -269,14 +272,12 @@ class AccountWorkspace {
       }
       await repo.checkAndAutoPromoteManager();
       await repo.ensureSelfPermissionRow(roleCode: 'admin');
-      unawaited(repo.restoreManagerOwnership());
+      await repo.restoreManagerOwnership();
 
       if (backendUrl.isNotEmpty) {
-        unawaited(
-          _afterLink(repo, backendUrl, account, repo.requireWorkspaceId)
-              .timeout(const Duration(seconds: 6), onTimeout: () {})
-              .catchError((_) {}),
-        );
+        await _afterLink(repo, backendUrl, account, repo.requireWorkspaceId)
+            .timeout(const Duration(seconds: 6), onTimeout: () {})
+            .catchError((_) {});
       }
       return AccountLinkOutcome.migrated;
     } catch (_) {
@@ -371,7 +372,7 @@ class AccountWorkspace {
       await repo.setSetting('account.type', 'enterprise');
       await repo.checkAndAutoPromoteManager();
       await repo.ensureSelfPermissionRow(roleCode: 'admin');
-      unawaited(repo.restoreManagerOwnership());
+      await repo.restoreManagerOwnership();
       try {
         await db.insert(
           'sync_meta',

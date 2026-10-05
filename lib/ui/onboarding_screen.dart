@@ -139,7 +139,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       final isIndiv = _choice == 'personal';
       await repo.setSetting(
           'account.type', isIndiv ? 'individual' : 'enterprise');
-      await repo.restoreManagerOwnership();
+      await repo.restoreManagerOwnership(syncToCloud: false);
       await repo.checkAndAutoPromoteManager();
       await repo.ensureSelfPermissionRow(roleCode: 'admin');
       bump(ref);
@@ -161,7 +161,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         currencyCode: _currency,
       );
       await repo.setSetting('account.type', 'enterprise');
-      await repo.restoreManagerOwnership();
+      await repo.restoreManagerOwnership(syncToCloud: false);
       await repo.checkAndAutoPromoteManager();
       await repo.ensureSelfPermissionRow(roleCode: 'admin');
       bump(ref);

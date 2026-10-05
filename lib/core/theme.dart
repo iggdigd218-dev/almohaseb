@@ -5,12 +5,12 @@ import 'package:flutter/material.dart';
 /// **Noto Naskh Arabic** (خط النسخ العربي الفاخر) متطابق كلياً مع نسخة الويب
 /// المعتمدة في شاشة المعاينة. الخط مضمّن محلياً في `assets/fonts/NotoNaskhArabic-*.ttf`
 /// ويعمل دون اتصال بالكامل وبأعلى دقة قراءة.
-String? get uiFontFamily => 'Noto Naskh Arabic';
+String? get uiFontFamily => 'Tajawal';
 
 /// ألوان نكسورا — متطابقة تماماً مع تصميم نسخة الويب الأنيقة والعصرية.
 class AppColors {
   // ===== الوضع الفاتح (نسخة الويب الحديثة) =====
-  static const bg = Color(0xFFF8FAFC); // Slate-50 — خلفية نقية وناعمة
+  static const bg = Color(0xFFF4F6F9); // خلفية نقية وناعمة
   static const bg2 = Color(0xFFF1F5F9); // Slate-100
   static const surface = Color(0xFFFFFFFF); // أبيض ناصع للكروت
   static const surface2 = Color(0xFFF8FAFC); // أوف وايت للبطاقات الداخلية
@@ -19,14 +19,14 @@ class AppColors {
   static const text3 = Color(0xFF94A3B8); // Slate-400
   static const border = Color(0xFFE2E8F0); // Slate-200
 
-  static const primary = Color(0xFF0284C7); // Sky-600 — أزرق سماوي عصري
-  static const primary2 = Color(0xFF0EA5E9); // Sky-500
+  static const primary = Color(0xFF0D6EFD); // أزرق ملكي عصري
+  static const primary2 = Color(0xFF0066FF);
   static const primarySoft = Color(0xFFE0F2FE); // Sky-100
   static const accent = Color(0xFFF59E0B); // Amber-500
   static const accentSoft = Color(0xFFFEF3C7); // Amber-100
   static const danger = Color(0xFFEF4444); // Red-500
   static const dangerSoft = Color(0xFFFEE2E2); // Red-100
-  static const green = Color(0xFF10B981); // Emerald-500 — أخضر زمردي إيجابي
+  static const green = Color(0xFF16A34A); // أخضر زمردي إيجابي
   static const greenSoft = Color(0xFFD1FAE5); // Emerald-100
   static const info = Color(0xFF0EA5E9); // Sky-500
   static const infoSoft = Color(0xFFE0F2FE); // Sky-100

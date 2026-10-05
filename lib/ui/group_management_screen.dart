@@ -680,11 +680,15 @@ class _DevicesTabState extends ConsumerState<_DevicesTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'أجهزة الأعضاء المرتبطة (${memberDevices.length})',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
+                      Expanded(
+                        child: Text(
+                          'أجهزة الأعضاء المرتبطة (${memberDevices.length})',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
