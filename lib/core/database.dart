@@ -15,36 +15,75 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static Database? _db;
+  static Future<Database>? _opening;
   static const int _version = 26;
 
   static int get schemaVersion => _version;
 
   /// حقن قاعدة في الذاكرة للاختبارات.
-  static void overrideForTest(Database db) => _db = db;
+  static void overrideForTest(Database db) {
+    _db = db;
+    _opening = null;
+  }
 
-  Future<Database> get database async {
-    if (_db != null) return _db!;
+  Future<Database> get database {
+    if (_db != null) return Future.value(_db!);
+    return _opening ??= _openDb().then((db) {
+      _db = db;
+      return db;
+    }, onError: (Object e, StackTrace st) {
+      _opening = null;
+      Error.throwWithStackTrace(e, st);
+    });
+  }
+
+  Future<Database> _openDb() async {
     final dir = await databaseDirectory();
-    _db = await openDatabase(
+    var schemaJustMigrated = false;
+    return openDatabase(
       p.join(dir, 'nexora.db'),
       version: _version,
       onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
-      onCreate: (db, v) async => createSchema(db),
-      onUpgrade: (db, from, to) async => _migrate(db, from, to),
+      onCreate: (db, v) async {
+        schemaJustMigrated = true;
+        await createSchema(db);
+      },
+      onUpgrade: (db, from, to) async {
+        schemaJustMigrated = true;
+        await _migrate(db, from, to);
+      },
       onOpen: (db) async {
-        // شبكة أمان عند كل فتح: نضمن وجود كل الجداول الأساسية والمزامنة
-        // وبذرّ البيانات الدنيا — حتى لو كانت قاعدة قديمة ناقصة أو فشلت
-        // هجرة سابقة في منتصفها (يصلح خطأ "تعذّر تحميل الفئات/الإعدادات").
-        await ensureFullSchema(db);
+        // إذا لم تُنفَّذ الهجرة للتو في onCreate/onUpgrade، نتحقق مما إذا كان
+        // المخطط الكامل قد فُحص مسبقاً لهذا الإصدار لتفادي تشغيل ~180 استعلام
+        // DDL في كل إقلاع مما يبطئ فتح الحسابات محلياً.
+        if (!schemaJustMigrated) {
+          var alreadyEnsured = false;
+          try {
+            final rows = await db.query(
+              'sync_meta',
+              columns: ['value'],
+              where: 'key = ?',
+              whereArgs: ['schema_ensured_v'],
+              limit: 1,
+            );
+            alreadyEnsured =
+                rows.isNotEmpty && '${rows.first['value']}' == '$_version';
+          } catch (_) {
+            alreadyEnsured = false;
+          }
+          if (!alreadyEnsured) {
+            await ensureFullSchema(db);
+          }
+        }
         await repairOwnerAdminStatus(db);
       },
     );
-    return _db!;
   }
 
   Future<void> close() async {
     final db = _db;
     _db = null;
+    _opening = null;
     if (db != null && db.isOpen) await db.close();
   }
 
@@ -1670,5 +1709,12 @@ class AppDatabase {
         }
       }
     }
+    try {
+      await db.insert(
+        'sync_meta',
+        {'key': 'schema_ensured_v', 'value': '$_version'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (_) {}
   }
 }

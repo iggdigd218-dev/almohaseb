@@ -39,6 +39,8 @@ class TransactionsScreen extends ConsumerWidget {
           ),
         Expanded(
           child: page.when(
+            skipLoadingOnReload: true,
+            skipLoadingOnRefresh: true,
             loading: () => const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),

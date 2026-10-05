@@ -57,11 +57,13 @@ Future<String> ensureWorkspace(Database db, {Repo? repo}) async {
     }
   } catch (_) {}
 
-  // إذا كان لدينا بريد إلكتروني، نبحث عن المساحة المقترنة بهذا البريد
+  // إذا كان لدينا بريد إلكتروني، نبحث عن المساحة الحقيقية المقترنة بهذا البريد
   if (accountEmail != null && accountEmail.isNotEmpty) {
     final emailRows = await db.query(
       'workspaces',
-      where: 'owner_email = ?',
+      where: debugForceLegacyWorkspaceId
+          ? 'owner_email = ?'
+          : "owner_email = ? AND id != 'default'",
       whereArgs: [accountEmail],
       orderBy: 'rowid DESC',
       limit: 1,
@@ -119,14 +121,50 @@ Future<String> ensureWorkspace(Database db, {Repo? repo}) async {
     return rawPref;
   }
 
-  // 4. مساحة افتراضية إن وُجدت
+  // 4. مساحة افتراضية إن وُجدت: في بيئة الاختبار نُبقيها، وفي الإنتاج نُرقّيها لمعرّف WS- فريد معزول
   final defaultRows = await db.query(
     'workspaces',
     where: "id = 'default'",
     limit: 1,
   );
   if (defaultRows.isNotEmpty) {
-    return defaultWorkspaceId;
+    if (debugForceLegacyWorkspaceId) {
+      return defaultWorkspaceId;
+    }
+    final newId = generateWorkspaceId();
+    await db.update(
+      'workspaces',
+      {
+        'id': newId,
+        if (accountEmail != null && accountEmail.isNotEmpty)
+          'owner_email': accountEmail,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: "id = 'default'",
+    );
+    for (final t in const [
+      'devices',
+      'users',
+      'accounts',
+      'transactions',
+      'vouchers',
+      'items',
+      'item_categories',
+      'sections',
+      'stock_moves',
+      'conversations',
+      'messages',
+      'notifications',
+      'operations',
+    ]) {
+      try {
+        await db.update(t, {'workspace_id': newId},
+            where: "workspace_id = 'default' OR workspace_id IS NULL OR workspace_id = ''");
+      } catch (_) {}
+    }
+    await repo?.setSetting(_workspaceIdSetting, newId);
+    repo?.debugSetWorkspaceId(newId);
+    return newId;
   }
 
   // 5. إنشاء مساحة المنشأة للمرة الأولى فقط عند أول تشغيل خام

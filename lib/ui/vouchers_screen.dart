@@ -39,6 +39,8 @@ class VouchersScreen extends ConsumerWidget {
         ),
         Expanded(
           child: list.when(
+            skipLoadingOnReload: true,
+            skipLoadingOnRefresh: true,
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => EmptyState(
               icon: Icons.error_outline,

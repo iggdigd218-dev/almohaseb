@@ -140,7 +140,7 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
       if (tok.isNotEmpty) {
         try {
           account = await FirebaseAuthRest.signInWithGoogleIdToken(tok)
-              .timeout(const Duration(seconds: 10), onTimeout: () => null);
+              .timeout(const Duration(seconds: 6), onTimeout: () => null);
         } catch (_) {
           account = null;
         }
@@ -165,12 +165,12 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
       await repo.setSetting(Repo.accountEmailKey, gu.email);
       await repo.setSetting('email', gu.email);
 
-      // ضمان ترقية مالك الجهاز فوراً إلى مدير النظام بصلاحيات كاملة
+      // ضمان ترقية مالك الجهاز فوراً إلى مدير النظام بصلاحيات كاملة (محلياً أولاً دون تعليق الواجهة)
       final curMode = await repo.workspaceMode();
       if (curMode != 'member') {
-        await repo.restoreManagerOwnership();
         await repo.checkAndAutoPromoteManager();
         await repo.ensureSelfPermissionRow(roleCode: 'admin');
+        unawaited(repo.restoreManagerOwnership());
       }
 
       final st = await repo.settings();
@@ -180,7 +180,7 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
         backendUrl: url,
         account: account,
       ).timeout(
-        const Duration(seconds: 12),
+        const Duration(seconds: 6),
         onTimeout: () => AccountLinkOutcome.migrated,
       );
 

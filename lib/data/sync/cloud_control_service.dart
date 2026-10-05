@@ -85,6 +85,7 @@ class CloudControlService {
       if (backendUrl.isEmpty) return;
 
       final wsId = await SubscriptionGuard.workspaceIdFor(repo);
+      if (wsId.isEmpty || wsId == 'default') return;
       final devId = await ensureDeviceId(repo);
       final base = backendUrl.replaceAll(RegExp(r'/+$'), '');
 

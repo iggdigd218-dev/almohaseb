@@ -83,6 +83,8 @@ class DashboardScreen extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 96),
         children: [
           summary.when(
+            skipLoadingOnReload: true,
+            skipLoadingOnRefresh: true,
             loading: () => const Padding(
               padding: EdgeInsets.symmetric(vertical: 90),
               child: Center(child: CircularProgressIndicator()),

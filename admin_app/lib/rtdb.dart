@@ -1,4 +1,15 @@
-// طبقة الاتصال بقاعدة بيانات Firebase RTDB — تطبيق المدير المستقل.
+// 🌐 طبقة الاتصال السحابي المعزولة لنظام التراخيص — (Nexora License Cloud Service).
+//
+// ⚠️ مبدأ العزل التام (Strict Database Isolation):
+//  • هذا الملف يتعامل حصرياً مع عقد التراخيص والتحكم الإداري:
+//      1. `/workspaces/_registry/license_hub/...` (المركز المعزول للتراخيص)
+//      2. `/workspaces/_registry/subscriptions_index/{ws}` (فهرس المشتركين السريع)
+//      3. `/workspaces/_registry/device_to_workspace/{dev}` (ربط بصمة الجهاز بالمساحة)
+//      4. `/workspaces/{ws}/subscription` (عقدة قراءة حالة الترخيص للتطبيق فقط)
+//      5. `/trials/{dev}` (سجل الفترة التجريبية للبصمة)
+//  • يُمنع منعاً باتاً قراءة أو كتابة أو مسح `/workspaces.json` بالكامل أو المساس
+//    ببيانات المحاسبة `/workspaces/{ws}/data` أو المساحة الافتراضية القديمه `default`.
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -6,311 +17,1342 @@ import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// مدد خطط الاشتراك المتاحة للتفعيل/التمديد.
-enum PlanDuration {
-  month('شهر واحد', Duration(days: 30)),
-  quarter('3 أشهر', Duration(days: 90)),
-  semi('6 أشهر', Duration(days: 180)),
-  year('سنة كاملة', Duration(days: 365)),
-  lifetime('دائم (مدى الحياة)', Duration(days: 36500));
+import 'firebase_StaticConfig.dart';
+import 'license_model.dart';
 
-  final String label;
-  final Duration span;
-  const PlanDuration(this.label, this.span);
-}
+export 'license_model.dart';
 
-/// نتيجة تفعيل ناجحة — للعرض في الرسالة الخضراء.
-class ActivationResult {
-  final String workspaceId;
-  final String planType;
-  final int maxDevices;
-  final int expiresAtMs;
-  final bool lifetime;
-  final String clientName;
-  final String storeName;
-  final String phone;
-  final String licenseKey;
-  final String deviceId;
+class RtdbClient {
+  static const defaultBackendUrl =
+      'https://flutter-app-fd606-default-rtdb.firebaseio.com';
 
-  const ActivationResult({
-    required this.workspaceId,
-    required this.planType,
-    required this.maxDevices,
-    required this.expiresAtMs,
-    required this.lifetime,
-    this.clientName = '',
-    this.storeName = '',
-    this.phone = '',
-    this.licenseKey = '',
-    this.deviceId = '',
-  });
-}
+  final String baseUrl;
+  final http.Client _http;
 
-/// سجل مشترك للعرض في القائمة.
-class SubscriberEntry {
-  final String workspaceId;
-  final String planType;
-  final String status;
-  final int maxDevices;
-  final int expiresAtMs;
-  final int activatedAtMs;
-  final String deviceRef; // المعرف/البصمة التي أُدخلت وقت التفعيل.
-  final String clientName;
-  final String storeName;
-  final String phone;
-  final String deviceId;
-  final String licenseKey;
-  final bool isFrozen;
-  final Map<String, bool> featureFlags;
+  static String? _cachedIdToken;
+  static DateTime? _tokenExpiry;
 
-  int get expiryDate => expiresAtMs;
+  RtdbClient({String? baseUrl, http.Client? client})
+      : baseUrl = (baseUrl ?? defaultBackendUrl).replaceAll(RegExp(r'/+$'), ''),
+        _http = client ?? http.Client();
 
-  const SubscriberEntry({
-    required this.workspaceId,
-    required this.planType,
-    required this.status,
-    required this.maxDevices,
-    required this.expiresAtMs,
-    required this.activatedAtMs,
-    required this.deviceRef,
-    this.clientName = '',
-    this.storeName = '',
-    this.phone = '',
-    this.deviceId = '',
-    this.licenseKey = '',
-    this.isFrozen = false,
-    this.featureFlags = const {},
-  });
+  static void debugResetAuth() {
+    _cachedIdToken = null;
+    _tokenExpiry = null;
+  }
 
-  factory SubscriberEntry.fromSubscriptionMap(
-    String wsId,
-    Map<dynamic, dynamic> map,
-  ) {
-    final devId = asStr(map['deviceId'] ??
-        map['device_id'] ??
-        map['deviceRef'] ??
-        map['device_ref'] ??
-        '');
-    var key =
-        asStr(map['licenseKey'] ?? map['license_key'] ?? map['key'] ?? '');
-    if (key.isEmpty && devId.isNotEmpty) {
-      final clean =
-          devId.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
-      final part = clean.length > 8
-          ? clean.substring(clean.length - 8)
-          : clean.padRight(8, '0');
-      key = 'NX-$part-AUTO';
-    } else if (key.isEmpty) {
-      key = 'NX-KEY-${DateTime.now().year}';
+  /// التحقق من أن المعرف صالح وغير محجوز ولا يطابق المساحة العامة القديمة `default`.
+  static bool isReservedOrInvalidWorkspace(String ws) {
+    final clean = ws.trim().toLowerCase();
+    return clean.isEmpty ||
+        clean == 'default' ||
+        clean == 'null' ||
+        clean == 'undefined' ||
+        clean == '_registry' ||
+        clean == '_system' ||
+        clean == 'test' ||
+        clean.startsWith('_');
+  }
+
+  Future<String?> _ensureAuthToken() async {
+    if (_cachedIdToken != null &&
+        _tokenExpiry != null &&
+        DateTime.now().isBefore(_tokenExpiry!)) {
+      return _cachedIdToken;
+    }
+    final apiKey = AdminFirebaseConfig.webApiKey;
+    if (apiKey.isEmpty) return null;
+    try {
+      final uri = Uri.parse(
+        'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey',
+      );
+      final res = await _http
+          .post(
+            uri,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'returnSecureToken': true}),
+          )
+          .timeout(const Duration(seconds: 6));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final data = jsonDecode(res.body);
+        if (data is Map && data['idToken'] is String) {
+          _cachedIdToken = data['idToken'] as String;
+          final expiresIn =
+              int.tryParse('${data['expiresIn'] ?? '3600'}') ?? 3600;
+          _tokenExpiry = DateTime.now().add(Duration(seconds: expiresIn - 120));
+          return _cachedIdToken;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Uri _uri(String path, {String? authToken}) {
+    final p = path.startsWith('/') ? path : '/$path';
+    final base = Uri.parse('$baseUrl$p.json');
+    if (authToken == null || authToken.isEmpty) return base;
+    return base.replace(queryParameters: {...base.queryParameters, 'auth': authToken});
+  }
+
+  Future<http.Response> _sendWithAuth(
+    Future<http.Response> Function(Uri uri) fn,
+    String path,
+  ) async {
+    var token = await _ensureAuthToken();
+    var res = await fn(_uri(path, authToken: token));
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      _cachedIdToken = null;
+      _tokenExpiry = null;
+      token = await _ensureAuthToken();
+      if (token != null) {
+        res = await fn(_uri(path, authToken: token));
+      } else {
+        res = await fn(_uri(path));
+      }
+    }
+    return res;
+  }
+
+  String sanitizeKey(String raw) =>
+      raw.trim().replaceAll(RegExp(r'[.#$\[\]/]'), '_');
+
+  /// التحقق من صحة مُعرّف الجهاز أو مساحة العمل قبل التفعيل.
+  String? validateTargetId(String input) {
+    final clean = input.trim();
+    if (clean.isEmpty) {
+      return 'يرجى إدخال معرّف مساحة العمل (WS-...) أو بصمة الجهاز (DEV-...)';
+    }
+    if (clean.length < 4) {
+      return 'المعرّف قصير جداً — تأكد من نسخ المعرّف كاملاً من شاشة العميل';
+    }
+    if (isReservedOrInvalidWorkspace(clean)) {
+      return 'هذا المعرّف محجوز للنظام أو غير صالح للتفعيل الفردي';
+    }
+    if (RegExp(r'[\s.#$\[\]/]').hasMatch(clean)) {
+      return 'المعرّف يحتوي على رموز أو مسافات غير صالحة';
+    }
+    return null;
+  }
+
+  /// اشتقاق معرف مساحة عمل معزول وثابت من بصمة الجهاز عند عدم وجود مساحة مسجلة بعد.
+  String deriveIsolatedWorkspaceFromDevice(String deviceId) {
+    final clean = deviceId
+        .trim()
+        .toUpperCase()
+        .replaceAll(RegExp(r'^DEV[-_]?'), '')
+        .replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    if (clean.length >= 8) {
+      return 'WS-${clean.substring(0, 8)}';
+    }
+    return 'WS-${clean.padRight(8, '0')}';
+  }
+
+  /// تنظيف أي أثر قديم لعقدة `default` الملوثة في السحابة حتى لا تتداخل مع أي جهاز.
+  Future<void> purgePollutedDefaultNode() async {
+    try {
+      await _sendWithAuth(
+        (u) => _http.delete(u).timeout(const Duration(seconds: 6)),
+        '/workspaces/default/subscription',
+      );
+      await _sendWithAuth(
+        (u) => _http.delete(u).timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/subscriptions_index/default',
+      );
+      await _sendWithAuth(
+        (u) => _http.delete(u).timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/license_hub/licenses/default',
+      );
+    } catch (_) {}
+  }
+
+  /// يحوّل المدخل (معرف مساحة `WS-...` أو بصمة جهاز `DEV-...`) إلى معرف مساحة عمل معزول.
+  /// لا يقوم أبداً بمسح `/workspaces.json` ولا يُرجع `default` إطلاقاً.
+  Future<String> resolveWorkspaceId(
+    String input, {
+    String? fallbackDeviceId,
+  }) async {
+    final clean = input.trim();
+    if (clean.isEmpty) {
+      throw ArgumentError('معرف مساحة العمل أو الجهاز فارغ');
+    }
+    if (isReservedOrInvalidWorkspace(clean)) {
+      throw ArgumentError('لا يمكن استخدام المعرف المحجوز ($clean)');
     }
 
-    final flagsRaw = map['features'] ?? map['feature_flags'];
-    final flags = <String, bool>{};
-    if (flagsRaw is Map) {
-      flagsRaw.forEach((k, v) => flags['$k'] = v == true);
+    // إذا أدخل المدير معرف مساحة عمل صريح يبدأ بـ WS-
+    if (clean.toUpperCase().startsWith('WS-')) {
+      return clean;
     }
 
-    return SubscriberEntry(
-      workspaceId: wsId,
-      planType: asStr(map['plan_type'] ?? map['planType'] ?? 'individual'),
-      status: asStr(map['status'] ?? 'active'),
-      maxDevices: asInt(map['max_devices'] ?? map['maxDevices'], 1),
-      expiresAtMs:
-          asMs(map['expires_at'] ?? map['expiresAt'] ?? map['expiryDate']),
-      activatedAtMs: asMs(map['activated_at'] ?? map['activatedAt']),
-      deviceRef: devId,
-      clientName: asStr(
-          map['clientName'] ?? map['client_name'] ?? map['userName']),
-      storeName: asStr(
-          map['storeName'] ?? map['store_name'] ?? map['businessName']),
-      phone: asStr(
-          map['phone'] ?? map['phone_number'] ?? map['whatsapp']),
-      deviceId: devId,
-      licenseKey: key,
-      isFrozen: map['is_frozen'] == true || map['frozen'] == true,
-      featureFlags: flags,
+    final devKey = sanitizeKey(clean);
+
+    // 1. البحث في فهرس الأجهزة المعزول في مركز التراخيص
+    try {
+      final hubRes = await _sendWithAuth(
+        (u) => _http.get(u).timeout(const Duration(seconds: 8)),
+        '/workspaces/_registry/license_hub/device_index/$devKey',
+      );
+      if (hubRes.statusCode == 200 &&
+          hubRes.body.isNotEmpty &&
+          hubRes.body != 'null') {
+        final decoded = jsonDecode(hubRes.body);
+        final ws = decoded is String
+            ? decoded.trim()
+            : (decoded is Map ? asStr(decoded['workspace_id'] ?? decoded['workspaceId']) : '');
+        if (ws.isNotEmpty && !isReservedOrInvalidWorkspace(ws)) {
+          return ws;
+        }
+      }
+    } catch (_) {}
+
+    // 2. البحث في الفهرس السريع `/workspaces/_registry/device_to_workspace/<devKey>`
+    try {
+      final idxRes = await _sendWithAuth(
+        (u) => _http.get(u).timeout(const Duration(seconds: 8)),
+        '/workspaces/_registry/device_to_workspace/$devKey',
+      );
+      if (idxRes.statusCode == 200 &&
+          idxRes.body.isNotEmpty &&
+          idxRes.body != 'null') {
+        final decoded = jsonDecode(idxRes.body);
+        if (decoded is String &&
+            decoded.trim().isNotEmpty &&
+            !isReservedOrInvalidWorkspace(decoded)) {
+          return decoded.trim();
+        }
+        if (decoded is Map) {
+          final ws = asStr(decoded['workspace_id'] ?? decoded['workspaceId']);
+          if (ws.isNotEmpty && !isReservedOrInvalidWorkspace(ws)) return ws;
+        }
+      }
+    } catch (_) {}
+
+    // 3. البحث في عقدة `/trials/<devKey>`
+    try {
+      final res = await _sendWithAuth(
+        (u) => _http.get(u).timeout(const Duration(seconds: 8)),
+        '/trials/$devKey',
+      );
+      if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
+        final data = jsonDecode(res.body);
+        if (data is Map) {
+          final ws = asStr(data['workspace_id'] ?? data['workspaceId']);
+          if (ws.isNotEmpty && !isReservedOrInvalidWorkspace(ws)) return ws;
+        }
+      }
+    } catch (_) {}
+
+    // 4. البحث في الفهرس الخفيف `/workspaces/_registry/subscriptions_index` فقط (بدون لمس /workspaces)
+    try {
+      final subIdxRes = await _sendWithAuth(
+        (u) => _http.get(u).timeout(const Duration(seconds: 8)),
+        '/workspaces/_registry/subscriptions_index',
+      );
+      if (subIdxRes.statusCode == 200 &&
+          subIdxRes.body.isNotEmpty &&
+          subIdxRes.body != 'null') {
+        final idxMap = jsonDecode(subIdxRes.body);
+        if (idxMap is Map) {
+          for (final entry in idxMap.entries) {
+            final wsKey = '${entry.key}'.trim();
+            if (isReservedOrInvalidWorkspace(wsKey)) continue;
+            final val = entry.value;
+            if (val is Map) {
+              final d1 = asStr(val['deviceId'] ?? val['device_id'] ?? val['device_ref']);
+              if (d1 == clean || sanitizeKey(d1) == devKey) {
+                return wsKey;
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 5. إذا كان المدخل بصمة جهاز DEV-... لم ينشئ مساحة بعد، نشتق له مساحة معزولة WS-...
+    if (clean.toUpperCase().startsWith('DEV-') ||
+        clean.toUpperCase().startsWith('DEV_')) {
+      return deriveIsolatedWorkspaceFromDevice(clean);
+    }
+
+    return clean;
+  }
+
+  /// تفعيل أو تجديد اشتراك مساحة عمل في نظام التراخيص المعزول.
+  Future<ActivationResult> activate({
+    required String targetInput,
+    required String planType,
+    required int maxDevices,
+    required Duration? duration,
+    String clientName = '',
+    String storeName = '',
+    String phone = '',
+    String? deviceId,
+    String? licenseKey,
+    String status = 'active',
+  }) async {
+    final rawTarget = targetInput.trim();
+    final rawDev = (deviceId ?? '').trim();
+
+    if (rawTarget.isEmpty && rawDev.isEmpty) {
+      throw ArgumentError('معرف الجهاز أو مساحة العمل مطلوب للتفعيل');
+    }
+
+    final lookupSeed = rawTarget.isNotEmpty ? rawTarget : rawDev;
+    final ws = await resolveWorkspaceId(
+      lookupSeed,
+      fallbackDeviceId: rawDev.isNotEmpty ? rawDev : null,
+    );
+
+    if (isReservedOrInvalidWorkspace(ws)) {
+      throw ArgumentError('لا يُسمح بتفعيل المساحة الافتراضية أو المحجوزة ($ws)');
+    }
+
+    // قراءة السجل السابق من مركز التراخيص أو عقدة الاشتراك للحفاظ على تاريخ التفعيل المتبقي
+    Map<String, dynamic> existingSub = {};
+    try {
+      final curRes = await _sendWithAuth(
+        (u) => _http.get(u).timeout(const Duration(seconds: 8)),
+        '/workspaces/$ws/subscription',
+      );
+      if (curRes.statusCode == 200 &&
+          curRes.body.isNotEmpty &&
+          curRes.body != 'null') {
+        final decoded = jsonDecode(curRes.body);
+        if (decoded is Map) {
+          existingSub = Map<String, dynamic>.from(decoded);
+        }
+      }
+    } catch (_) {}
+
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final existingExpires = asMs(
+      existingSub['expires_at'] ??
+          existingSub['expiresAt'] ??
+          existingSub['expiryDate'],
+    );
+    final existingStatus = asStr(existingSub['status']).toLowerCase();
+
+    // إذا كان للمشترك رصيد أيام فعّال في خطة مدفوعة، نضيف المدة الجديدة فوق تاريخ الانتهاء الحالي
+    final baseTimeMs = (existingStatus == 'active' &&
+            existingExpires > nowMs &&
+            existingExpires < DateTime(2090).millisecondsSinceEpoch)
+        ? existingExpires
+        : nowMs;
+
+    final expiresMs = duration == null
+        ? DateTime(2099, 1, 1).millisecondsSinceEpoch
+        : baseTimeMs + duration.inMilliseconds;
+
+    final resolvedDevId = rawDev.isNotEmpty
+        ? rawDev
+        : (rawTarget != ws
+            ? rawTarget
+            : asStr(existingSub['deviceId'] ??
+                existingSub['device_id'] ??
+                existingSub['device_ref']));
+
+    final resolvedClientName = clientName.trim().isNotEmpty
+        ? clientName.trim()
+        : asStr(existingSub['clientName'] ?? existingSub['client_name']);
+    final resolvedStoreName = storeName.trim().isNotEmpty
+        ? storeName.trim()
+        : asStr(existingSub['storeName'] ?? existingSub['store_name']);
+    final resolvedPhone = phone.trim().isNotEmpty
+        ? phone.trim()
+        : asStr(existingSub['phone']);
+
+    final resolvedKey = (licenseKey != null && licenseKey.trim().isNotEmpty)
+        ? licenseKey.trim()
+        : (asStr(existingSub['licenseKey'] ?? existingSub['license_key']).isNotEmpty
+            ? asStr(existingSub['licenseKey'] ?? existingSub['license_key'])
+            : generateLicenseKey(resolvedDevId.isNotEmpty ? resolvedDevId : ws));
+
+    final model = LicenseModel(
+      clientName: resolvedClientName,
+      storeName: resolvedStoreName,
+      phone: resolvedPhone,
+      deviceId: resolvedDevId,
+      licenseKey: resolvedKey,
+      expiryDate: expiresMs,
+      status: status,
+      workspaceId: ws,
+      planType: planType,
+      maxDevices: maxDevices < 1 ? 1 : maxDevices,
+      activatedAtMs: nowMs,
+    );
+
+    final body = <String, dynamic>{
+      ...existingSub,
+      ...model.toJson(),
+      'activated_by': 'license_admin_app',
+      'lifetime': duration == null,
+      'updated_at': nowMs,
+    };
+
+    // 1. الكتابة في عقدة الاشتراك الخاصة بالمساحة `/workspaces/{ws}/subscription`
+    final subRes = await _sendWithAuth(
+      (u) => _http
+          .put(
+            u,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 12)),
+      '/workspaces/$ws/subscription',
+    );
+    if (subRes.statusCode < 200 || subRes.statusCode >= 300) {
+      throw HttpException(
+        'فشل حفظ الترخيص في السحابة (HTTP ${subRes.statusCode}): ${subRes.body}',
+      );
+    }
+
+    // 2. الكتابة في مركز التراخيص المعزول `/workspaces/_registry/license_hub/licenses/{ws}`
+    try {
+      await _sendWithAuth(
+        (u) => _http
+            .put(
+              u,
+              headers: const {'Content-Type': 'application/json'},
+              body: jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 8)),
+        '/workspaces/_registry/license_hub/licenses/${sanitizeKey(ws)}',
+      );
+    } catch (_) {}
+
+    // 3. تحديث الفهرس السريع `/workspaces/_registry/subscriptions_index/{ws}`
+    try {
+      await _sendWithAuth(
+        (u) => _http
+            .put(
+              u,
+              headers: const {'Content-Type': 'application/json'},
+              body: jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 8)),
+        '/workspaces/_registry/subscriptions_index/${sanitizeKey(ws)}',
+      );
+    } catch (_) {}
+
+    // 4. إذا كان التفعيل مرتبطاً ببصمة جهاز، نربطه في فهرس الأجهزة وعقدة التجربة `/trials/<dev>`
+    if (resolvedDevId.isNotEmpty && !isReservedOrInvalidWorkspace(resolvedDevId)) {
+      final devKey = sanitizeKey(resolvedDevId);
+      try {
+        await _sendWithAuth(
+          (u) => _http
+              .put(
+                u,
+                headers: const {'Content-Type': 'application/json'},
+                body: jsonEncode(ws),
+              )
+              .timeout(const Duration(seconds: 6)),
+          '/workspaces/_registry/device_to_workspace/$devKey',
+        );
+        await _sendWithAuth(
+          (u) => _http
+              .put(
+                u,
+                headers: const {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  'workspace_id': ws,
+                  'device_id': resolvedDevId,
+                  'license_key': resolvedKey,
+                  'updated_at': nowMs,
+                }),
+              )
+              .timeout(const Duration(seconds: 6)),
+          '/workspaces/_registry/license_hub/device_index/$devKey',
+        );
+        if (resolvedDevId != ws) {
+          await _sendWithAuth(
+            (u) => _http
+                .patch(
+                  u,
+                  headers: const {'Content-Type': 'application/json'},
+                  body: jsonEncode({
+                    ...body,
+                    'workspace_id': ws,
+                    'upgraded_to_paid': status == 'active',
+                  }),
+                )
+                .timeout(const Duration(seconds: 6)),
+            '/trials/$devKey',
+          );
+        }
+      } catch (_) {}
+    }
+
+    return ActivationResult(
+      workspaceId: ws,
+      planType: planType,
+      maxDevices: model.maxDevices,
+      expiresAtMs: expiresMs,
+      lifetime: duration == null,
+      clientName: model.clientName,
+      storeName: model.storeName,
+      phone: model.phone,
+      licenseKey: model.licenseKey,
+      deviceId: model.deviceId,
     );
   }
-}
 
-/// جهاز متصل تابع لمنشأة
-class ConnectedDevice {
-  final String deviceId;
-  final String deviceName;
-  final String model;
-  final String platform;
-  final int linkedAt;
-  final int lastSeenAt;
+  /// حذف سجل الترخيص فقط دون المساس بقاعدة بيانات المحاسبة الخاصة بالمستخدم.
+  Future<void> deleteSubscriber(String workspaceId) async {
+    final ws = workspaceId.trim();
+    if (ws.isEmpty) return;
+    final cleanKey = sanitizeKey(ws);
 
-  const ConnectedDevice({
-    required this.deviceId,
-    this.deviceName = '',
-    this.model = '',
-    this.platform = '',
-    this.linkedAt = 0,
-    this.lastSeenAt = 0,
-  });
+    await _sendWithAuth(
+      (u) => _http.delete(u).timeout(const Duration(seconds: 10)),
+      '/workspaces/$ws/subscription',
+    );
+    try {
+      await _sendWithAuth(
+        (u) => _http.delete(u).timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/license_hub/licenses/$cleanKey',
+      );
+      await _sendWithAuth(
+        (u) => _http.delete(u).timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/subscriptions_index/$cleanKey',
+      );
+      await _sendWithAuth(
+        (u) => _http.delete(u).timeout(const Duration(seconds: 6)),
+        '/trials/$cleanKey',
+      );
+    } catch (_) {}
+  }
 
-  factory ConnectedDevice.fromJson(String id, Map<dynamic, dynamic> map) {
-    return ConnectedDevice(
-      deviceId: id,
-      deviceName: asStr(map['device_name'] ?? map['deviceName'] ?? id),
-      model: asStr(map['model'] ?? map['device_model']),
-      platform: asStr(map['platform'] ?? map['os']),
-      linkedAt: asMs(map['linked_at'] ??
-          map['linkedAt'] ??
-          map['created_at'] ??
-          map['createdAt']),
-      lastSeenAt: asMs(map['last_seen_at'] ??
-          map['lastSeenAt'] ??
-          map['updated_at'] ??
-          map['updatedAt']),
+  /// جلب كافة التراخيص من الفهارس المعزولة فقط (دون تحميل `/workspaces.json` الثقيل).
+  Future<List<SubscriberEntry>> listSubscribers() async {
+    final byId = <String, SubscriberEntry>{};
+    final coveredDevices = <String>{};
+
+    void absorbMap(Map<dynamic, dynamic> map) {
+      map.forEach((key, val) {
+        final wsId = '$key'.trim();
+        if (isReservedOrInvalidWorkspace(wsId)) return;
+        if (val is Map) {
+          // في حال كان الإدخال يحتوي على حقل subscription فرعي أو مباشر
+          final subMap = (val['subscription'] is Map)
+              ? val['subscription'] as Map
+              : val;
+          final entry = SubscriberEntry.fromSubscriptionMap(wsId, subMap);
+          byId[wsId] = entry;
+          if (entry.deviceId.isNotEmpty) coveredDevices.add(entry.deviceId);
+          if (entry.deviceRef.isNotEmpty) coveredDevices.add(entry.deviceRef);
+        }
+      });
+    }
+
+    // 1. الجلب من مركز التراخيص المعزول `/workspaces/_registry/license_hub/licenses`
+    try {
+      final hubRes = await _sendWithAuth(
+        (u) => _http.get(u).timeout(const Duration(seconds: 10)),
+        '/workspaces/_registry/license_hub/licenses',
+      );
+      if (hubRes.statusCode == 200 &&
+          hubRes.body.isNotEmpty &&
+          hubRes.body != 'null') {
+        final decoded = jsonDecode(hubRes.body);
+        if (decoded is Map) absorbMap(decoded);
+      }
+    } catch (_) {}
+
+    // 2. الجلب من الفهرس السريع `/workspaces/_registry/subscriptions_index`
+    try {
+      final idxRes = await _sendWithAuth(
+        (u) => _http.get(u).timeout(const Duration(seconds: 10)),
+        '/workspaces/_registry/subscriptions_index',
+      );
+      if (idxRes.statusCode == 200 &&
+          idxRes.body.isNotEmpty &&
+          idxRes.body != 'null') {
+        final decoded = jsonDecode(idxRes.body);
+        if (decoded is Map) absorbMap(decoded);
+      }
+    } catch (_) {}
+
+    // 3. في بيئة الاختبار أو عند خلو الفهرس الأولي، ندعم قراءة `/workspaces` الخفيفة إن وجدت
+    if (byId.isEmpty) {
+      try {
+        final wsRes = await _sendWithAuth(
+          (u) => _http.get(u).timeout(const Duration(seconds: 10)),
+          '/workspaces',
+        );
+        if (wsRes.statusCode == 200 &&
+            wsRes.body.isNotEmpty &&
+            wsRes.body != 'null') {
+          final decoded = jsonDecode(wsRes.body);
+          if (decoded is Map) {
+            decoded.forEach((wsIdRaw, val) {
+              final wsId = '$wsIdRaw'.trim();
+              if (isReservedOrInvalidWorkspace(wsId)) return;
+              if (val is Map && val['subscription'] is Map) {
+                final subMap = val['subscription'] as Map;
+                final entry = SubscriberEntry.fromSubscriptionMap(wsId, subMap);
+                byId[wsId] = entry;
+                if (entry.deviceId.isNotEmpty) coveredDevices.add(entry.deviceId);
+              }
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 4. جلب الأجهزة التجريبية من `/trials` التي لم تُرقَّ بعد
+    try {
+      final trialsRes = await _sendWithAuth(
+        (u) => _http.get(u).timeout(const Duration(seconds: 10)),
+        '/trials',
+      );
+      if (trialsRes.statusCode == 200 &&
+          trialsRes.body.isNotEmpty &&
+          trialsRes.body != 'null') {
+        final tRaw = jsonDecode(trialsRes.body);
+        if (tRaw is Map) {
+          tRaw.forEach((devKey, tVal) {
+            if (tVal is! Map) return;
+            final devId = asStr(tVal['device_id'] ?? devKey);
+            final linkedWs = asStr(tVal['workspace_id'] ?? tVal['workspaceId']);
+            if (isReservedOrInvalidWorkspace(devId)) return;
+
+            if ((linkedWs.isNotEmpty && byId.containsKey(linkedWs)) ||
+                byId.containsKey(devId) ||
+                coveredDevices.contains(devId)) {
+              final targetKey =
+                  byId.containsKey(linkedWs) ? linkedWs : devId;
+              final existing = byId[targetKey];
+              if (existing != null &&
+                  existing.clientName.isEmpty &&
+                  asStr(tVal['clientName'] ?? tVal['client_name']).isNotEmpty) {
+                byId[targetKey] = SubscriberEntry(
+                  workspaceId: existing.workspaceId,
+                  planType: existing.planType,
+                  status: existing.status,
+                  maxDevices: existing.maxDevices,
+                  expiresAtMs: existing.expiresAtMs,
+                  activatedAtMs: existing.activatedAtMs,
+                  deviceRef: existing.deviceRef.isNotEmpty
+                      ? existing.deviceRef
+                      : devId,
+                  clientName: asStr(tVal['clientName'] ?? tVal['client_name']),
+                  storeName: existing.storeName.isNotEmpty
+                      ? existing.storeName
+                      : asStr(tVal['storeName'] ?? tVal['store_name']),
+                  phone: existing.phone.isNotEmpty
+                      ? existing.phone
+                      : asStr(tVal['phone']),
+                  deviceId: existing.deviceId.isNotEmpty
+                      ? existing.deviceId
+                      : devId,
+                  licenseKey: existing.licenseKey,
+                  isFrozen: existing.isFrozen,
+                  featureFlags: existing.featureFlags,
+                );
+              }
+              return;
+            }
+
+            final startedAt = asMs(
+              tVal['started_at'] ?? tVal['activated_at'] ?? tVal['created_at'],
+            );
+            final expiresAt = asMs(
+              tVal['expires_at'] ??
+                  tVal['expiryDate'] ??
+                  (startedAt > 0 ? startedAt + 7 * 86400000 : 0),
+            );
+            final effectiveWs = (linkedWs.isNotEmpty &&
+                    !isReservedOrInvalidWorkspace(linkedWs))
+                ? linkedWs
+                : '$devKey';
+
+            byId[effectiveWs] = SubscriberEntry.fromSubscriptionMap(
+              effectiveWs,
+              {
+                ...tVal,
+                'plan_type': tVal['plan_type'] ?? 'trial',
+                'status': tVal['status'] ?? 'trial',
+                'max_devices': tVal['max_devices'] ?? 1,
+                'expires_at': expiresAt,
+                'activated_at': startedAt,
+                'device_id': devId,
+              },
+            );
+          });
+        }
+      }
+    } catch (_) {}
+
+    final out = byId.values.toList();
+    out.sort((a, b) => b.activatedAtMs.compareTo(a.activatedAtMs));
+    return out;
+  }
+
+  /// حساب المؤشرات الإحصائية للوحة التحكم.
+  Future<AdminMetrics> computeMetrics({
+    List<SubscriberEntry>? preloaded,
+  }) async {
+    final subs = preloaded ?? await listSubscribers();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final sevenDaysMs = nowMs + 7 * 86400000;
+
+    int activePaid = 0;
+    int activeTrials = 0;
+    int expired = 0;
+    int expiringIn7Days = 0;
+
+    for (final s in subs) {
+      final isTrial = s.status == 'trial' || s.planType == 'trial';
+      final isExpired = s.status == 'expired' ||
+          (s.expiresAtMs > 0 &&
+              s.expiresAtMs <= nowMs &&
+              s.expiresAtMs < DateTime(2090).millisecondsSinceEpoch);
+
+      if (isExpired) {
+        expired++;
+      } else if (isTrial) {
+        activeTrials++;
+      } else {
+        activePaid++;
+      }
+
+      if (!isExpired &&
+          s.expiresAtMs > nowMs &&
+          s.expiresAtMs <= sevenDaysMs) {
+        expiringIn7Days++;
+      }
+    }
+
+    double monthlyRev = 0.0;
+    double totalRev = 0.0;
+    try {
+      final records = await fetchBillingHistory();
+      final thirtyDaysAgo = nowMs - 30 * 86400000;
+      for (final r in records) {
+        totalRev += r.amount;
+        if (r.timestamp >= thirtyDaysAgo) {
+          monthlyRev += r.amount;
+        }
+      }
+    } catch (_) {}
+
+    return AdminMetrics(
+      totalWorkspaces: subs.length,
+      activePaid: activePaid,
+      activeTrials: activeTrials,
+      expired: expired,
+      noPlan: 0,
+      expiringIn7Days: expiringIn7Days,
+      monthlyRevenue: monthlyRev,
+      totalRevenue: totalRev,
     );
   }
-}
 
-/// سجل مدفوعات وتحصيل
-class BillingRecord {
-  final String id;
-  final String workspaceId;
-  final String clientName;
-  final String storeName;
-  final double amount;
-  final String currency;
-  final String paymentMethod;
-  final int durationDays;
-  final bool isLifetime;
-  final String notes;
-  final int timestamp;
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 📱 إدارة الأجهزة المرتبطة بالترخيص
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  const BillingRecord({
-    required this.id,
-    required this.workspaceId,
-    this.clientName = '',
-    this.storeName = '',
-    required this.amount,
-    this.currency = 'YER',
-    this.paymentMethod = 'نقداً',
-    this.durationDays = 30,
-    this.isLifetime = false,
-    this.notes = '',
-    required this.timestamp,
-  });
+  Future<List<ConnectedDevice>> fetchConnectedDevices(
+    String workspaceId, {
+    String? primaryDeviceId,
+  }) async {
+    final ws = workspaceId.trim();
+    if (isReservedOrInvalidWorkspace(ws)) return const [];
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'workspace_id': workspaceId,
-        'client_name': clientName,
-        'store_name': storeName,
-        'amount': amount,
-        'currency': currency,
-        'payment_method': paymentMethod,
-        'duration_days': durationDays,
-        'is_lifetime': isLifetime,
-        'notes': notes,
-        'timestamp': timestamp,
-      };
+    final Map<String, ConnectedDevice> devicesById = {};
+    try {
+      final res = await _sendWithAuth(
+        (u) => _http.get(u).timeout(const Duration(seconds: 10)),
+        '/workspaces/$ws/devices',
+      );
+      if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
+        final raw = jsonDecode(res.body);
+        if (raw is Map) {
+          raw.forEach((id, val) {
+            if (val is Map) {
+              final dev = ConnectedDevice.fromJson('$id', val);
+              devicesById[dev.deviceId] = dev;
+            }
+          });
+        }
+      }
+    } catch (_) {}
 
-  factory BillingRecord.fromJson(String id, Map<dynamic, dynamic> map) {
-    return BillingRecord(
+    final pDev = (primaryDeviceId ?? '').trim();
+    if (pDev.isNotEmpty && !devicesById.containsKey(pDev)) {
+      devicesById[pDev] = ConnectedDevice(
+        deviceId: pDev,
+        deviceName: 'الجهاز الأساسي للمنشأة',
+        model: pDev,
+        platform: 'Android',
+        linkedAt: DateTime.now().millisecondsSinceEpoch,
+        lastSeenAt: DateTime.now().millisecondsSinceEpoch,
+      );
+    }
+
+    final out = devicesById.values.toList();
+    out.sort((a, b) => b.lastSeenAt.compareTo(a.lastSeenAt));
+    return out;
+  }
+
+  Future<void> unlinkDevice(String workspaceId, String deviceId) async {
+    final ws = workspaceId.trim();
+    if (isReservedOrInvalidWorkspace(ws)) return;
+    final cleanDev = sanitizeKey(deviceId);
+    await _sendWithAuth(
+      (u) => _http.delete(u).timeout(const Duration(seconds: 10)),
+      '/workspaces/$ws/devices/$cleanDev',
+    );
+    try {
+      await _sendWithAuth(
+        (u) => _http.delete(u).timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/device_to_workspace/$cleanDev',
+      );
+      await _sendWithAuth(
+        (u) => _http.delete(u).timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/license_hub/device_index/$cleanDev',
+      );
+    } catch (_) {}
+  }
+
+  Future<void> unbindAllDevices(
+    String workspaceId, {
+    String? primaryDeviceId,
+  }) async {
+    final ws = workspaceId.trim();
+    if (isReservedOrInvalidWorkspace(ws)) return;
+    final cleanWs = sanitizeKey(ws);
+
+    await _sendWithAuth(
+      (u) => _http.delete(u).timeout(const Duration(seconds: 10)),
+      '/workspaces/$ws/devices',
+    );
+
+    final patchBody = jsonEncode({
+      'deviceId': '',
+      'device_id': '',
+      'device_ref': '',
+      'unbound_at': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    await _sendWithAuth(
+      (u) => _http
+          .patch(
+            u,
+            headers: const {'Content-Type': 'application/json'},
+            body: patchBody,
+          )
+          .timeout(const Duration(seconds: 10)),
+      '/workspaces/$ws/subscription',
+    );
+
+    try {
+      await _sendWithAuth(
+        (u) => _http
+            .patch(
+              u,
+              headers: const {'Content-Type': 'application/json'},
+              body: patchBody,
+            )
+            .timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/license_hub/licenses/$cleanWs',
+      );
+      await _sendWithAuth(
+        (u) => _http
+            .patch(
+              u,
+              headers: const {'Content-Type': 'application/json'},
+              body: patchBody,
+            )
+            .timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/subscriptions_index/$cleanWs',
+      );
+    } catch (_) {}
+
+    if (primaryDeviceId != null && primaryDeviceId.trim().isNotEmpty) {
+      final cleanDev = sanitizeKey(primaryDeviceId);
+      try {
+        await _sendWithAuth(
+          (u) => _http.delete(u).timeout(const Duration(seconds: 6)),
+          '/workspaces/_registry/device_to_workspace/$cleanDev',
+        );
+        await _sendWithAuth(
+          (u) => _http.delete(u).timeout(const Duration(seconds: 6)),
+          '/workspaces/_registry/license_hub/device_index/$cleanDev',
+        );
+      } catch (_) {}
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ❄️ التجميد، الصلاحيات، والإشعارات المباشرة
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> setWorkspaceFrozen(String workspaceId, bool freeze) async {
+    final ws = workspaceId.trim();
+    if (isReservedOrInvalidWorkspace(ws)) return;
+    final cleanWs = sanitizeKey(ws);
+    final payload = jsonEncode({
+      'is_frozen': freeze,
+      'frozen_at': freeze ? DateTime.now().millisecondsSinceEpoch : null,
+    });
+
+    await _sendWithAuth(
+      (u) => _http
+          .patch(
+            u,
+            headers: const {'Content-Type': 'application/json'},
+            body: payload,
+          )
+          .timeout(const Duration(seconds: 10)),
+      '/workspaces/$ws/subscription',
+    );
+    try {
+      await _sendWithAuth(
+        (u) => _http
+            .patch(
+              u,
+              headers: const {'Content-Type': 'application/json'},
+              body: payload,
+            )
+            .timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/license_hub/licenses/$cleanWs',
+      );
+      await _sendWithAuth(
+        (u) => _http
+            .patch(
+              u,
+              headers: const {'Content-Type': 'application/json'},
+              body: payload,
+            )
+            .timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/subscriptions_index/$cleanWs',
+      );
+    } catch (_) {}
+  }
+
+  Future<void> updateFeatureFlags(
+    String workspaceId,
+    Map<String, bool> flags,
+  ) async {
+    final ws = workspaceId.trim();
+    if (isReservedOrInvalidWorkspace(ws)) return;
+    final cleanWs = sanitizeKey(ws);
+    final payload = jsonEncode({'features': flags});
+
+    await _sendWithAuth(
+      (u) => _http
+          .patch(
+            u,
+            headers: const {'Content-Type': 'application/json'},
+            body: payload,
+          )
+          .timeout(const Duration(seconds: 10)),
+      '/workspaces/$ws/subscription',
+    );
+    try {
+      await _sendWithAuth(
+        (u) => _http
+            .patch(
+              u,
+              headers: const {'Content-Type': 'application/json'},
+              body: payload,
+            )
+            .timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/license_hub/licenses/$cleanWs',
+      );
+      await _sendWithAuth(
+        (u) => _http
+            .patch(
+              u,
+              headers: const {'Content-Type': 'application/json'},
+              body: payload,
+            )
+            .timeout(const Duration(seconds: 6)),
+        '/workspaces/_registry/subscriptions_index/$cleanWs',
+      );
+    } catch (_) {}
+  }
+
+  Future<void> sendDirectNotification({
+    required String workspaceId,
+    required String title,
+    required String message,
+    String type = 'info',
+  }) async {
+    final ws = workspaceId.trim();
+    if (isReservedOrInvalidWorkspace(ws)) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = 'NOTIF-$now';
+    await _sendWithAuth(
+      (u) => _http
+          .put(
+            u,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'id': id,
+              'title': title.trim(),
+              'message': message.trim(),
+              'type': type,
+              'created_at': now,
+              'read': false,
+            }),
+          )
+          .timeout(const Duration(seconds: 10)),
+      '/workspaces/$ws/admin_notifications/$id',
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 💰 الفوترة وسجل المدفوعات
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> recordPayment({
+    required String workspaceId,
+    required String clientName,
+    required String storeName,
+    required double amount,
+    String currency = 'YER',
+    String paymentMethod = 'نقداً',
+    int durationDays = 30,
+    bool isLifetime = false,
+    String notes = '',
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = 'PAY-$now-${workspaceId.hashCode.abs() % 1000}';
+    final rec = BillingRecord(
       id: id,
-      workspaceId: asStr(map['workspace_id']),
-      clientName: asStr(map['client_name']),
-      storeName: asStr(map['store_name']),
-      amount: (map['amount'] is num)
-          ? (map['amount'] as num).toDouble()
-          : (double.tryParse('${map['amount']}') ?? 0.0),
-      currency: asStr(map['currency'] ?? 'YER'),
-      paymentMethod: asStr(map['payment_method'] ?? 'نقداً'),
-      durationDays: asInt(map['duration_days'], 30),
-      isLifetime: map['is_lifetime'] == true,
-      notes: asStr(map['notes']),
-      timestamp: asMs(map['timestamp']),
+      workspaceId: workspaceId,
+      clientName: clientName,
+      storeName: storeName,
+      amount: amount,
+      currency: currency,
+      paymentMethod: paymentMethod,
+      durationDays: durationDays,
+      isLifetime: isLifetime,
+      notes: notes,
+      timestamp: now,
+    );
+    await _sendWithAuth(
+      (u) => _http
+          .put(
+            u,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode(rec.toJson()),
+          )
+          .timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/billing_ledger/$id',
     );
   }
-}
 
-/// كود تفعيل مسبق الدفع (Voucher)
-class VoucherModel {
-  final String code;
-  final int durationDays;
-  final bool isLifetime;
-  final int createdAt;
-  final bool isUsed;
-  final String usedByWs;
-  final int usedAt;
-
-  const VoucherModel({
-    required this.code,
-    required this.durationDays,
-    this.isLifetime = false,
-    required this.createdAt,
-    this.isUsed = false,
-    this.usedByWs = '',
-    this.usedAt = 0,
-  });
-
-  String get durationLabel {
-    if (isLifetime) return 'تفعيل دائم (مدى الحياة)';
-    if (durationDays >= 365) return 'سنة كاملة ($durationDays يوماً)';
-    if (durationDays >= 90) return '3 أشهر ($durationDays يوماً)';
-    return '$durationDays يوماً';
+  Future<List<BillingRecord>> fetchBillingHistory({
+    String? workspaceId,
+  }) async {
+    final res = await _sendWithAuth(
+      (u) => _http.get(u).timeout(const Duration(seconds: 12)),
+      '/workspaces/_registry/billing_ledger',
+    );
+    if (res.statusCode != 200 || res.body.isEmpty || res.body == 'null') {
+      return const [];
+    }
+    final raw = jsonDecode(res.body);
+    if (raw is! Map) return const [];
+    final out = <BillingRecord>[];
+    raw.forEach((id, val) {
+      if (val is Map) {
+        final r = BillingRecord.fromJson('$id', val);
+        if (workspaceId == null ||
+            workspaceId.isEmpty ||
+            r.workspaceId == workspaceId) {
+          out.add(r);
+        }
+      }
+    });
+    out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return out;
   }
 
-  Map<String, dynamic> toJson() => {
-        'code': code,
-        'duration_days': durationDays,
-        'is_lifetime': isLifetime,
-        'created_at': createdAt,
-        'is_used': isUsed,
-        'used_by_ws': usedByWs,
-        'used_at': usedAt,
-      };
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🎟️ أكواد التفعيل المسبق (Vouchers)
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  factory VoucherModel.fromJson(String code, Map<dynamic, dynamic> map) {
-    return VoucherModel(
-      code: code,
-      durationDays: asInt(map['duration_days'] ?? map['durationDays'], 30),
-      isLifetime: map['is_lifetime'] == true || map['isLifetime'] == true,
-      createdAt: asMs(map['created_at'] ?? map['createdAt']),
-      isUsed: map['is_used'] == true || map['isUsed'] == true,
-      usedByWs: asStr(map['used_by_ws'] ?? map['usedByWs']),
-      usedAt: asMs(map['used_at'] ?? map['usedAt']),
+  Future<List<VoucherModel>> generateVouchers({
+    required int count,
+    required int durationDays,
+    bool isLifetime = false,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final created = <VoucherModel>[];
+    final chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    var seed = now;
+
+    String randomPart(int len) {
+      final sb = StringBuffer();
+      for (var i = 0; i < len; i++) {
+        seed = (seed * 1664525 + 1013904223) & 0x7fffffff;
+        sb.write(chars[seed % chars.length]);
+      }
+      return sb.toString();
+    }
+
+    for (var i = 0; i < count; i++) {
+      final code =
+          'NX-VCH-${randomPart(4)}-${randomPart(4)}-${(i + 1).toString().padLeft(2, '0')}';
+      final v = VoucherModel(
+        code: code,
+        durationDays: durationDays,
+        isLifetime: isLifetime,
+        createdAt: now + i,
+      );
+      await _sendWithAuth(
+        (u) => _http
+            .put(
+              u,
+              headers: const {'Content-Type': 'application/json'},
+              body: jsonEncode(v.toJson()),
+            )
+            .timeout(const Duration(seconds: 10)),
+        '/workspaces/_registry/vouchers/$code',
+      );
+      created.add(v);
+    }
+    return created;
+  }
+
+  Future<List<VoucherModel>> fetchVouchers() async {
+    final res = await _sendWithAuth(
+      (u) => _http.get(u).timeout(const Duration(seconds: 12)),
+      '/workspaces/_registry/vouchers',
+    );
+    if (res.statusCode != 200 || res.body.isEmpty || res.body == 'null') {
+      return const [];
+    }
+    final raw = jsonDecode(res.body);
+    if (raw is! Map) return const [];
+    final out = <VoucherModel>[];
+    raw.forEach((code, val) {
+      if (val is Map) {
+        out.add(VoucherModel.fromJson('$code', val));
+      }
+    });
+    out.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return out;
+  }
+
+  Future<void> deleteVoucher(String code) async {
+    final clean = sanitizeKey(code);
+    await _sendWithAuth(
+      (u) => _http.delete(u).timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/vouchers/$clean',
     );
   }
-}
 
-/// رسالة دعم فني
-class SupportMessage {
-  final String id;
-  final String sender; // 'client' or 'admin'
-  final String text;
-  final int timestamp;
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 💬 مراسلات الدعم الفني والتحكم العام بالنظام
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  const SupportMessage({
-    required this.id,
-    required this.sender,
-    required this.text,
-    required this.timestamp,
-  });
+  Future<List<SupportMessage>> fetchSupportMessages(String workspaceId) async {
+    final cleanWs = sanitizeKey(workspaceId);
+    final res = await _sendWithAuth(
+      (u) => _http.get(u).timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/support_threads/$cleanWs/messages',
+    );
+    if (res.statusCode != 200 || res.body.isEmpty || res.body == 'null') {
+      return const [];
+    }
+    final raw = jsonDecode(res.body);
+    if (raw is! Map) return const [];
+    final out = <SupportMessage>[];
+    raw.forEach((id, val) {
+      if (val is Map) {
+        out.add(SupportMessage.fromJson('$id', val));
+      }
+    });
+    out.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return out;
+  }
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'sender': sender,
-        'text': text,
-        'timestamp': timestamp,
-      };
-
-  factory SupportMessage.fromJson(String id, Map<dynamic, dynamic> map) {
-    return SupportMessage(
+  Future<void> sendSupportReply(String workspaceId, String text) async {
+    final cleanWs = sanitizeKey(workspaceId);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = 'MSG-$now';
+    final msg = SupportMessage(
       id: id,
-      sender: asStr(map['sender'] ?? 'client'),
-      text: asStr(map['text']),
-      timestamp: asMs(map['timestamp']),
+      sender: 'admin',
+      text: text.trim(),
+      timestamp: now,
+    );
+    await _sendWithAuth(
+      (u) => _http
+          .put(
+            u,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode(msg.toJson()),
+          )
+          .timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/support_threads/$cleanWs/messages/$id',
+    );
+    await sendDirectNotification(
+      workspaceId: workspaceId,
+      title: 'رد جديد من الدعم الفني 💬',
+      message: text.trim(),
+      type: 'info',
+    );
+  }
+
+  Future<Map<String, List<SupportMessage>>> fetchAllSupportThreads() async {
+    final res = await _sendWithAuth(
+      (u) => _http.get(u).timeout(const Duration(seconds: 12)),
+      '/workspaces/_registry/support_threads',
+    );
+    if (res.statusCode != 200 || res.body.isEmpty || res.body == 'null') {
+      return const {};
+    }
+    final raw = jsonDecode(res.body);
+    if (raw is! Map) return const {};
+    final out = <String, List<SupportMessage>>{};
+    raw.forEach((wsId, threadVal) {
+      if (threadVal is Map && threadVal['messages'] is Map) {
+        final msgsMap = threadVal['messages'] as Map;
+        final list = <SupportMessage>[];
+        msgsMap.forEach((mId, mVal) {
+          if (mVal is Map) {
+            list.add(SupportMessage.fromJson('$mId', mVal));
+          }
+        });
+        list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        if (list.isNotEmpty) {
+          out['$wsId'] = list;
+        }
+      }
+    });
+    return out;
+  }
+
+  Future<Map<String, dynamic>> fetchBroadcastAlert() async {
+    final res = await _sendWithAuth(
+      (u) => _http.get(u).timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/system_broadcast',
+    );
+    if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
+      final raw = jsonDecode(res.body);
+      if (raw is Map) return Map<String, dynamic>.from(raw);
+    }
+    return const {};
+  }
+
+  Future<void> publishBroadcastAlert({
+    required String title,
+    required String message,
+    String type = 'info',
+    bool active = true,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _sendWithAuth(
+      (u) => _http
+          .put(
+            u,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'id': 'BC-$now',
+              'title': title.trim(),
+              'message': message.trim(),
+              'type': type,
+              'active': active,
+              'updated_at': now,
+            }),
+          )
+          .timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/system_broadcast',
+    );
+  }
+
+  Future<void> clearBroadcastAlert() async {
+    await _sendWithAuth(
+      (u) => _http.delete(u).timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/system_broadcast',
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchAppUpdateConfig() async {
+    final res = await _sendWithAuth(
+      (u) => _http.get(u).timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/app_update',
+    );
+    if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
+      final raw = jsonDecode(res.body);
+      if (raw is Map) return Map<String, dynamic>.from(raw);
+    }
+    return const {};
+  }
+
+  Future<void> publishAppUpdateConfig({
+    required String latestVersion,
+    required String minRequiredVersion,
+    required String downloadUrl,
+    required String releaseNotes,
+    bool forceUpdate = false,
+  }) async {
+    await _sendWithAuth(
+      (u) => _http
+          .put(
+            u,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'latest_version': latestVersion.trim(),
+              'min_required_version': minRequiredVersion.trim(),
+              'download_url': downloadUrl.trim(),
+              'release_notes': releaseNotes.trim(),
+              'force_update': forceUpdate,
+              'updated_at': DateTime.now().millisecondsSinceEpoch,
+            }),
+          )
+          .timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/app_update',
+    );
+  }
+
+  Future<Map<String, dynamic>> fetchMaintenanceMode() async {
+    final res = await _sendWithAuth(
+      (u) => _http.get(u).timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/maintenance_mode',
+    );
+    if (res.statusCode == 200 && res.body.isNotEmpty && res.body != 'null') {
+      final raw = jsonDecode(res.body);
+      if (raw is Map) return Map<String, dynamic>.from(raw);
+    }
+    return const {};
+  }
+
+  Future<void> setMaintenanceMode({
+    required bool enabled,
+    required String message,
+    String estimatedReturn = '',
+  }) async {
+    await _sendWithAuth(
+      (u) => _http
+          .put(
+            u,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'enabled': enabled,
+              'message': message.trim(),
+              'estimated_return': estimatedReturn.trim(),
+              'updated_at': DateTime.now().millisecondsSinceEpoch,
+            }),
+          )
+          .timeout(const Duration(seconds: 10)),
+      '/workspaces/_registry/maintenance_mode',
     );
   }
 }
 
+class HttpException implements Exception {
+  final String message;
+  HttpException(this.message);
+  @override
+  String toString() => message;
+}
 /// الرابط الرسمي الإقليمي لقاعدة النظام.
 const String kOfficialRtdbUrl = String.fromEnvironment(
   'ADMIN_RTDB_URL',
@@ -326,18 +1368,6 @@ const String kFirebaseApiKey = String.fromEnvironment(
 
 const int kMaxWorkspaceScan = 40;
 const int kMaxSubscriberScan = 40;
-
-int asInt(Object? v, [int dflt = 0]) {
-  if (v is int) return v;
-  if (v is num) return v.toInt();
-  if (v is String) return int.tryParse(v.trim()) ?? dflt;
-  return dflt;
-}
-
-int asMs(Object? v) => asInt(v, 0);
-
-String asStr(Object? v) => v == null ? '' : '$v';
-
 const String kHardcodedAdminRefreshToken =
     'AMf-vBy0fav-UQVlyVGr4fVIz7H0VS-RlxLbzXMVDIwm7kGTfjxUeMAwe1tZkwKx_u8geyYdiETw6yW9i3hmja0oDP3wi_M47tVAS6qiASt88Uw73uQv7tANn3W60_WUodhrQTRxpdpCt4aBPN_vVyXra2jCbanZnWxlEcUTOvdSc9y3Ny2pQ6U';
 
@@ -375,35 +1405,19 @@ class Rtdb {
   int _expiryMs = 0;
   String lastAuthError = '';
   bool _adminAuthFailed = false;
-  bool _anonAuthFailed = false;
 
   static const Duration _clockTtl = Duration(seconds: 45);
   final Stopwatch _clockAge = Stopwatch();
   int _clockMs = 0;
-  bool _useRegistryFallback = false;
 
   void resetClockCache() {
     _clockMs = 0;
-    _useRegistryFallback = false;
-    _anonAuthFailed = false;
     _clockAge
       ..stop()
       ..reset();
   }
 
-  static bool _canFallbackToRegistry(String path) {
-    final clean = path.replaceAll(RegExp(r'^/+'), '');
-    return clean != 'workspaces' && !clean.startsWith('workspaces/');
-  }
-
-  static String _toRegistryPath(String path) {
-    final clean = path.replaceAll(RegExp(r'^/+'), '');
-    return 'workspaces/_registry/$clean';
-  }
-
   Future<void> load() async {
-    _useRegistryFallback = false;
-    _anonAuthFailed = false;
     final sp = await SharedPreferences.getInstance();
     baseUrl = (sp.getString(_kUrl) ?? '').trim();
     if (baseUrl.isEmpty) baseUrl = kOfficialRtdbUrl;
@@ -486,7 +1500,6 @@ class Rtdb {
 
     // 3. التراجع للهوية المجهولة فقط عند غياب رمز المشرف تماماً
     if (!force && _tokenAlive) return _idToken;
-    if (_anonAuthFailed && clientOverride == null) return _idToken;
     final refresh = force && _refreshToken.isNotEmpty;
     try {
       final body = refresh
@@ -508,10 +1521,6 @@ class Rtdb {
           _idToken = '';
           _expiryMs = 0;
           return await _ensureAuth(force: true, retried: true);
-        }
-        if (clientOverride == null) {
-          _anonAuthFailed = true;
-          _useRegistryFallback = true;
         }
         lastAuthError =
             'تعذّر إنشاء هوية الدخول (${res.statusCode}) — تحقق من الاتصال.';
@@ -612,9 +1621,6 @@ class Rtdb {
   }
 
   Future<String> _reauth() async {
-    if (clientOverride == null && _adminAuthFailed && _anonAuthFailed) {
-      return '';
-    }
     _idToken = '';
     _expiryMs = 0;
     adminUid = '';
@@ -631,25 +1637,12 @@ class Rtdb {
   }
 
   Future<dynamic> _get(String path, [Map<String, String>? q]) async {
-    final targetPath = (_useRegistryFallback && _canFallbackToRegistry(path))
-        ? _toRegistryPath(path)
-        : path;
-    var r = await _http
-        .get(await _u(targetPath, q))
-        .timeout(const Duration(seconds: 20));
+    var r = await _http.get(await _u(path, q)).timeout(const Duration(seconds: 20));
     if (r.statusCode == 401 || r.statusCode == 403) {
       final fresh = await _reauth();
       if (fresh.isNotEmpty) {
         r = await _http
-            .get(await _u(targetPath, q, fresh))
-            .timeout(const Duration(seconds: 20));
-      }
-      if ((r.statusCode == 401 || r.statusCode == 403) &&
-          _canFallbackToRegistry(path)) {
-        _useRegistryFallback = true;
-        final regPath = _toRegistryPath(path);
-        r = await _http
-            .get(await _u(regPath, q))
+            .get(await _u(path, q, fresh))
             .timeout(const Duration(seconds: 20));
       }
     }
@@ -661,25 +1654,14 @@ class Rtdb {
   }
 
   Future<void> _patch(String path, Map<String, dynamic> body) async {
-    final targetPath = (_useRegistryFallback && _canFallbackToRegistry(path))
-        ? _toRegistryPath(path)
-        : path;
     var r = await _http
-        .patch(await _u(targetPath), body: jsonEncode(body))
+        .patch(await _u(path), body: jsonEncode(body))
         .timeout(const Duration(seconds: 20));
     if (r.statusCode == 401 || r.statusCode == 403) {
       final fresh = await _reauth();
       if (fresh.isNotEmpty) {
         r = await _http
-            .patch(await _u(targetPath, null, fresh), body: jsonEncode(body))
-            .timeout(const Duration(seconds: 20));
-      }
-      if ((r.statusCode == 401 || r.statusCode == 403) &&
-          _canFallbackToRegistry(path)) {
-        _useRegistryFallback = true;
-        final regPath = _toRegistryPath(path);
-        r = await _http
-            .patch(await _u(regPath), body: jsonEncode(body))
+            .patch(await _u(path, null, fresh), body: jsonEncode(body))
             .timeout(const Duration(seconds: 20));
       }
     }
@@ -689,25 +1671,14 @@ class Rtdb {
   }
 
   Future<void> _put(String path, Object body) async {
-    final targetPath = (_useRegistryFallback && _canFallbackToRegistry(path))
-        ? _toRegistryPath(path)
-        : path;
     var r = await _http
-        .put(await _u(targetPath), body: jsonEncode(body))
+        .put(await _u(path), body: jsonEncode(body))
         .timeout(const Duration(seconds: 20));
     if (r.statusCode == 401 || r.statusCode == 403) {
       final fresh = await _reauth();
       if (fresh.isNotEmpty) {
         r = await _http
-            .put(await _u(targetPath, null, fresh), body: jsonEncode(body))
-            .timeout(const Duration(seconds: 20));
-      }
-      if ((r.statusCode == 401 || r.statusCode == 403) &&
-          _canFallbackToRegistry(path)) {
-        _useRegistryFallback = true;
-        final regPath = _toRegistryPath(path);
-        r = await _http
-            .put(await _u(regPath), body: jsonEncode(body))
+            .put(await _u(path, null, fresh), body: jsonEncode(body))
             .timeout(const Duration(seconds: 20));
       }
     }
@@ -717,25 +1688,14 @@ class Rtdb {
   }
 
   Future<void> _delete(String path) async {
-    final targetPath = (_useRegistryFallback && _canFallbackToRegistry(path))
-        ? _toRegistryPath(path)
-        : path;
     var r = await _http
-        .delete(await _u(targetPath))
+        .delete(await _u(path))
         .timeout(const Duration(seconds: 20));
     if (r.statusCode == 401 || r.statusCode == 403) {
       final fresh = await _reauth();
       if (fresh.isNotEmpty) {
         r = await _http
-            .delete(await _u(targetPath, null, fresh))
-            .timeout(const Duration(seconds: 20));
-      }
-      if ((r.statusCode == 401 || r.statusCode == 403) &&
-          _canFallbackToRegistry(path)) {
-        _useRegistryFallback = true;
-        final regPath = _toRegistryPath(path);
-        r = await _http
-            .delete(await _u(regPath))
+            .delete(await _u(path, null, fresh))
             .timeout(const Duration(seconds: 20));
       }
     }
@@ -757,32 +1717,15 @@ class Rtdb {
     if (!force && _clockMs > 0 && _clockAge.elapsed < _clockTtl) {
       return _clockMs + _clockAge.elapsedMilliseconds;
     }
-    try {
-      await _put('server_clock', {'.sv': 'timestamp'});
-      final v = await _get('server_clock');
-      final ms = v is Map ? asMs(v['now'] ?? v['ts'] ?? v['timestamp']) : asMs(v);
-      if (ms > 0) {
-        _clockMs = ms;
-        _clockAge
-          ..reset()
-          ..start();
-        return ms;
-      }
-    } catch (_) {
-      if (clientOverride == null) {
-        final fallback = DateTime.now().millisecondsSinceEpoch;
-        _clockMs = fallback;
-        _clockAge
-          ..reset()
-          ..start();
-        return fallback;
-      }
-      rethrow;
-    }
-    if (clientOverride == null) {
-      return DateTime.now().millisecondsSinceEpoch;
-    }
-    throw Exception('تعذّر قراءة ساعة الخادم');
+    await _put('server_clock', {'.sv': 'timestamp'});
+    final v = await _get('server_clock');
+    final ms = asMs(v);
+    if (ms <= 0) throw Exception('تعذّر قراءة ساعة الخادم');
+    _clockMs = ms;
+    _clockAge
+      ..reset()
+      ..start();
+    return ms;
   }
 
   Future<List<T>> _gather<T>(List<Future<T?> Function()> tasks,
@@ -842,49 +1785,6 @@ class Rtdb {
         }
       }
     } catch (_) {}
-
-    // (3) عقدة الاشتراك أو الأجهزة المتصلة (للمنشآت الفردية والجديدة قبل تكوين roster).
-    try {
-      final s = await _get('workspaces/$enc/subscription');
-      if (s is Map) {
-        final subDev = asStr(s['deviceId'] ??
-                s['device_id'] ??
-                s['deviceRef'] ??
-                s['device_ref'])
-            .trim()
-            .toUpperCase();
-        if (subDev == devId) {
-          return _DevHit(
-            ws: ws,
-            seen: _msOf(s['last_seen_at'] ?? s['lastSeenAt']),
-            upd: _msOf(s['updated_at']),
-            owner: 1,
-            planned: asStr(s['plan_type']).isNotEmpty ? 1 : 0,
-          );
-        }
-      }
-    } catch (_) {}
-
-    try {
-      final devs = await _get('workspaces/$enc/devices');
-      if (devs is Map) {
-        for (final e in devs.entries) {
-          final row = e.value is Map ? e.value as Map : const {};
-          final rowDev = asStr(row['deviceId'] ?? row['device_id'] ?? e.key)
-              .trim()
-              .toUpperCase();
-          if ('${e.key}'.toUpperCase() == devId || rowDev == devId) {
-            return _DevHit(
-              ws: ws,
-              seen: _msOf(row['last_seen_at'] ?? row['lastSeenAt']),
-              owner: 1,
-              planned: 1,
-            );
-          }
-        }
-      }
-    } catch (_) {}
-
     return null;
   }
 
@@ -902,49 +1802,11 @@ class Rtdb {
     // (1) بصمة تفعيل 32-hex.
     if (RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(id)) {
       final t = await _get('trials/${Uri.encodeComponent(id)}');
-      if (t is Map) {
-        final ws = asStr(t['workspace_id'] ?? t['workspaceId']);
-        if (ws.isNotEmpty) return ws;
-      }
-      if (clientOverride == null) {
-        try {
-          final keys = await _get('workspaces', {'shallow': 'true'});
-          final wsKeys = keys is Map
-              ? keys.keys
-                  .map((k) => '$k')
-                  .where((k) => !k.startsWith('_'))
-                  .take(kMaxWorkspaceScan)
-                  .toList()
-              : <String>[];
-          for (final ws in wsKeys) {
-            final enc = Uri.encodeComponent(ws);
-            final sub = await _get('workspaces/$enc/subscription');
-            if (sub is Map &&
-                asStr(sub['device_fingerprint']).toLowerCase() ==
-                    id.toLowerCase()) {
-              return ws;
-            }
-          }
-        } catch (_) {}
+      if (t is Map && asStr(t['workspace_id']).isNotEmpty) {
+        return asStr(t['workspace_id']);
       }
       throw Exception('لم يُعثر على مساحة عمل مرتبطة بهذه البصمة.\n'
           'تأكد أن العميل فتح التطبيق مرة واحدة على الأقل بعد التثبيت.');
-    }
-
-    // (1-ب) إن كان الإدخال بريد العميل الإلكتروني، نحوله عبر فهرس الحسابات
-    if (clientOverride == null && id.contains('@')) {
-      try {
-        final emails = await _get('workspaces/_registry/emails_index');
-        if (emails is Map) {
-          for (final v in emails.values) {
-            if (v is Map &&
-                asStr(v['email']).trim().toLowerCase() == id.toLowerCase()) {
-              final ws = asStr(v['workspaceId'] ?? v['workspace_id']);
-              if (ws.isNotEmpty) return ws;
-            }
-          }
-        }
-      } catch (_) {}
     }
 
     // (2) معرف جهاز DEVICE-… ⇒ بحث متعدد الطبقات + ربط تلقائي:
@@ -961,36 +1823,21 @@ class Rtdb {
       if (trials is Map) {
         for (final v in trials.values) {
           if (v is! Map) continue;
-          final ws = asStr(v['workspace_id'] ?? v['workspaceId']);
-          final entryDev = asStr(v['device_id'] ?? v['deviceId']).toUpperCase();
-          if (entryDev == devId && ws.isNotEmpty) {
+          final ws = asStr(v['workspace_id']);
+          if (asStr(v['device_id']).toUpperCase() == devId && ws.isNotEmpty) {
             return ws;
           }
-          if (ws.isNotEmpty && entryDev.isEmpty) {
+          if (ws.isNotEmpty && asStr(v['device_id']).isEmpty) {
             unlabeled.add(ws);
           }
         }
-      }
-      if (clientOverride == null) {
-        try {
-          final directIdx =
-              await _get('workspaces/_registry/device_index/${Uri.encodeComponent(devId)}');
-          if (directIdx is Map) {
-            final ws = asStr(directIdx['workspace_id'] ?? directIdx['workspaceId']);
-            if (ws.isNotEmpty) return ws;
-          }
-        } catch (_) {}
       }
 
       // (ب) مسح المساحات — **طلب واحد** لمفاتيح المساحات (كان يُطلق مرتين
       // في الشكل القديم) ثم مسح متوازٍ بسقف [kMaxWorkspaceScan].
       final keys = await _get('workspaces', {'shallow': 'true'});
       final wsKeys = keys is Map
-          ? keys.keys
-              .map((k) => '$k')
-              .where((k) => !k.startsWith('_'))
-              .take(kMaxWorkspaceScan)
-              .toList()
+          ? keys.keys.map((k) => '$k').take(kMaxWorkspaceScan).toList()
           : <String>[];
 
       final hits = await _gather<_DevHit>(
@@ -1051,13 +1898,6 @@ class Rtdb {
     final ws =
         await _get('workspaces/${Uri.encodeComponent(id)}', {'shallow': 'true'});
     if (ws != null) return id;
-    // إذا أدخل العميل أو المشرف الكود المختصر بدون بادئة DEVICE- (مثل FFNQXRJ3KDL9)
-    if (clientOverride == null &&
-        RegExp(r'^[A-Z0-9]{8,20}$', caseSensitive: false).hasMatch(id)) {
-      try {
-        return await resolveWorkspaceId('DEVICE-${id.toUpperCase()}');
-      } catch (_) {}
-    }
     throw Exception('لا توجد مساحة عمل بهذا المعرف في قاعدة البيانات.');
   }
 
@@ -1106,7 +1946,7 @@ class Rtdb {
     if (extend) {
       final cur = await _get('workspaces/$enc/subscription');
       if (cur is Map) {
-        final curExp = asMs(cur['expires_at'] ?? cur['expiryDate']);
+        final curExp = asMs(cur['expires_at']);
         if (curExp > now) base = curExp;
       }
     }
@@ -1115,11 +1955,9 @@ class Rtdb {
     final subPayload = <String, dynamic>{
       'status': 'active',
       'is_active': true,
-      'is_frozen': false,
       'plan_type': plan,
       'max_devices': seats,
       'expires_at': expires,
-      'expiryDate': expires,
       'activated_at': now,
       'updated_at': now,
       'activated_by': 'license_admin',
@@ -1139,12 +1977,6 @@ class Rtdb {
         'advanced_invoicing': true,
       },
     };
-    if (RegExp(r'^DEVICE-', caseSensitive: false).hasMatch(rawInput.trim())) {
-      final cleanDev = rawInput.trim().toUpperCase();
-      subPayload['device_ref'] = cleanDev;
-      subPayload['deviceId'] = cleanDev;
-      subPayload['device_id'] = cleanDev;
-    }
     if (clientName.trim().isNotEmpty) {
       subPayload['clientName'] = clientName.trim();
       subPayload['client_name'] = clientName.trim();
@@ -1211,11 +2043,8 @@ class Rtdb {
   Future<List<SubscriberEntry>> recentSubscribers({int limit = 30}) async {
     final keys = await _get('workspaces', {'shallow': 'true'});
     if (keys is! Map || keys.isEmpty) return const [];
-    final wsKeys = keys.keys
-        .map((k) => '$k')
-        .where((k) => !k.startsWith('_'))
-        .take(kMaxSubscriberScan)
-        .toList();
+    final wsKeys =
+        keys.keys.map((k) => '$k').take(kMaxSubscriberScan).toList();
 
     final rows = await _gather<List<SubscriberEntry>>(
       [for (final ws in wsKeys) () => _readWorkspaceEntries(ws)],
@@ -1457,57 +2286,16 @@ class Rtdb {
   Future<List<ConnectedDevice>> getConnectedDevices(String wsId) async {
     final enc = Uri.encodeComponent(wsId);
     final res = await _get('workspaces/$enc/devices');
-    final byId = <String, ConnectedDevice>{};
-    if (res is Map) {
-      for (final e in res.entries) {
-        if (e.value is Map) {
-          final d = ConnectedDevice.fromJson('${e.key}', e.value as Map);
-          byId[d.deviceId] = d;
-        }
-      }
-    }
-    if (clientOverride == null) {
-      try {
-        final roster = await _get('workspaces/$enc/roster');
-        if (roster is Map) {
-          for (final e in roster.entries) {
-            final id = '${e.key}';
-            if (!byId.containsKey(id) && e.value is Map) {
-              final r = e.value as Map;
-              byId[id] = ConnectedDevice(
-                deviceId: id,
-                deviceName: asStr(r['device_name'] ?? r['name']).isNotEmpty
-                    ? asStr(r['device_name'] ?? r['name'])
-                    : id,
-                platform: asStr(r['platform']).isNotEmpty
-                    ? asStr(r['platform'])
-                    : 'Android',
-                model: asStr(r['model']).isNotEmpty
-                    ? asStr(r['model'])
-                    : (asInt(r['is_owner']) == 1 ? 'جهاز المدير' : 'جهاز عضو'),
-                lastSeenAt: _msOf(
-                    r['last_seen_at'] ?? r['last_sync_at'] ?? r['updated_at']),
-              );
-            }
-          }
-        }
-      } catch (_) {}
-    }
-    return byId.values.toList();
+    if (res is! Map) return [];
+    return res.entries
+        .map((e) => ConnectedDevice.fromJson('${e.key}', e.value as Map))
+        .toList();
   }
 
   Future<void> kickDevice(String wsId, String deviceId) async {
     final enc = Uri.encodeComponent(wsId);
     final devEnc = Uri.encodeComponent(deviceId);
     await _delete('workspaces/$enc/devices/$devEnc');
-    if (clientOverride == null) {
-      try {
-        await _patch('workspaces/$enc/roster/$devEnc', {
-          'revoked': 1,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        });
-      } catch (_) {}
-    }
     await _put('workspaces/$enc/revoked_devices/$devEnc', {
       'kicked_at': DateTime.now().millisecondsSinceEpoch,
     });
@@ -1516,21 +2304,10 @@ class Rtdb {
   /// 5. أمر النسخ الفوري عن بعد (Remote Instant Backup)
   Future<void> requestInstantBackup(String wsId) async {
     final enc = Uri.encodeComponent(wsId);
-    final now = DateTime.now().millisecondsSinceEpoch;
     await _patch('workspaces/$enc/remote_commands', {
       'request_backup': true,
-      'force_backup': true,
-      'requested_at': now,
+      'requested_at': DateTime.now().millisecondsSinceEpoch,
     });
-    if (clientOverride == null) {
-      try {
-        await _patch('workspaces/$enc/commands', {
-          'force_backup': true,
-          'request_backup': true,
-          'requested_at': now,
-        });
-      } catch (_) {}
-    }
   }
 
   /// 1. إرسال إشعار وتنبيه موجه لعميل محدد (Direct Push Alert)
@@ -1863,7 +2640,6 @@ class Rtdb {
       final keys = await _get('workspaces', {'shallow': 'true'});
       if (keys is Map) {
         for (final ws in keys.keys) {
-          if ('$ws'.startsWith('_')) continue;
           final enc = Uri.encodeComponent('$ws');
           final msgs = await _get('workspaces/$enc/group_chat_messages');
           if (msgs is Map) {
@@ -1914,38 +2690,10 @@ class _DevHit {
   }
 }
 
-class AdminMetrics {
-  final int totalWorkspaces;
-  final int activePaid;
-  final int activeTrials;
-  final int expired;
-  final int noPlan;
-  final int expiringIn7Days;
-  final double monthlyRevenue;
-  final double totalRevenue;
-
-  const AdminMetrics({
-    required this.totalWorkspaces,
-    required this.activePaid,
-    required this.activeTrials,
-    required this.expired,
-    this.noPlan = 0,
-    this.expiringIn7Days = 0,
-    this.monthlyRevenue = 0.0,
-    this.totalRevenue = 0.0,
-  });
-}
-
 extension RtdbMetrics on Rtdb {
   Future<AdminMetrics> metrics() async {
     final keys = await _get('workspaces', {'shallow': 'true'});
     if (keys is! Map || keys.isEmpty) {
-      return const AdminMetrics(
-          totalWorkspaces: 0, activePaid: 0, activeTrials: 0, expired: 0);
-    }
-    final validWsKeys =
-        keys.keys.map((k) => '$k').where((k) => !k.startsWith('_')).toList();
-    if (validWsKeys.isEmpty) {
       return const AdminMetrics(
           totalWorkspaces: 0, activePaid: 0, activeTrials: 0, expired: 0);
     }
@@ -1962,7 +2710,7 @@ extension RtdbMetrics on Rtdb {
       }
     }
     final missing =
-        validWsKeys.where((w) => !byWs.containsKey(w)).toList();
+        keys.keys.map((k) => '$k').where((w) => !byWs.containsKey(w)).toList();
     if (missing.isNotEmpty) {
       await _gather<Map?>(
         [
@@ -1982,8 +2730,8 @@ extension RtdbMetrics on Rtdb {
 
     int paid = 0, trials = 0, expired = 0, noPlan = 0, expiringIn7Days = 0;
     const sevenDaysMs = 7 * 86400 * 1000;
-    for (final ws in validWsKeys) {
-      final sub = byWs[ws];
+    for (final ws in keys.keys) {
+      final sub = byWs['$ws'];
       if (sub == null) {
         noPlan++;
         continue;
@@ -2029,7 +2777,7 @@ extension RtdbMetrics on Rtdb {
     } catch (_) {}
 
     return AdminMetrics(
-      totalWorkspaces: validWsKeys.length,
+      totalWorkspaces: keys.length,
       activePaid: paid,
       activeTrials: trials,
       expired: expired,

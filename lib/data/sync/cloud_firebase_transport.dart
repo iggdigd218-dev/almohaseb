@@ -355,57 +355,68 @@ class CloudFirebaseTransport implements SyncTransport {
       // المفاتيح الأجنبية أثناء تطبيق الدفعة ويُعاد بعدها فوراً.
       await _setForeignKeys(false);
       try {
-        await db.transaction((txn) async {
-        for (final entry in entries) {
-          final v = entry.value;
-          if (v is! Map) continue;
-          final op = SyncOperation.fromMap(Map<String, Object?>.from(v));
-          if (op.workspaceId != workspaceId &&
-              op.workspaceId != 'default' &&
-              workspaceId != 'default' &&
-              op.workspaceId.isNotEmpty) {
-            droppedOtherWs++;
-            if (droppedSample.isEmpty) droppedSample = op.workspaceId;
-            continue;
-          }
-          // المؤشر يتقدم دائماً بـ server_ts (ختم خادم فيربيس الموثوق) —
-          // في الحالتين (ترشيح خادمي بـ orderBy=server_ts أو جلب كامل).
-          // العمليات القديمة جداً بلا server_ts تسقط لـ timestamp كاحتياط.
-          final opMs = entryMs(v);
-          if (opMs > maxTsMs) maxTsMs = opMs;
-          // idempotent: نفس opId موجود مسبقًا -> تجاهل.
-          final idempotentQ = await txn.query(
-            'operations',
-            where: 'id = ?',
-            whereArgs: [op.id],
-            limit: 1,
-          );
-          if (idempotentQ.isNotEmpty) {
-            continue;
-          }
-          final ok = await repo.applyRemoteOperation(txn, op, r);
-          if (ok) applied++;
-          if (ok &&
-              op.entityType == EntityKind.message &&
-              op.deviceId != ourId) {
-            chatOps.add(op);
-          }
-          // (دفعة 58 — متطلب 18) تحديث user وارد من جهاز آخر — قد يكون
-          // المدير غيّر دور/صلاحيات هذا العضو: يُفحص بعد المعاملة.
-          if (ok &&
-              op.entityType == EntityKind.user &&
-              op.deviceId != ourId) {
-            roleOps.add(op);
-          }
-          // (إصلاح تسليم الإدارة) نقل ملكية وارد: إخطار المستلم فوراً.
-          if (ok &&
-              op.entityType == EntityKind.setting &&
-              op.entityId == 'ownershipTransfer' &&
-              op.deviceId != ourId) {
-            ownershipOps.add(op);
+        const microBatchSize = 40;
+        for (var i = 0; i < entries.length; i += microBatchSize) {
+          final end = (i + microBatchSize < entries.length)
+              ? i + microBatchSize
+              : entries.length;
+          final chunk = entries.sublist(i, end);
+          await db.transaction((txn) async {
+            for (final entry in chunk) {
+              final v = entry.value;
+              if (v is! Map) continue;
+              final op = SyncOperation.fromMap(Map<String, Object?>.from(v));
+              if (op.workspaceId != workspaceId &&
+                  op.workspaceId != 'default' &&
+                  workspaceId != 'default' &&
+                  op.workspaceId.isNotEmpty) {
+                droppedOtherWs++;
+                if (droppedSample.isEmpty) droppedSample = op.workspaceId;
+                continue;
+              }
+              // المؤشر يتقدم دائماً بـ server_ts (ختم خادم فيربيس الموثوق) —
+              // في الحالتين (ترشيح خادمي بـ orderBy=server_ts أو جلب كامل).
+              // العمليات القديمة جداً بلا server_ts تسقط لـ timestamp كاحتياط.
+              final opMs = entryMs(v);
+              if (opMs > maxTsMs) maxTsMs = opMs;
+              // idempotent: نفس opId موجود مسبقًا -> تجاهل.
+              final idempotentQ = await txn.query(
+                'operations',
+                where: 'id = ?',
+                whereArgs: [op.id],
+                limit: 1,
+              );
+              if (idempotentQ.isNotEmpty) {
+                continue;
+              }
+              final ok = await repo.applyRemoteOperation(txn, op, r);
+              if (ok) applied++;
+              if (ok &&
+                  op.entityType == EntityKind.message &&
+                  op.deviceId != ourId) {
+                chatOps.add(op);
+              }
+              // (دفعة 58 — متطلب 18) تحديث user وارد من جهاز آخر — قد يكون
+              // المدير غيّر دور/صلاحيات هذا العضو: يُفحص بعد المعاملة.
+              if (ok &&
+                  op.entityType == EntityKind.user &&
+                  op.deviceId != ourId) {
+                roleOps.add(op);
+              }
+              // (إصلاح تسليم الإدارة) نقل ملكية وارد: إخطار المستلم فوراً.
+              if (ok &&
+                  op.entityType == EntityKind.setting &&
+                  op.entityId == 'ownershipTransfer' &&
+                  op.deviceId != ourId) {
+                ownershipOps.add(op);
+              }
+            }
+          });
+          if (end < entries.length) {
+            // إفساح المجال للاستعلامات والعمليات المحلية الفورية (الحسابات، الإضافة، الحفظ)
+            await Future<void>.delayed(Duration.zero);
           }
         }
-      });
       } finally {
         // إعادة فحص المفاتيح الأجنبية في كل الحالات (نجاح أو استثناء).
         await _setForeignKeys(true);

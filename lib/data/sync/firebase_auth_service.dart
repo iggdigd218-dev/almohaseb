@@ -116,10 +116,6 @@ class FirebaseAuthRest {
     await repo.setSetting(uidKey, a.uid);
     await repo.setSetting(emailKey, a.email);
     await repo.setSetting(nameKey, a.displayName);
-    // تثبيت هوية وصفة المدير والمالك السيادي الكامل فور تسجيل الدخول
-    await repo.restoreManagerOwnership();
-    await repo.checkAndAutoPromoteManager();
-    await repo.ensureSelfPermissionRow(roleCode: 'admin');
     // (401) توكن الحساب هو الذي يمنح صلاحية المالك — يُحفظ ويُستخدم فوراً.
     if (a.idToken.isNotEmpty) {
       _accountUid = a.uid;
@@ -128,6 +124,9 @@ class FirebaseAuthRest {
       _accountExpiryMs = _computeExpiryMs(a.expiresInSeconds);
       await _persistAccount();
     }
+    // تثبيت هوية وصفة المدير والمالك محلياً فوراً دون انتظار الشبكة
+    await repo.checkAndAutoPromoteManager();
+    await repo.ensureSelfPermissionRow(roleCode: 'admin');
   }
 
   /// uid المحفوظ محلياً ('' إن لم يسجل الدخول بعد).

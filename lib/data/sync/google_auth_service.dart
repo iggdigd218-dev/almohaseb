@@ -172,26 +172,32 @@ class GoogleAuthService {
               'يمكنك استخدام التطبيق محليًا بدون حساب Google.');
     }
     try {
-      // تفريغ أي جلسة معلّقة في خدمات Google Play قبل فتح منتقي الحسابات
-      try {
-        await gs.signOut().timeout(const Duration(seconds: 3));
-      } catch (_) {}
+      // إن كانت هناك جلسة نشطة في الذاكرة ننظفها بسرعة دون تعليق القناة الأصلية
+      if (gs.currentUser != null) {
+        try {
+          await gs.signOut().timeout(const Duration(seconds: 2));
+        } catch (_) {}
+      }
 
-      final a = await gs.signIn().timeout(const Duration(seconds: 35));
+      GoogleSignInAccount? a;
+      try {
+        a = await gs.signIn().timeout(const Duration(seconds: 25));
+      } on TimeoutException {
+        // في حال تعليق Play Services بعد اختيار الحساب، نلتقط الحساب المختار إن وُجد في currentUser أو signInSilently
+        a = gs.currentUser ??
+            await gs
+                .signInSilently(suppressErrors: true)
+                .timeout(const Duration(seconds: 3), onTimeout: () => null);
+        if (a == null) rethrow;
+      }
       if (a == null) {
         return const GoogleAuthResult.fail('تم إلغاء تسجيل الدخول');
       }
       GoogleSignInAuthentication? auth;
       try {
-        auth = await a.authentication.timeout(const Duration(seconds: 10));
+        auth = await a.authentication.timeout(const Duration(seconds: 5));
       } catch (_) {
         auth = null;
-      }
-      if ((auth?.idToken ?? '').isEmpty && supported) {
-        try {
-          await a.clearAuthCache().timeout(const Duration(seconds: 4));
-          auth = await a.authentication.timeout(const Duration(seconds: 8));
-        } catch (_) {}
       }
       final u = _mapAccount(a, auth?.idToken);
       await _persist(u);

@@ -5991,20 +5991,24 @@ class Repo {
       }
     });
     await setSetting('account.type', 'enterprise');
-    try {
-      final st = await settings();
-      final url = effectiveBackendUrl(st['cloudBackendUrl']);
-      final ws = requireWorkspaceId;
-      if (url.isNotEmpty) {
-        await CloudJoin.registerCreatorIfAbsent(
-          this,
-          backendUrl: url,
-          workspaceId: ws,
-          deviceId: ownId,
-        );
-        await CloudJoin.syncRoster(this, db, backendUrl: url, workspaceId: ws);
-      }
-    } catch (_) {}
+    unawaited(() async {
+      try {
+        final st = await settings();
+        final url = effectiveBackendUrl(st['cloudBackendUrl']);
+        final ws = requireWorkspaceId;
+        if (url.isNotEmpty && ws.isNotEmpty && ws != 'default') {
+          await CloudJoin.registerCreatorIfAbsent(
+            this,
+            backendUrl: url,
+            workspaceId: ws,
+            deviceId: ownId,
+          ).timeout(const Duration(seconds: 6));
+          await CloudJoin.syncRoster(this, db,
+                  backendUrl: url, workspaceId: ws)
+              .timeout(const Duration(seconds: 6));
+        }
+      } catch (_) {}
+    }());
   }
 
   /// حذف البيانات المحلية واستيراد نسخة السحابة كلياً كما هي

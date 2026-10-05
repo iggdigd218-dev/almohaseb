@@ -48,6 +48,8 @@ class AccountsScreen extends ConsumerWidget {
         ),
         Expanded(
           child: list.when(
+            skipLoadingOnReload: true,
+            skipLoadingOnRefresh: true,
             loading: () => const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),

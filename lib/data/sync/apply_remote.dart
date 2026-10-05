@@ -586,12 +586,36 @@ extension ApplyRemoteOp on Repo {
 
     // (2026-09-28) حماية سيادية: لا يمكن لأي عملية سحابية قادمة من جهاز عضو
     // أن تعدل حساب المالك الرئيسي أو تخفض رتبته أو تبدّل اسمه.
+    // ⚠️ هام جداً: الاستعلام يتم حصرياً عبر `txn` (وليس `isWorkspaceOwner`/`currentUser`
+    // التي تستعمل `db` فتسبب قفلاً ذاتياً Deadlock داخل معاملة SQLite وتجمّد التطبيق).
     if (table == 'users') {
       try {
-        final isOwner = await isWorkspaceOwner();
+        String ownDevId = '';
+        try {
+          ownDevId = requireDeviceId;
+        } catch (_) {}
+        var isOwner = false;
+        if (ownDevId.isNotEmpty) {
+          final devRows = await txn.query(
+            'devices',
+            columns: ['is_owner'],
+            where: 'id = ?',
+            whereArgs: [ownDevId],
+            limit: 1,
+          );
+          if (devRows.isNotEmpty) {
+            isOwner = ((devRows.first['is_owner'] ?? 0) as int) == 1;
+          }
+        }
         if (isOwner) {
-          final myUser = await currentUser();
-          if (myUser != null && '${myUser.id}' == op.entityId.toString()) {
+          final myUsers = await txn.query(
+            'users',
+            columns: ['id'],
+            where: "is_me = 1 AND COALESCE(deleted_at,'') = ''",
+            limit: 1,
+          );
+          if (myUsers.isNotEmpty &&
+              '${myUsers.first['id']}' == op.entityId.toString()) {
             return false; // نرفض أي كتابة خارجية فوق مستخدم المالك السيادي
           }
         }

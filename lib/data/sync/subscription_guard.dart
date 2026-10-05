@@ -316,9 +316,28 @@ class SubscriptionGuard {
     try {
       final st = await repo.settings();
       final bound = (st['sync.workspaceId'] ?? '').toString().trim();
-      if (bound.isNotEmpty) return bound;
+      if (bound.isNotEmpty && bound != 'default') return bound;
     } catch (_) {}
-    return repo.requireWorkspaceId;
+    final cur = repo.requireWorkspaceId;
+    if (cur.isNotEmpty && cur != 'default') return cur;
+    try {
+      final db = await repo.database;
+      final rows = await db.query(
+        'workspaces',
+        where: "id != 'default'",
+        orderBy: 'rowid DESC',
+        limit: 1,
+      );
+      if (rows.isNotEmpty) {
+        final realId = '${rows.first['id'] ?? ''}'.trim();
+        if (realId.isNotEmpty) {
+          await repo.setSetting('sync.workspaceId', realId);
+          repo.debugSetWorkspaceId(realId);
+          return realId;
+        }
+      }
+    } catch (_) {}
+    return cur;
   }
 
   /// وقت خادم فيربيس الحقيقي — بطبقتين مؤمّنتين:

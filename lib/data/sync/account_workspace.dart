@@ -89,7 +89,8 @@ class AccountWorkspace {
       if (body.isEmpty || body == 'null') return '';
       final m = jsonDecode(body);
       if (m is! Map) return '';
-      return '${m['workspaceId'] ?? ''}'.trim();
+      final ws = '${m['workspaceId'] ?? ''}'.trim();
+      return ws == 'default' ? '' : ws;
     } catch (_) {
       return '';
     }
@@ -102,7 +103,7 @@ class AccountWorkspace {
     required String workspaceId,
   }) async {
     final clean = email.trim().toLowerCase();
-    if (clean.isEmpty || workspaceId.isEmpty) return;
+    if (clean.isEmpty || workspaceId.isEmpty || workspaceId == 'default') return;
     try {
       await http
           .put(
@@ -145,7 +146,8 @@ class AccountWorkspace {
       if (body.isEmpty || body == 'null') return '';
       final m = jsonDecode(body);
       if (m is! Map) return '';
-      return '${m['workspaceId'] ?? ''}'.trim();
+      final ws = '${m['workspaceId'] ?? ''}'.trim();
+      return ws == 'default' ? '' : ws;
     } catch (_) {
       return '';
     }
@@ -159,6 +161,7 @@ class AccountWorkspace {
     String email = '',
     bool force = false,
   }) async {
+    if (workspaceId.isEmpty || workspaceId == 'default') return;
     try {
       if (!force) {
         final existing = await lookup(backendUrl: backendUrl, uid: uid);
@@ -232,7 +235,9 @@ class AccountWorkspace {
           }
         } catch (_) {}
 
-        if (remoteWs.isNotEmpty && remoteWs != localWs) {
+        if (remoteWs.isNotEmpty &&
+            remoteWs != 'default' &&
+            remoteWs != localWs) {
           try {
             final outcome = await _switchWorkspace(
               repo,
@@ -248,7 +253,6 @@ class AccountWorkspace {
                 if (account.email.trim().isNotEmpty) {
                   await repo.setSetting('account.email', account.email.trim());
                 }
-                await repo.restoreManagerOwnership();
                 await repo.checkAndAutoPromoteManager();
                 await repo.ensureSelfPermissionRow(roleCode: 'admin');
               }
@@ -263,14 +267,16 @@ class AccountWorkspace {
       if (account.email.trim().isNotEmpty) {
         await repo.setSetting('account.email', account.email.trim());
       }
-      await repo.restoreManagerOwnership();
       await repo.checkAndAutoPromoteManager();
       await repo.ensureSelfPermissionRow(roleCode: 'admin');
+      unawaited(repo.restoreManagerOwnership());
 
       if (backendUrl.isNotEmpty) {
-        await _afterLink(repo, backendUrl, account, repo.requireWorkspaceId)
-            .timeout(const Duration(seconds: 4), onTimeout: () {})
-            .catchError((_) {});
+        unawaited(
+          _afterLink(repo, backendUrl, account, repo.requireWorkspaceId)
+              .timeout(const Duration(seconds: 6), onTimeout: () {})
+              .catchError((_) {}),
+        );
       }
       return AccountLinkOutcome.migrated;
     } catch (_) {
@@ -355,14 +361,17 @@ class AccountWorkspace {
 
       // 5) هوية سحابية مستقلة مقترنة بالمساحة الجديدة.
       await FirebaseAuthRest.resetAnonymousSession(repo);
-      await FirebaseAuthRest.saveSession(repo, account);
       await FirebaseAuthRest.ensureScopedAnonymous(repo, toWorkspaceId);
-      // بعد تدوير الهوية: ابدأ جلسة مجهولة جديدة تُصدر uid المستقل.
+      // بعد تدوير الهوية: ابدأ جلسة مجهولة جديدة ثم احفظ جلسة الحساب فوقها.
       await FirebaseAuthRest.initSilentAuth(repo);
+      await FirebaseAuthRest.saveSession(repo, account);
+      if (account.email.trim().isNotEmpty) {
+        await repo.setSetting('account.email', account.email.trim());
+      }
       await repo.setSetting('account.type', 'enterprise');
-      await repo.restoreManagerOwnership();
       await repo.checkAndAutoPromoteManager();
       await repo.ensureSelfPermissionRow(roleCode: 'admin');
+      unawaited(repo.restoreManagerOwnership());
       try {
         await db.insert(
           'sync_meta',

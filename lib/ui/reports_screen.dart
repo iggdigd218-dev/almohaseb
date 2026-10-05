@@ -92,6 +92,8 @@ class ReportsScreen extends ConsumerWidget {
         const SizedBox(height: 6),
         Expanded(
           child: data.when(
+            skipLoadingOnReload: true,
+            skipLoadingOnRefresh: true,
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => EmptyState(
               icon: Icons.error_outline,

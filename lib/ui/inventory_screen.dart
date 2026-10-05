@@ -278,6 +278,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
               onAddCategory: () => openItemCategoryForm(context, ref),
             ),
             categoriesAsync.when(
+              skipLoadingOnReload: true,
+              skipLoadingOnRefresh: true,
               loading: () => const SizedBox(height: 54),
               error: (_, __) => const SizedBox.shrink(),
               data: (roots) => _HierarchyFilterBar(
@@ -302,6 +304,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             ),
             Expanded(
               child: categoriesAsync.when(
+                skipLoadingOnReload: true,
+                skipLoadingOnRefresh: true,
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => EmptyState(
                   icon: Icons.error_outline,
@@ -309,6 +313,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                   message: '$e',
                 ),
                 data: (roots) => itemsAsync.when(
+                  skipLoadingOnReload: true,
+                  skipLoadingOnRefresh: true,
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
                   error: (e, _) => EmptyState(
