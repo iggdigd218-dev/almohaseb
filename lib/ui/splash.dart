@@ -49,10 +49,20 @@ class _SplashScreenState extends State<SplashScreen>
         try {
           final container = ProviderScope.containerOf(context, listen: false);
           final repo = container.read(repoProvider);
+          final mode = await repo.workspaceMode();
+          if (mode != 'member') {
+            await repo
+                .restoreManagerOwnership()
+                .timeout(const Duration(seconds: 2));
+            await repo
+                .checkAndAutoPromoteManager()
+                .timeout(const Duration(seconds: 2));
+            await repo
+                .ensureSelfPermissionRow(roleCode: 'admin')
+                .timeout(const Duration(seconds: 2));
+          }
           await repo
-              .ensureCurrentUserIsManager()
-              .timeout(const Duration(seconds: 3));
-          await markOnboardingComplete(repo)
+              .setSetting(kOnboardingDoneKey, '1')
               .timeout(const Duration(seconds: 2));
         } catch (_) {}
       }(),

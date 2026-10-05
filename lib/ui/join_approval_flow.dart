@@ -34,12 +34,16 @@ class JoinApprovalScreen extends ConsumerStatefulWidget {
     this.prefillUrl = '',
     this.prefillWs = '',
     this.prefillToken = '',
+    this.startWaiting = false,
   });
 
   /// عند القدوم من مسح QR جاهز: بعد التسمية يُرسل الطلب مباشرة.
   final String prefillUrl;
   final String prefillWs;
   final String prefillToken;
+
+  /// عند إرسال الطلب مسبقاً من نافذة الحساب الموحدة: يبدأ شاشة الانتظار مباشرة.
+  final bool startWaiting;
 
   @override
   ConsumerState<JoinApprovalScreen> createState() =>
@@ -83,6 +87,21 @@ class _JoinApprovalScreenState extends ConsumerState<JoinApprovalScreen> {
   String _joinUrl = '';
   String _joinWs = 'default';
   String _joinToken = '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.startWaiting && widget.prefillUrl.isNotEmpty) {
+      _joinUrl = widget.prefillUrl;
+      _joinWs = widget.prefillWs.isEmpty ? 'default' : widget.prefillWs;
+      _joinToken = widget.prefillToken;
+      _sentOnce = true;
+      _step = _JoinStep.waiting;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _startPolling();
+      });
+    }
+  }
 
   @override
   void dispose() {

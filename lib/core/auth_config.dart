@@ -23,6 +23,7 @@ library;
 /// المستودع العام، ويبقى التجاوز ممكناً للبناءات الخاصة.
 const String kFirebaseWebApiKey = String.fromEnvironment(
   'NEXORA_FIREBASE_API_KEY',
+  defaultValue: 'AIzaSyATvivcsVdgrPbvlwVDAWFHGQ-C3vlFySc',
 );
 
 /// معرف عميل OAuth من نوع Web — يُمرَّر لـ GoogleSignIn(serverClientId)
@@ -42,9 +43,7 @@ String? debugFirebaseApiKeyOverride;
 String get effectiveFirebaseApiKey {
   if (debugFirebaseApiKeyOverride != null) return debugFirebaseApiKeyOverride!;
   if (kFirebaseWebApiKey.isNotEmpty) return kFirebaseWebApiKey;
-  // في بيئة الاختبارات عند غياب --dart-define، نستخدم مفتاحاً تجريبياً
-  // لتمكين MockClient من اعتراض طلبات الهوية السحابية بدل توقفها مبكراً.
-  return 'AIzaSy-MOCK-TEST-API-KEY';
+  return 'AIzaSyATvivcsVdgrPbvlwVDAWFHGQ-C3vlFySc';
 }
 
 /// هل ميزة الدخول بحساب Google مهيأة في هذا البناء؟

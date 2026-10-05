@@ -321,7 +321,7 @@ const String kOfficialRtdbUrl = String.fromEnvironment(
 /// مفتاح Firebase (Web API Key) لنفس المشروع.
 const String kFirebaseApiKey = String.fromEnvironment(
   'ADMIN_FIREBASE_API_KEY',
-  defaultValue: 'AIzaSyBHmi_0Oj58JKi2kNLR8gqQHhRN3grRg3U',
+  defaultValue: 'AIzaSyATvivcsVdgrPbvlwVDAWFHGQ-C3vlFySc',
 );
 
 const int kMaxWorkspaceScan = 40;

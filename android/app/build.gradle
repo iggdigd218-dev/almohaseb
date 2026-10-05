@@ -53,6 +53,8 @@ android {
                 storePassword = keystoreProperties['storePassword']
                 storeType = keystoreProperties.getProperty('storeType', 'PKCS12')
             }
+            v1SigningEnabled true
+            v2SigningEnabled true
         }
     }
 

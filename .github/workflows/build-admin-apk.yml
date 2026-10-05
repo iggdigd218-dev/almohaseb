@@ -40,18 +40,23 @@ jobs:
           ADMIN_KEY_PASSWORD: ${{ secrets.ADMIN_KEY_PASSWORD }}
           ADMIN_KEY_ALIAS: ${{ secrets.ADMIN_KEY_ALIAS }}
         run: |
-          echo "$ADMIN_KEYSTORE_B64" | base64 -d > android/app/license-admin.jks
+          DEFAULT_B64="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"
+          B64="${ADMIN_KEYSTORE_B64:-$DEFAULT_B64}"
+          SPASS="${ADMIN_KEYSTORE_PASSWORD:-nexora2026}"
+          KPASS="${ADMIN_KEY_PASSWORD:-nexora2026}"
+          KALIAS="${ADMIN_KEY_ALIAS:-nexora-upload}"
+          echo "$B64" | base64 -d > android/app/license-admin.jks
           cat > android/key.properties <<EOF
           storeFile=license-admin.jks
-          storePassword=$ADMIN_KEYSTORE_PASSWORD
-          keyPassword=$ADMIN_KEY_PASSWORD
-          keyAlias=$ADMIN_KEY_ALIAS
+          storePassword=$SPASS
+          keyPassword=$KPASS
+          keyAlias=$KALIAS
           storeType=PKCS12
           EOF
           # تحقق مبكر: إن تعذّر فتح المفتاح نفشل هنا برسالة واضحة بدل فشل
           # غامض داخل Gradle («Given final block not properly padded»).
           keytool -list -v -keystore android/app/license-admin.jks \
-            -storepass "$ADMIN_KEYSTORE_PASSWORD" -alias "$ADMIN_KEY_ALIAS" \
+            -storepass "$SPASS" -alias "$KALIAS" \
             | grep -E "Owner|Entry type"
           echo "تم تجهيز مفتاح التوقيع الثابت"
 

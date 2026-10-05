@@ -6,6 +6,7 @@
 //   - حساب Google يُستخدم للترخيص والنسخ على Drive فقط، ويُسجَّل ربطه
 //     بالمساحة الحالية في فهرس اختياري لأجل استرداد يدوي مستقبلي.
 //   - انضمام الموظفين يبقى عبر QR/PIN — لا يحتاجون حساب Google.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';

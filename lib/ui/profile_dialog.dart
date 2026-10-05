@@ -23,7 +23,7 @@ import '../data/sync/account_workspace.dart';
 import '../data/sync/cloud_join.dart';
 import '../data/sync/firebase_auth_service.dart';
 import '../data/sync/google_auth_service.dart';
-import '../data/sync/workspace_pointer.dart';
+import '../data/sync/workspace_service.dart';
 import 'account_section.dart';
 import 'join_approval_flow.dart';
 import 'logout_flow.dart';
@@ -160,7 +160,7 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
         name: gu.displayName ?? '',
       );
       if ((gu.photoUrl ?? '').isNotEmpty) {
-        await repo.setSetting(Repo.accountPhotoKey, gu.photoUrl!);
+        await repo.setSetting('account.photoPath', gu.photoUrl!);
       }
       await repo.setSetting(Repo.accountEmailKey, gu.email);
       await repo.setSetting('email', gu.email);
@@ -169,7 +169,6 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
       final curMode = await repo.workspaceMode();
       if (curMode != 'member') {
         await repo.restoreManagerOwnership();
-        await repo.ensureCurrentUserIsManager();
         await repo.checkAndAutoPromoteManager();
         await repo.ensureSelfPermissionRow(roleCode: 'admin');
       }
@@ -230,7 +229,7 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
     }
   }
 
-  Future<void> _submitMemberJoin({String? qrPayload}) async {
+  Future<void> _submitMemberJoin({PairingData? qrData}) async {
     if (_joinBusy) return;
     final repo = ref.read(repoProvider);
     final devName = _userNameCtrl.text.trim().isNotEmpty
@@ -238,49 +237,40 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
         : 'جهاز عضو';
 
     String tokenOrPin = _joinPinCtrl.text.trim();
-    String targetWs = 'default';
+    String targetWs = '';
     final st = await repo.settings();
     String backendUrl = effectiveBackendUrl(st['cloudBackendUrl']);
 
-    if (qrPayload != null && qrPayload.trim().isNotEmpty) {
-      final raw = qrPayload.trim();
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) {
-          tokenOrPin = '${decoded['token'] ?? decoded['pin'] ?? ''}'.trim();
-          final ws = '${decoded['ws'] ?? decoded['workspaceId'] ?? ''}'.trim();
-          if (ws.isNotEmpty) targetWs = ws;
-          final u = '${decoded['url'] ?? decoded['backendUrl'] ?? ''}'.trim();
-          if (u.isNotEmpty) backendUrl = u;
-        } else {
-          tokenOrPin = raw;
-        }
-      } catch (_) {
-        final uri = Uri.tryParse(raw);
-        if (uri != null && uri.queryParameters.isNotEmpty) {
-          tokenOrPin = (uri.queryParameters['token'] ??
-                  uri.queryParameters['pin'] ??
-                  raw)
-              .trim();
-          targetWs =
-              (uri.queryParameters['ws'] ?? targetWs).trim();
-          backendUrl =
-              (uri.queryParameters['url'] ?? backendUrl).trim();
-        } else {
-          tokenOrPin = raw;
-        }
+    if (qrData != null) {
+      tokenOrPin = qrData.tok.trim();
+      targetWs = qrData.ws.trim();
+      if (qrData.cloudUrl.trim().isNotEmpty) {
+        backendUrl = qrData.cloudUrl.trim();
       }
     }
 
     if (tokenOrPin.isEmpty) {
-      showSnack(context, 'أدخل رمز الدعوة (6 أرقام) أو امسح باركود QR أولاً',
-          error: true);
+      if (mounted) {
+        showSnack(context, 'أدخل رمز الدعوة (6 أرقام) أو امسح باركود QR أولاً',
+            error: true);
+      }
       return;
     }
 
     setState(() => _joinBusy = true);
     Sfx.click();
     try {
+      if (targetWs.isEmpty || targetWs == 'default') {
+        final foundWs = await CloudJoin.findWorkspaceByInvite(
+          backendUrl: backendUrl,
+          tokenOrPin: tokenOrPin,
+        );
+        if (foundWs != null && foundWs.isNotEmpty) {
+          targetWs = foundWs;
+        }
+      }
+      if (targetWs.isEmpty) targetWs = 'default';
+
       await CloudJoin.requestJoin(
         repo,
         backendUrl: backendUrl,
@@ -288,15 +278,17 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
         deviceName: devName,
         workspaceId: targetWs,
       );
-      if (!mounted) return;
       final savedWs = (await repo.settings())['pendingJoin.ws'] ?? targetWs;
+      if (!mounted) return;
       final nav = Navigator.of(context);
       nav.pop(); // إغلاق نافذة الحساب قبل فتح شاشة انتظار موافقة المدير
       await nav.push(
-        MaterialPageRoute<bool>(
-          builder: (_) => JoinWaitingScreen(
-            backendUrl: backendUrl,
-            workspaceId: savedWs,
+        MaterialPageRoute<void>(
+          builder: (_) => JoinApprovalScreen(
+            prefillUrl: backendUrl,
+            prefillWs: savedWs,
+            prefillToken: tokenOrPin,
+            startWaiting: true,
           ),
         ),
       );
@@ -316,16 +308,14 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
   }
 
   Future<void> _scanQrToJoin() async {
-    final code = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => const QrPairScanner(
-          title: 'مسح باركود الانضمام للمجموعة',
-          hint: 'وجّه الكاميرا نحو باركود الدعوة على شاشة جهاز المدير',
-        ),
-      ),
-    );
-    if (code == null || code.trim().isEmpty || !mounted) return;
-    await _submitMemberJoin(qrPayload: code);
+    final data = await scanQrPair(context);
+    if (data == null || !mounted) return;
+    if (!data.isCloud || data.tok.trim().isEmpty) {
+      showSnack(context, 'رمز QR غير صالح — تأكد أنه رمز دعوة سحابية.',
+          error: true);
+      return;
+    }
+    await _submitMemberJoin(qrData: data);
   }
 
   Future<void> _pickAndSetLogo() async {
