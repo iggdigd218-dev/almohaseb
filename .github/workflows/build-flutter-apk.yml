@@ -156,12 +156,12 @@ jobs:
           cat version.json
 
           # مزامنة فورية وموثوقة لبيان التحديث إلى Firebase RTDB العام
+          curl -s -X PATCH -H "Content-Type: application/json; charset=utf-8" \
+            -d @version.json \
+            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/force_update.json" || true
           curl -s -X PUT -H "Content-Type: application/json; charset=utf-8" \
             -d @version.json \
-            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/system/force_update.json" || true
-          curl -s -X PUT -H "Content-Type: application/json; charset=utf-8" \
-            -d @version.json \
-            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/system/version_manifest.json" || true
+            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/version_manifest.json" || true
 
       # الأصل الواحد يحمل ملفي النشر معاً: APK + version.json، فلا حاجة
       # لإعادة توليد أي شيء في وظيفة النشر، ولا لرفع مزدود للملف الكبير.

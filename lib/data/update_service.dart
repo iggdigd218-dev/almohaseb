@@ -151,15 +151,15 @@ class UpdateService {
   /// الرابط الافتراضي لبيان الإصدار (يُقرأ من قاعدة Firebase RTDB العامة الموثوقة
   /// ولا يتأثر بخصوصية مستودع الأكواد).
   static const String kDefaultManifestUrl =
-      'https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/system/force_update.json';
+      'https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/version_manifest.json';
 
   /// رابط احتياطي على GitHub Releases للمستودع العام.
   static const String kFallbackManifestUrl =
-      'https://github.com/iggdigd218-dev/sijil-al-mabiat-wal-duyun/releases/download/latest/version.json';
+      'https://github.com/iggdigd218-dev/almohaseb/releases/download/latest/version.json';
 
   /// صفحة الإصدار الرسمية (احتياطي إذا لم يذكر البيان رابطًا).
   static const String kFallbackReleaseUrl =
-      'https://github.com/iggdigd218-dev/sijil-al-mabiat-wal-duyun/releases/latest';
+      'https://github.com/iggdigd218-dev/almohaseb/releases/latest';
 
   final String manifestUrl;
   final http.Client Function() _clientFactory;
@@ -318,7 +318,7 @@ class UpdateService {
     }
     // احتياطي لويندوز: إذا كان البيان بلا رابط مباشر لويندوز
     if (downloadUrl == null && platform == UpdatePlatform.windows) {
-      downloadUrl = 'https://github.com/iggdigd218-dev/sijil-al-mabiat-wal-duyun/releases/download/latest/NexoraSetup.exe';
+      downloadUrl = 'https://github.com/iggdigd218-dev/almohaseb/releases/download/latest/NexoraSetup.exe';
     }
     final release = map['releaseUrl'];
     final releaseUrl = (release is String && release.startsWith('https://'))
