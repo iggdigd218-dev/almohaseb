@@ -1,0 +1,56 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700;800&family=Amiri:ital,wght@0,400;0,700;1,400&family=Tajawal:wght@300;400;500;700;800;900&display=swap');
+
+:root {
+  --app-font: 'Noto Naskh Arabic', 'Amiri', 'Tajawal', serif;
+}
+
+[data-font="naskh"] {
+  --app-font: 'Noto Naskh Arabic', serif;
+}
+
+[data-font="amiri"] {
+  --app-font: 'Amiri', serif;
+}
+
+[data-font="tajawal"] {
+  --app-font: 'Tajawal', sans-serif;
+}
+
+@layer base {
+  *, ::before, ::after {
+    box-sizing: border-box;
+    font-family: var(--app-font) !important;
+  }
+  html, body, button, input, select, textarea, optgroup, span, p, h1, h2, h3, h4, h5, h6, a, label {
+    font-family: var(--app-font) !important;
+  }
+  body {
+    direction: rtl;
+    font-family: var(--app-font) !important;
+    margin: 0;
+    padding: 0;
+    background-color: #f8fafc;
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    line-height: 1.6;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

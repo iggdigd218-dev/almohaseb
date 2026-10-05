@@ -1,0 +1,16 @@
+{
+  "version": "3.84.3+209",
+  "minSupported": "3.13.0",
+  "releaseUrl": "https://github.com/iggdigd218-dev/sijil-al-mabiat-wal-duyun/releases/tag/latest",
+  "downloads": {
+    "android": "https://github.com/iggdigd218-dev/sijil-al-mabiat-wal-duyun/releases/download/latest/nexora-universal.apk",
+    "androidVariants": {
+      "arm64": "https://github.com/iggdigd218-dev/sijil-al-mabiat-wal-duyun/releases/download/latest/nexora-arm64.apk",
+      "armv7": "https://github.com/iggdigd218-dev/sijil-al-mabiat-wal-duyun/releases/download/latest/nexora-armv7.apk",
+      "x64": "https://github.com/iggdigd218-dev/sijil-al-mabiat-wal-duyun/releases/download/latest/nexora-x64.apk"
+    },
+    "windows": "https://github.com/iggdigd218-dev/sijil-al-mabiat-wal-duyun/releases/download/latest/NexoraSetup.exe"
+  },
+  "publishedAt": "2026-09-29T05:00:00Z",
+  "notes": "• بناء نظام ذكي متكامل لمنع تصادم البيانات ومعالجة عودة الأعضاء بعد الغياب المتكرر لأيام دون أي انفجارات أو تعليق للمزامنة.\n• استقرار مؤشر السهمين باللون الإيجابي باستمرار ومعالجة ذاتية للأخطاء العارضة مع تشخيص دقيق باللغة العربية.\n• مطابقة ثيم التطبيق وخط النسخ العربي الافتراضي الفاخر (Noto Naskh Arabic) مع نسخة الويب وتصميم فائق الأناقة.\n• شاشة مبيعات نقطة البيع (POS) متطورة فائقة السرعة والتنظيم مستوحاة من أفضل الأنظمة التجارية العالمية مع تحسين شامل لشاشة المخزون والأصناف."
+}

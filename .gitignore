@@ -1,0 +1,39 @@
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+android/local.properties
+android/key.properties
+android/.gradle/
+android/app/src/main/java/io/flutter/plugins/
+*.jks
+*.keystore
+*.apk
+*.aab
+windows/flutter/
+# Generated QA preview libraries (recreated by qa/prepare_preview.sh)
+qa/preview/core
+qa/preview/vendor
+
+# QA evidence logs (سجلات ضخمة تُولَّد محلياً، لا داعي لتتبعها)
+qa/evidence/
+qa/*.patch
+pubspec.lock.bak
+nexora_app.iml
+.idea/
+
+windows_installer/staging/
+windows_installer/output/
+NexoraSetup.exe
+linux/
+build/linux/
+
+# أرشيف كامل قديم (لقطة 2026-09-12 تضمّ admin_app) — المستودع هو المصدر، لا يُلتزم بنسخة مكرّرة
+nexora_full_project.zip
+
+# تبعات الويب (3.70) — لا تُلتزم أبداً
+node_modules/
+dist/
+*.db
+bun.lock

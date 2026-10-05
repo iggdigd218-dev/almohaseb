@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "843243539740",
+    "firebase_url": "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "nexora-ledger",
+    "storage_bucket": "nexora-ledger.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:843243539740:android:be43da3698a133cb41bed9",
+        "android_client_info": {
+          "package_name": "com.nexora.eradata"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "843243539740-ioba34193vkmc6pfu88nndgmcjc60arg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nexora.eradata",
+            "certificate_hash": "51547afb77c34d7405b71ff0b885e00f98e460e0"
+          }
+        },
+        {
+          "client_id": "843243539740-knmm6opqabnt9aloiprh8d5e5d545j0n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyATvivcsVdgrPbvlwVDAWFHGQ-C3vlFySc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "843243539740-knmm6opqabnt9aloiprh8d5e5d545j0n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

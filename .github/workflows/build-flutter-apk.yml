@@ -1,0 +1,284 @@
+name: Build Flutter Android APK
+
+# (دفعة 65 — تحسين خط البناء) لا قيد تزامن على مستوى الوظيفة بعد اليوم.
+# قيد التزامن انتقل إلى وظيفة `publish` وحدها (أسفل الملف)، فيُبنى
+# الأندرويد والويندوز **معاً بالتوازي**، ولا يُنتظر أحدهما الآخر إلا في
+# خطوة رفع الأصول إلى إصدار `latest` — وهي الوحيدة التي تحتاج التسلسل.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Flutter Release APK (Universal)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.x'
+          channel: stable
+          cache: true
+
+      # (دفعة 65) كاش Gradle: مجلدات التبعيات ودوال Gradle تُستعاد بين
+      # التشغيلات فلا تُحمَّل مكتبات الأندرويد من الصفر في كل بناء.
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'android/build.gradle', 'android/settings.gradle', 'android/app/build.gradle') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # (دفعة 65) كاش حزم pub.
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Decode release keystore & create signing config
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeType=PKCS12
+          EOF
+          echo "تم تجهيز مفتاح التوقيع الثابت"
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Ensure app_version.dart matches pubspec.yaml
+        run: |
+          VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
+          NAME="${VER%%+*}"; BUILD="${VER##*+}"
+          IFS='.' read -r MAJ MIN PAT <<< "$NAME"
+          sed -i "s/const String kAppVersion = .*/const String kAppVersion = '$NAME';/" lib/core/app_version.dart
+          sed -i "s/const int kAppBuild = .*/const int kAppBuild = $BUILD;/" lib/core/app_version.dart
+          sed -i "s/AppSemVer([0-9]*, [0-9]*, [0-9]*, kAppBuild)/AppSemVer($MAJ, $MIN, $PAT, kAppBuild)/" lib/core/app_version.dart
+          echo "Verified app_version.dart matches $NAME+$BUILD"
+
+      - name: Build Android APK (Universal — كل المعالجات)
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g"
+          JAVA_OPTS: "-Xmx3g"
+        run: |
+          # (3.70) حزمة شاملة: بلا --target-platform فتُدمج كل ABIs
+          # (armeabi-v7a + arm64-v8a + x86_64) — إصلاح «الحزمة تبدو غير صالحة».
+          # تُبقى للعملاء القدامى (≤ 3.75.0+151) الذين يقرأون downloads.android.
+          flutter build apk --release --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
+          cp build/app/outputs/flutter-apk/app-release.apk nexora-universal.apk
+
+          # (3.75.0+152) حزم مُقسّمة حسب المعالج: كل حزمة نحو نصف حجم الشاملة،
+          # وversion.json يوجّه كل جهاز إلى حزمة معالجه (androidVariants).
+          flutter build apk --release --split-per-abi --obfuscate \
+            --split-debug-info=build/app/symbols \
+            --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
+          cp build/app/outputs/apk/release/app-arm64-v8a-release.apk nexora-arm64.apk
+          cp build/app/outputs/apk/release/app-armeabi-v7a-release.apk nexora-armv7.apk
+          cp build/app/outputs/apk/release/app-x86_64-release.apk nexora-x64.apk
+          ls -lh nexora-universal.apk nexora-arm64.apk nexora-armv7.apk nexora-x64.apk
+
+      - name: Verify APK (zipalign + apksigner)
+        run: |
+          # (3.70 — المرحلة 7) التحقق من سلامة المحاذاة والتوقيع قبل النشر.
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          for f in nexora-universal.apk nexora-arm64.apk nexora-armv7.apk nexora-x64.apk; do
+            echo "— $f"
+            "$BT/zipalign" -c -v 4 "$f" | tail -1
+            "$BT/apksigner" verify --print-certs "$f" | head -3
+          done
+          echo "كل الحزم محاذية وموقعة توقيعاً صالحاً"
+
+      - name: Generate version manifest (version.json)
+        run: |
+          VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
+          NAME="${VER%%+*}"; BUILD="${VER##*+}"
+          # ملاحظات الإصدار تُقرأ من release_notes.txt وتُهرَّب كسلسلة JSON
+          # عبر python (قصّ عند حدود المحارف لا البايتات + تهريب آمن).
+          # (2026-09-24) السجل مقتضب ودائم: أحدث إصدار فقط — أول ٣ أسطر
+          # غير فارغة من release_notes.txt، وكل سطر يُقصّ عند 220 محرفاً.
+          NOTES=$(python3 -c "import json; lines=[l.strip() for l in open('release_notes.txt',encoding='utf-8').read().splitlines() if l.strip()]; lines=lines[:3]; lines=[(l[:219].rstrip()+'…') if len(l)>220 else l for l in lines]; t='\\n'.join(lines); print(json.dumps(t,ensure_ascii=False)[1:-1])")
+          echo "إصدار البناء: $NAME (build $BUILD)"
+          cat > version.json <<EOF
+          {
+            "version": "$NAME+$BUILD",
+            "minSupported": "3.13.0",
+            "releaseUrl": "https://github.com/${{ github.repository }}/releases/tag/latest",
+            "downloads": {
+              "android": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-universal.apk",
+              "androidVariants": {
+                "arm64": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-arm64.apk",
+                "armv7": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-armv7.apk",
+                "x64": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-x64.apk"
+              },
+              "windows": "https://github.com/${{ github.repository }}/releases/download/latest/NexoraSetup.exe"
+            },
+            "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "notes": "$NOTES"
+          }
+          EOF
+          cat version.json
+
+          # مزامنة فورية وموثوقة لبيان التحديث إلى Firebase RTDB العام
+          curl -s -X PUT -H "Content-Type: application/json; charset=utf-8" \
+            -d @version.json \
+            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/system/force_update.json" || true
+          curl -s -X PUT -H "Content-Type: application/json; charset=utf-8" \
+            -d @version.json \
+            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/system/version_manifest.json" || true
+
+      # الأصل الواحد يحمل ملفي النشر معاً: APK + version.json، فلا حاجة
+      # لإعادة توليد أي شيء في وظيفة النشر، ولا لرفع مزدود للملف الكبير.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexora-flutter-universal
+          path: |
+            nexora-universal.apk
+            nexora-arm64.apk
+            nexora-armv7.apk
+            nexora-x64.apk
+            version.json
+          retention-days: 30
+
+  # ══════════════════════════════════════════════════════════════════
+  # النشر — الوظيفة الوحيدة الخاضعة لقيد التزامن في هذا الملف.
+  # كل منصّة ترفع أصولها **فقط**، والقيد يمنع تعارضها مع وظيفة نشر
+  # الويندوز على إصدار `latest` نفسه (حذف/إعادة رفع متزامن كان يُفرغ
+  # الإصدار أحياناً فيبقى المستخدمون بلا تحميل).
+  # ══════════════════════════════════════════════════════════════════
+  publish:
+    name: Publish APK to latest release
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-latest-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: nexora-flutter-universal
+          path: dist
+
+      # actions/download-artifact@v4 يضع الملفات داخل مجلد باسم الأصل؛
+      # نُسطّحها إلى جذر مسار العمل لتسهل معالجتها بلا مسارات فرعية.
+      - name: Flatten artifacts
+        run: |
+          find dist -type f -exec mv -f {} . \;
+          rm -rf dist
+          ls -lh nexora-universal.apk nexora-arm64.apk nexora-armv7.apk nexora-x64.apk version.json
+
+      - name: Build upload list (existing files only)
+        id: filelist
+        shell: bash
+        run: |
+          # ⚠️ كل منصّة ترفع أصولها **فقط**. خطوة الرفع تحذف الأصل القديم بنفس
+          # الاسم **أولاً** ثم ترفع البديل؛ فإدراج أصل منصّة أخرى يعني تعريضه
+          # للحذف بلا تعويض إن فشل تنزيله — وبهذا فُقدت nexora-windows.zip ثم
+          # أُفرغ الإصدار كاملاً (0 أصول). لا تنزيل، لا مساس بغير أصولنا.
+          files=""
+          for f in nexora-universal.apk nexora-arm64.apk nexora-armv7.apk nexora-x64.apk version.json; do
+            if [ -s "$f" ]; then files="${files}${f}"$'\n'; fi
+          done
+          {
+            echo 'files<<LISTEOF'
+            printf '%s' "$files"
+            echo 'LISTEOF'
+          } >> "$GITHUB_OUTPUT"
+          echo "قائمة الرفع:"; printf '%s\n' "$files"
+
+      - name: Update unified latest release (APK + version.json)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Nexora — الإصدار الرسمي الأحدث
+          body: |
+            ## 📥 التحميل المباشر
+
+            **هذا هو الإصدار الرسمي الأحدث من التطبيق.**
+
+            ### 📱 للأندرويد
+            - **الأسهل والأصغر:** حمّل الحزمة المطابقة لمعالج جهازك:
+              - `nexora-arm64.apk` — معظم الهواتف الحديثة (**نحو 19 MB**).
+              - `nexora-armv7.apk` — الهواتف الأقدم 32-بت.
+              - `nexora-x64.apk` — أجهزة 64-بت نادرة/محاكيات.
+            - أو `nexora-universal.apk` الشاملة: تعمل على **كل** الأجهزة (32 و64 بت)
+              لكنها أكبر (نحو 45 MB) — لا خطأ «الحزمة غير صالحة» بعد اليوم.
+            - التحديث داخل التطبيق (3.75.0+152 فأحدث) ينزّل حزمة معالجك تلقائياً.
+
+            ### 🖥️ لويندوز
+            - **الأسهل:** حمّل `NexoraSetup.exe` وثبّته كأي برنامج.
+            - أو النسخة المحمولة `nexora-windows.zip`: فك الضغط ثم شغّل `Run.bat`.
+
+            > يتم تحديث هذه الصفحة تلقائيًا بعد كل بناء ناجح.
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: رفع أصول الإصدار (مع إعادة المحاولة)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # ❗ السبب الجذري لتكرار "Error saving asset": softprops/action-gh-release
+          # يحذف الأصل القديم أولاً ثم يرفع البديل، ورفع ملف 24MB ينتهي
+          # بالفشل بعد ~39 ثانية في كل مرة — فيُفقد الأصل بلا تعويض.
+          # actions/upload-artifact يرفع نفس الحجم في ثانيتين، فالمشكلة في
+          # مسار رفع أصول الإصدار لدى softprops تحديداً. gh الرسمي أنجح،
+          # ومع حلقة إعادة محاولة لا يبقى مجال لضياع أصل.
+          files=()
+          for f in nexora-universal.apk nexora-arm64.apk nexora-armv7.apk nexora-x64.apk version.json; do
+            [ -s "$f" ] && files+=("$f")
+          done
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::لا ملفات صالحة للرفع"; exit 1
+          fi
+          for attempt in 1 2 3; do
+            echo "محاولة رفع ${attempt}/3 إلى ${{ github.repository }}: ${files[*]}"
+            if gh release upload latest "${files[@]}" --clobber --repo "${{ github.repository }}"; then
+              echo "✔ تم رفع الأصول في المحاولة ${attempt} إلى ${{ github.repository }}"
+              # رفع متزامن إلى المستودع الرديف iggdigd218-dev/Nexora لضمان عدم تأثر أي مستخدم بإصدار سابق
+              gh release upload latest "${files[@]}" --clobber --repo "iggdigd218-dev/Nexora" || true
+              exit 0
+            fi
+            echo "⚠️ فشلت المحاولة ${attempt} — إعادة المحاولة بعد 20 ثانية"
+            sleep 20
+          done
+          echo "::error::تعذّر رفع أصول الإصدار بعد 3 محاولات"; exit 1

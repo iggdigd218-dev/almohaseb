@@ -1,0 +1,87 @@
+name: nexora_app
+description: مدير الحسابات — سجل المبيعات والديون
+publish_to: 'none'
+version: 3.85.1+211
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  sqflite: ^2.3.3
+  sqflite_common_ffi: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  intl: '>=0.19.0 <1.0.0'
+  url_launcher: ^6.3.0
+  share_plus: ^10.0.2
+  file_picker: ^8.1.2
+  image_picker: ^1.1.2
+  pdf: ^3.11.1
+  printing: ^5.13.2
+  local_auth: ^2.3.0
+  local_auth_android: ^1.0.43
+  math_expressions: ^2.6.0
+  crypto: ^3.0.5
+  device_info_plus: ^11.1.0
+  google_sign_in: ^6.2.2
+  http: ^1.2.2
+  mobile_scanner: ^5.2.3
+  qr_flutter: ^4.1.0
+  flutter_contacts: ^1.1.9+2
+  flutter_overlay_window: ^0.5.0
+  shared_preferences: '>=2.2.0 <3.0.0'
+  audioplayers: ^6.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  # لمحاكاة path_provider في اختبارات مرفقات الدردشة.
+  path_provider_platform_interface: ^2.1.2
+  plugin_platform_interface: ^2.1.8
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/fonts/
+    - assets/images/
+    - assets/audio/
+  fonts:
+    # (الهوية البصرية المتطابقة مع نسخة الويب) خط النسخ الافتراضي الأنيق
+    - family: Noto Naskh Arabic
+      fonts:
+        - asset: assets/fonts/NotoNaskhArabic-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoNaskhArabic-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/NotoNaskhArabic-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/NotoNaskhArabic-Bold.ttf
+          weight: 700
+    - family: Tajawal
+      fonts:
+        - asset: assets/fonts/Tajawal-Regular.ttf
+        - asset: assets/fonts/Tajawal-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Tajawal-Bold.ttf
+          weight: 700
+    # (الهوية البصرية) خط الواجهة الحديث — **Cairo** مضمّن محلياً بالكامل
+    # في assets/fonts/ (لا `google_fonts` ولا أي سحب عبر الشبكة) فيعمل
+    # بنسبة 100% أوفلاين على كل المنصات.
+    # يُترك Tajawal أعلاه لأن شبكة PDF (voucher/reports) تحمّله بالمسار.
+    # رخصة Cairo: OFL-1.1 — assets/fonts/OFL-Cairo.txt
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/Cairo-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Cairo-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Cairo-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Cairo-Bold.ttf
+          weight: 700

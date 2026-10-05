@@ -1,0 +1,83 @@
+plugins {
+    id "com.android.application"
+    id "com.google.gms.google-services"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace = "com.nexora.eradata"
+    compileSdk = 36
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8
+    }
+
+    defaultConfig {
+        applicationId = "com.nexora.eradata"
+        minSdk = 24
+        targetSdk = 34
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        multiDexEnabled = true
+        // (3.70) حزمة شاملة Universal — كل معالجات أندرويد المدعومة
+        // (armeabi-v7a + arm64-v8a + x86_64): إنهاء خطأ «الحزمة تبدو
+        // غير صالحة» على الأجهزة غير arm64. لا فلترة ABI بعد اليوم.
+    }
+
+    // ضغط المكتبات الأصلية داخل APK لتقليل الحجم.
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties['keyAlias']
+                keyPassword = keystoreProperties['keyPassword']
+                storeFile = file(keystoreProperties['storeFile'])
+                storePassword = keystoreProperties['storePassword']
+                storeType = keystoreProperties.getProperty('storeType', 'PKCS12')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // توقيع ثابت إلزامي للإصدارات: إذا غاب المفتاح نُفشل البناء بدل
+            // التوقيع بمفتاح debug مؤقت (الذي يكسر التحديث فوق نسخة مثبّتة).
+            if (!keystorePropertiesFile.exists()) {
+                throw new GradleException(
+                    "توقيع release مفقود: أضف android/key.properties (أو سرّ ANDROID_KEYSTORE_BASE64 في CI). " +
+                    "التوقيع بمفتاح debug يمنع تثبيت التحديث فوق النسخة السابقة.")
+            }
+            signingConfig = signingConfigs.release
+            minifyEnabled = false
+            shrinkResources = false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                          'proguard-rules.pro'
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    implementation "com.google.android.material:material:1.12.0"
+}

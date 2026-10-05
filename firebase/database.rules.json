@@ -1,0 +1,45 @@
+{
+  "rules": {
+    ".read": true,
+    ".write": true,
+    "workspaces": {
+      "$ws": {
+        "operations": {
+          ".indexOn": [
+            "server_ts",
+            "timestamp"
+          ]
+        },
+        "roster": {
+          ".indexOn": [
+            "updated_at"
+          ]
+        },
+        "invites": {
+          ".indexOn": [
+            "expiresAt",
+            "pin"
+          ]
+        },
+        "joinRequests": {
+          ".indexOn": [
+            "status",
+            "requestedAt"
+          ]
+        },
+        "logout_requests": {
+          ".indexOn": [
+            "status",
+            "createdAt"
+          ]
+        }
+      }
+    },
+    "invite_index": {
+      ".indexOn": [
+        "expiresAt",
+        "ws"
+      ]
+    }
+  }
+}

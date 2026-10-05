@@ -1,0 +1,303 @@
+================================================================================
+TECHNICAL BRIEF — "مدير الحسابات" (Nexora)
+Architecture & Functional Specification Report
+As of v3.39.0+69 (commit 14106b3) — No source code included
+================================================================================
+
+
+--------------------------------------------------------------------------------
+1. APPLICATION OVERVIEW & SCOPE
+--------------------------------------------------------------------------------
+
+Product class: Offline-first sales & debt ledger for small businesses, built in
+Flutter, single codebase for Android, Windows, and desktop Linux. Arabic-first
+RTL UI.
+
+Core business modules:
+
+  * Accounts (Customers/Suppliers)
+      Party ledger — customers, suppliers, and generic accounts, each with a
+      running balance derived from transactions, per-account notification
+      channel, and contact linkage (system contact picker).
+
+  * Transactions / Debts Ledger
+      Debit/credit operations against accounts, multi-currency (rates stored
+      as settings, not on the currency record), categories, attachments,
+      soft-delete to Trash.
+
+  * Sales / POS
+      Fast point-of-sale with cart, barcode scanning, item search, invoice
+      numbering, receipt/voucher generation with a shareable printable layout.
+
+  * Inventory
+      Items with categories, stock moves (in/out/adjust), negative-stock
+      policy toggle, low-stock warnings.
+
+  * Vouchers
+      Receipt/payment vouchers with a numbering scheme and a printable
+      document layout matching the approved receipt design.
+
+  * Reports & Dashboard
+      Balances, activity summaries, audit views; audit-lock window
+      (auditLockDays) freezing old records from edits.
+
+  * Team & Chat
+      Group chat + 1:1 chat restricted to team members only, with attachments
+      and voice notes.
+
+  * Trash / Activity / Notifications
+      Soft-delete recovery, activity log, internal notification center (chat
+      messages deliberately excluded — system notifications + unread badge
+      only).
+
+Data model shape:
+  A single SQLite database with ~25 tables. Business entities (accounts,
+  transactions, transaction_items, items, stock_moves, vouchers, categories,
+  currencies, templates) sit beside collaboration entities (users, devices,
+  workspaces, conversations, messages) and sync infrastructure (operations,
+  sync_queue, op_deliveries, sync_meta). Every syncable row carries a
+  workspace id, timestamps, and soft-delete markers. Monetary logic is
+  centralized in a core accounting layer; currency rates live in settings
+  keys (rate_<code>), not on the currency row.
+
+
+--------------------------------------------------------------------------------
+2. WORKSPACE & ONBOARDING FLOW
+--------------------------------------------------------------------------------
+
+Mode decision — three workspace modes stored in sync_meta:
+  * standalone — a solo device; full local functionality, no roster, no sync
+    obligations.
+  * owner — the manager device that created a group; holds is_owner on its
+    device row.
+  * member — a device that joined a group via approved pairing.
+
+Onboarding:
+  On first launch (guarded by a has_completed_onboarding setting), the user
+  passes through splash → onboarding screen offering a mode choice via
+  selectable cards: work solo, create a group, or join an existing group.
+  Choosing "join" routes into the pairing wizard. The onboarding screen
+  self-skips if the workspace mode is no longer standalone. Business identity
+  (name, default currency) is captured in settings.
+
+Workspace isolation:
+  * Every row is scoped by workspace_id; the repository resolves a required
+    workspace id for all writes.
+  * Cloud data is namespaced under /workspaces/$wsId/... in Firebase RTDB —
+    separate groups never share a path.
+  * Backup import is REJECTED unless the backup's group fingerprint matches
+    the current workspace, preventing cross-group data injection.
+  * Known gaps (tracked as debt): notifications lacks a workspace column, and
+    currencies is keyed by code globally — both are cross-workspace leaks in
+    theory, benign in the single-group-per-device reality.
+
+
+--------------------------------------------------------------------------------
+3. COMPLETE SYNCHRONIZATION BLUEPRINT
+--------------------------------------------------------------------------------
+
+Design philosophy: Fully automatic, silent, near-instant sync. No manual sync
+button. LAN transport exists only as a no-cloud fallback; cloud (Firebase
+RTDB via plain REST — no Firebase SDK) is the primary channel.
+
+Life of an invoice, end to end:
+
+  1. Local commit first. The invoice is written to SQLite atomically. The UI
+     updates immediately — the network is never in the critical path.
+
+  2. Operation recording. The write produces an immutable operation record
+     (entity type, op type, version, device time, payload) in operations, and
+     one queue row per transport target in sync_queue. Silent entities (chat
+     messages/conversations) are marked so they never appear in sync counters
+     or the sync-ops screen.
+
+  3. Push. The sync engine flushes the queue: each operation is PUT to
+     /workspaces/$ws/operations/$opId with a server timestamp. Push triggers
+     are layered: an 8-second periodic timer, a boot-time flush, peer-presence
+     resume (backoff resets the moment a peer comes online), first SSE
+     connection, and explicit "retry" from the danger banner.
+
+  4. Receive. Other devices hold a persistent SSE stream on the operations
+     node for instant delivery, backed by a 45-second pull timer as a safety
+     net. Pulls query orderBy="server_ts" with a startAt cursor; if the RTDB
+     index is missing, the transport gracefully falls back to an unordered
+     fetch and filters client-side.
+
+  5. Apply & conflict resolution. Each remote operation passes through an
+     apply layer with a deterministic conflict ladder:
+        higher version wins → newer timestamp wins → lexicographically higher
+        device id wins.
+     Applies are idempotent; delivery is tracked in op_deliveries, and a
+     backfill routine closes any gap between the SSE stream and the cursor.
+
+  6. Cursor advance. The last applied server_ts is persisted in sync_meta, so
+     restarts resume exactly where they left off.
+
+Offline handling:
+  Queue rows persist across restarts with attempt counters. Failed pushes
+  retry with backoff; presence detection prevents pointless attempts against
+  known-offline LAN peers. Member↔member sync works with the manager offline,
+  because the cloud node is the rendezvous point, not the manager's device.
+
+Firebase vs local storage roles:
+  * SQLite = source of truth for everything the user sees.
+  * Firebase RTDB = message bus + rendezvous, holding: the operations log,
+    the device roster (/roster), invites (/invites, 15-min TTL, single-use),
+    join requests (/joinRequests), and the full join snapshot for hydration.
+    It is never queried to render UI.
+
+Scope rules:
+  Full sync for accounts, transactions, items, stock, vouchers, trash,
+  reports data. Group chat syncs silently. Internal notifications and other
+  device-local trivia never sync.
+
+
+--------------------------------------------------------------------------------
+4. DEVICE & USER MANAGEMENT
+--------------------------------------------------------------------------------
+
+Identity:
+  Each device derives a deterministic device id from a hardware fingerprint
+  (brand/model/hardware identifiers hashed). Re-installing on the same
+  hardware yields the same id — this is the ghost-device prevention:
+  re-pairing revives the existing roster row instead of creating duplicates.
+
+Registration (approval-based pairing, current flow):
+  1. Joiner names the device BEFORE anything else, then scans the manager's
+     QR or types a 6-digit PIN (the QR carries workspace id, backend URL,
+     invite token; the PIN resolves to the same invite server-side).
+  2. A join request lands in the cloud; the joiner sits at «بانتظار موافقة
+     المدير…» with a strict guard — zero data is pulled or wiped pre-approval.
+  3. The manager receives an approval sheet showing name, fingerprint
+     snippet, and platform, picks a role, and accepts or rejects.
+  4. On approval: a user row (role + default permission CSV) and device row
+     are created, the roster is updated in the cloud, and the joiner performs
+     clean hydration — atomic local wipe, snapshot pull, sync-cursor
+     initialization — then lands on the home screen. Rejection touches
+     nothing on the joiner.
+
+Roles & permissions:
+  Five roles — admin (manager, never grantable to members), agent/deputy
+  (وكيل — full defaults, the only role eligible for ownership transfer),
+  accountant, data-entry, viewer. Each role expands to a fine-grained
+  permission set (CSV on the user row) editable per-device via a permissions
+  dialog or inline role dropdown on the unified device card. Enforcement is
+  app-wide: unpermitted features are HIDDEN, not disabled — backup vanishes
+  from member navigation, restore is manager-only, full-wipe is manager-only
+  behind biometric/screen-lock with a one-month cooldown and invisible to
+  deputy.
+
+Authentication:
+  Devices hold an auth secret (currently plaintext in the DB — known debt)
+  resettable by the manager; trust-state rules forbid ever copying
+  workspaceMode/is_owner from peer responses.
+
+Disconnection & the Danger Banner («تنبيه خطير»):
+  A periodic danger check counts distinct stuck operations (excluding silent
+  chat entities) joined against the queue. Threshold: stuck ≥10 minutes with
+  ≥5 attempts, OR ≥30 minutes unconditionally. When tripped, a persistent
+  Material banner warns of potential balance divergence — with a tailored
+  message if the manager device is specifically offline — offering retry /
+  recheck / snooze. The banner self-clears (a null broadcast) the moment the
+  queue drains, including after immediate-sync succeeds. Devices idle >30
+  days get a visual "stale" badge on their card. Revocation (حظر) blocks sync
+  until restored; expulsion (طرد) is terminal: roster status broadcast, cloud
+  roster + join-request purge, chat roster removal, and remote self-wipe on
+  the expelled device's next contact.
+
+
+--------------------------------------------------------------------------------
+5. DESKTOP VS MOBILE EXPERIENCE
+--------------------------------------------------------------------------------
+
+Layout switch:
+  A single breakpoint (900 px logical width) selects the experience — no
+  separate builds. Above it, the home shell swaps the bottom navigation for a
+  navigation rail, dialogs widen, and dense multi-column layouts activate.
+
+Desktop specifics:
+  * POS-first workflow: keyboard-driven point of sale with function-key
+    shortcuts (F1/F2/F3 for core actions, F12 checkout, Esc cancel),
+    autofocused search field, and rapid line-entry.
+  * One-click update path for Windows (self-updating installer flow)
+    alongside the in-app «ما الجديد» release-notes dialog, which shows ONLY
+    the current release, max 4 lines.
+  * QR display everywhere, but QR scanning is mobile-only — desktop joiners
+    use the 6-digit PIN / manual entry path (the scanner screen explicitly
+    redirects them).
+
+Mobile specifics:
+  Bottom navigation, camera QR scanning, contact-picker integration with
+  runtime permission, voice recording in chat, haptics/vibration on operation
+  creation, background keep-alive so group members receive notifications with
+  the screen off, and battery-exemption prompting.
+
+Shared:
+  Identical data layer, sync engine, permission enforcement, sound/vibration
+  feedback system (distinct sound per action type with settings previews),
+  and printable voucher documents.
+
+
+--------------------------------------------------------------------------------
+6. IDENTIFIED EDGE CASES & CURRENT BOTTLENECKS
+--------------------------------------------------------------------------------
+
+Desynchronization risks (known, mostly mitigated):
+
+  * Missing RTDB index: without ".indexOn": "server_ts" under
+    /workspaces/$ws/operations, every pull downloads the whole node before
+    filtering — functionally correct via fallback, but bandwidth grows
+    linearly with history. Recommended rules change is documented but must be
+    applied in the Firebase console by the owner.
+
+  * Operations log growth: the ops node is append-only with no
+    compaction/pruning; very old groups will pay increasing SSE-reconnect and
+    backfill costs.
+
+  * Clock skew: the conflict ladder uses device timestamps at tier 2; a badly
+    skewed clock can win conflicts it shouldn't. Version numbers blunt this
+    but don't eliminate it.
+
+  * Approval-flow polling: the joiner's waiting screen and the manager's
+    request detection are 4–5 s polls, not SSE — a brief window exists where
+    a manager on a different screen won't see the request until visiting
+    group management. (Piggybacking request detection onto the engine's SSE
+    channel is the natural next step.)
+
+  * Snapshot cascade subtlety: hydration REPLACE on workspaces cascades
+    device rows; the join path deliberately re-inserts the joiner's own row —
+    any new hydration path must preserve this invariant.
+
+UI clutter risks:
+  Largely resolved by batch 51's unification (single device+role card list,
+  actions consolidated into one three-dots menu), but the settings screen
+  still carries both cloud-sync and legacy LAN-sync sections, and one stale
+  instructional string in the LAN sync section survives.
+
+Technical debt register:
+  * devices.auth_secret stored plaintext; hashing/salting pending.
+  * notifications lacks workspace_id; currencies PK is cross-workspace.
+  * messages has no soft-delete.
+  * Invite invalidation depends on cloud DELETE succeeding (strict-delete
+    retries twice then throws — good, but rules misconfiguration can strand
+    invites until TTL expiry).
+  * Legacy LAN transport remains as fallback; dual-target queue rows are
+    deduplicated in counters but add code-path surface.
+  * Release pipeline: version must be bumped in TWO places (pubspec + a
+    constants file with three tokens) — script-enforced by tests, but still
+    manual.
+  * Desktop lacks a QR scanning alternative beyond PIN (webcam scanning
+    unimplemented).
+
+
+--------------------------------------------------------------------------------
+QUALITY POSTURE
+--------------------------------------------------------------------------------
+34 automated QA suites (unit, integration with in-memory fake cloud store,
+end-to-end widget flows) all green; static analysis pinned to a fixed
+baseline with zero-new-issue policy per batch; CI builds APK/installer on
+every push to main.
+
+================================================================================
+END OF REPORT
+================================================================================

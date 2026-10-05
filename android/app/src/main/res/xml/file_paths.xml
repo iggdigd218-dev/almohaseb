@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- MainActivity copies every shared file here before granting its URI. -->
+    <cache-path name="shared" path="shared/" />
+    <!-- ملف APK للتحديث بنقرة واحدة (يُنزَّل إلى cache/updates ثم يُثبَّت). -->
+    <cache-path name="updates" path="updates/" />
+    <!-- تنزيل DownloadManager يذهب إلى external files/updates (يستمر بالخلفية). -->
+    <external-files-path name="ext_updates" path="updates/" />
+    <!-- (2026-09-22) التحديث يُحفظ في المجلد العام Download/Nexora. -->
+    <external-path name="public_downloads" path="Download/" />
+</paths>

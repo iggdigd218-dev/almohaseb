@@ -1,0 +1,114 @@
+name: Verify (Analyze + Test)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.x'
+          channel: stable
+          cache: true
+
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Ensure app_version.dart matches pubspec.yaml
+        run: |
+          VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
+          NAME="${VER%%+*}"; BUILD="${VER##*+}"
+          IFS='.' read -r MAJ MIN PAT <<< "$NAME"
+          sed -i "s/const String kAppVersion = .*/const String kAppVersion = '$NAME';/" lib/core/app_version.dart
+          sed -i "s/const int kAppBuild = .*/const int kAppBuild = $BUILD;/" lib/core/app_version.dart
+          sed -i "s/AppSemVer([0-9]*, [0-9]*, [0-9]*, kAppBuild)/AppSemVer($MAJ, $MIN, $PAT, kAppBuild)/" lib/core/app_version.dart
+
+      - name: Static analysis
+        run: |
+          # يفشل فقط إن وُجد خطأ حقيقي (error)؛ التحذيرات القديمة لا توقف البناء.
+          set +e
+          flutter analyze 2>&1 | tee /tmp/analyze.txt
+          CODE=${PIPESTATUS[0]}
+          if grep -qE "^\s*error •" /tmp/analyze.txt; then
+            echo "::error::يوجد أخطاء تحليل تمنع البناء."
+            exit 1
+          fi
+          if [ "$CODE" != "0" ]; then
+            echo "⚠️ التحليل أعاد كود $CODE بدون أخطاء حقيقية (تحذيرات قديمة) — يُستكمل."
+          fi
+          exit 0
+
+  # (دفعة 65) الاختبارات تُشغَّل في مسارات متوازية مستقلة: أربع وظائف
+  # تعمل معاً، كل واحدة تنفّذ شريحة واحدة فقط من الحزمة (--shard-index).
+  # بدل أن تحجز الحزمةُ كلها مسارَ بناء واحداً لدقائق، ينتهي أطول مسار
+  # في وقت أقصر بكثير — ولا تعتمد وظائف البناء (APK/Windows) عليها إطلاقاً.
+  test:
+    name: Unit tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-latest
+    needs: analyze
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.x'
+          channel: stable
+          cache: true
+
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Ensure app_version.dart matches pubspec.yaml
+        run: |
+          VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
+          NAME="${VER%%+*}"; BUILD="${VER##*+}"
+          IFS='.' read -r MAJ MIN PAT <<< "$NAME"
+          sed -i "s/const String kAppVersion = .*/const String kAppVersion = '$NAME';/" lib/core/app_version.dart
+          sed -i "s/const int kAppBuild = .*/const int kAppBuild = $BUILD;/" lib/core/app_version.dart
+          sed -i "s/AppSemVer([0-9]*, [0-9]*, [0-9]*, kAppBuild)/AppSemVer($MAJ, $MIN, $PAT, kAppBuild)/" lib/core/app_version.dart
+
+      - name: Run test shard
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded \
+            --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }} \
+            --total-shards ${{ strategy.job-total }} \
+            --shard-index ${{ matrix.shard }}

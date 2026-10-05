@@ -1,0 +1,37 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+
+// (2026-09-22) النافذة العائمة (flutter_overlay_window) تُصرّح في build.gradle
+// الخاص بها بـ compileSdk 34 و minSdk 16 ولا تُعلن اعتماديات androidx.
+// نوّحد إعدادات كل الوحدات الفرعية مع التطبيق (36 / 24) ونضمن androidx.core
+// حتى لا يفشل تجميع حزمة أندرويد لأسباب خارجة عن كودنا.
+subprojects {
+    afterEvaluate { p ->
+        try {
+            if (p.extensions.findByName('android') != null) {
+                p.android.compileSdk = 36
+                p.android.defaultConfig.minSdk = 24
+                p.dependencies.add("implementation", "androidx.core:core:1.13.1")
+            }
+        } catch (e) {
+            logger.lifecycle("تخطّي توحيد إعدادات الوحدة ${p.name}: ${e.message}")
+        }
+    }
+}
+
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

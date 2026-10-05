@@ -1,0 +1,302 @@
+name: Build Windows EXE
+
+# (دفعة 65 — تحسين خط البناء) لا قيد تزامن على مستوى الوظيفة بعد اليوم.
+# قيد التزامن انتقل إلى وظيفة `publish` وحدها (أسفل الملف)، فيُبنى
+# الويندوز والأندرويد **معاً بالتوازي**، ولا يُنتظر أحدهما الآخر إلا في
+# خطوة رفع الأصول إلى إصدار `latest` — وهي الوحيدة التي تحتاج التسلسل.
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows Desktop
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # (دفعة 65) كاش حزم pub. مجلد ~/.gradle/caches لا معنى له هنا —
+      # بناء ويندوز لا يمرّ بـ Gradle؛ كاشه مضاف في مسار الأندرويد حيث
+      # يُستعمل فعلاً، فلا نضيف حملاً بلا فائدة إلى هذا الخط.
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate fresh Windows platform (match installed Visual Studio)
+        run: |
+          Remove-Item -Recurse -Force windows -ErrorAction SilentlyContinue
+          flutter create --platforms=windows --project-name nexora_app .
+
+      - name: Apply Nexora Windows branding (app icon + window/taskbar icon)
+        shell: pwsh
+        run: pwsh -File scripts\apply_windows_branding.ps1
+
+      - name: Analyze (non-blocking)
+        run: flutter analyze || true
+
+      - name: Diagnose toolchain
+        run: |
+          flutter doctor -v
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -all -property installationPath
+          echo "---"
+          cmake --version
+
+      - name: Build Windows Release
+        env:
+          # إضافة local_auth_windows تُترجم بـ /await القديم (STL1011 خطأ في VS 2026).
+          # لا نستخدم البصمة على ويندوز؛ نكتم التحذير القاتل حتى تُترجم الإضافة.
+          CL: "/D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
+        run: |
+          flutter clean
+          flutter pub get
+          flutter build windows --release --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
+
+      - name: Package portable app (folder + EXE + launcher)
+        shell: pwsh
+        run: |
+          $rel = "build\windows\x64\runner\Release"
+          $pkg = "nexora-windows\App"
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          Copy-Item -Path "$rel\*" -Destination $pkg -Recurse -Force
+          # ملف تشغيل في الجذر يتتبع المسار تلقائيًا (مسار ASCII للتوافق).
+          $bat = @(
+            "@echo off",
+            "cd /d `"%~dp0App`"",
+            "start `"`" `"nexora_app.exe`"",
+            "exit"
+          )
+          Set-Content -Path "nexora-windows\Run.bat" -Value $bat -Encoding ASCII
+          # انسخ الملف العربي داخل مجلد التطبيق كاختصار إضافي.
+          Set-Content -Path "nexora-windows\App\Run.bat" -Value $bat -Encoding ASCII
+          $readme = "مدير الحسابات (Nexora) - Windows portable`r`n`r`nHOW TO RUN:`r`n1) Extract this whole zip to a folder (keep all files together).`r`n2) Double-click Run.bat  OR open the App folder and run nexora_app.exe.`r`n`r`nIMPORTANT: Do NOT move nexora_app.exe out of the App folder; it needs the data folder and DLLs next to it.`r`nOn first run Windows SmartScreen may warn: click (More info) then (Run anyway)."
+          Set-Content -Path "nexora-windows\README.txt" -Value $readme -Encoding UTF8
+          Get-ChildItem $pkg | Select-Object -ExpandProperty Name
+
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          $zip = "nexora-windows.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "nexora-windows\*" -DestinationPath $zip -Force
+          echo "ZIP=$zip" >> $env:GITHUB_ENV
+
+      - name: Build Inno Setup installer (NexoraSetup.exe)
+        shell: pwsh
+        run: |
+          # حقن رقم الإصدار الحقيقي من pubspec.yaml في سكربت المُثبّت.
+          $ver = (Select-String -Path "pubspec.yaml" -Pattern '^version:\s*([0-9.]+)\+').Matches[0].Groups[1].Value
+          if ($ver) {
+            (Get-Content "windows_installer\nexora.iss") -replace '#define MyAppVersion "[^"]*"', "#define MyAppVersion `"$ver`"" | Set-Content "windows_installer\nexora.iss"
+            Write-Host "Installer version: $ver"
+          }
+          $rel = "build\windows\x64\runner\Release"
+          # جهّز مجلد staging الذي يقرأه سكربت Inno Setup.
+          $staging = "windows_installer\staging"
+          Remove-Item -Recurse -Force $staging -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item -Path "$rel\*" -Destination $staging -Recurse -Force
+          # حدّد مسار ISCC (مُثبّت Inno Setup 6 متوفر على windows-latest).
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            Write-Host "Inno Setup غير موجود — جارٍ التثبيت عبر choco"
+            choco install innosetup -y --no-progress 2>&1 | Out-Host
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          if (Test-Path $iscc) {
+            Push-Location "windows_installer"
+            & $iscc "nexora.iss"
+            Pop-Location
+            if (Test-Path "windows_installer\output\NexoraSetup.exe") {
+              Copy-Item "windows_installer\output\NexoraSetup.exe" "NexoraSetup.exe" -Force
+              Write-Host "Installer built: NexoraSetup.exe"
+            } else {
+              Write-Host "تنبيه: لم يُنتج المُثبّت (النسخة المحمولة تظل متاحة)."
+            }
+          } else {
+            Write-Host "تعذّر تجهيز Inno Setup — سيُكتفى بالنسخة المحمولة."
+          }
+
+      - name: Write install/readme file
+        shell: pwsh
+        run: |
+          $lines = @(
+            "مدير الحسابات — نسخة ويندوز",
+            "================================",
+            "",
+            "الطريقة الموصى بها (تثبيت حقيقي):",
+            "1) حمّل ملف NexoraSetup.exe.",
+            "2) انقر نقرا مزدوجا واتبع معالج التثبيت (التالي ثم تثبيت).",
+            "3) يظهر التطبيق في قائمة ابدأ وعلى سطح المكتب.",
+            "   - أول تشغيل قد يحذّر SmartScreen: More info ثم Run anyway.",
+            "   - إن طلب ويندوز صلاحية مسؤول فاسمح بها (ليُثبّت في Program Files).",
+            "",
+            "النسخة المحمولة (بدون تثبيت):",
+            "1) استخرج nexora-windows.zip بالكامل إلى مجلد (لا تفرّق الملفات).",
+            "2) انقر مرتين على Run.bat، أو افتح مجلد App وشغّل nexora_app.exe."
+          )
+          Set-Content -Path "README-install.txt" -Value ($lines -join "`r`n") -Encoding UTF8
+
+      - name: Upload EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexora-windows
+          path: build/windows/x64/runner/Release/*
+          retention-days: 30
+
+      # الأصل الواحد يحمل ملفات النشر الثلاثة معاً ليستلمها job النشر.
+      - name: Upload publish artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexora-windows-publish
+          path: |
+            NexoraSetup.exe
+            nexora-windows.zip
+            README-install.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ══════════════════════════════════════════════════════════════════
+  # النشر — الوظيفة الوحيدة الخاضعة لقيد التزامن في هذا الملف.
+  # كل منصّة ترفع أصولها **فقط**، والقيد يمنع تعارضها مع وظيفة نشر
+  # الأندرويد على إصدار `latest` نفسه (حذف/إعادة رفع متزامن كان يُفرغ
+  # الإصدار أحياناً فيبقى المستخدمون بلا تحميل).
+  # ══════════════════════════════════════════════════════════════════
+  publish:
+    name: Publish Windows assets to latest release
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-latest-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Download publish artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: nexora-windows-publish
+          path: dist
+
+      # actions/download-artifact@v4 يضع الملفات داخل مجلد باسم الأصل؛
+      # نُسطّحها إلى جذر مسار العمل لتسهل معالجتها بلا مسارات فرعية.
+      - name: Flatten artifacts
+        run: |
+          find dist -type f -exec mv -f {} . \;
+          rm -rf dist
+          ls -lh
+
+      - name: Remove stale/broken MSIX asset
+        shell: bash
+        run: |
+          # احذف ملف MSIX غير الموقّع القديم (لا يمكن تثبيته) إن وجد.
+          id=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);print(next((a['id'] for a in d.get('assets',[]) if a['name']=='nexora-windows.msix'),''))" || true)
+          if [ -n "$id" ]; then
+            curl -s -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/assets/$id" \
+              && echo "تم حذف nexora-windows.msix القديم"
+          fi
+
+      - name: Build upload list (existing files only)
+        id: filelist
+        shell: bash
+        run: |
+          # ⚠️ كل منصّة ترفع أصولها **فقط**. خطوة الرفع تحذف الأصل القديم بنفس
+          # الاسم **أولاً** ثم ترفع البديل؛ فإدراج أصل منصّة أخرى يعني تعريضه
+          # للحذف بلا تعويض إن فشل تنزيله — وبهذا فُقدت nexora-windows.zip ثم
+          # أُفرغ الإصدار كاملاً (0 أصول). لا تنزيل، لا مساس بغير أصولنا.
+          files=""
+          for f in NexoraSetup.exe nexora-windows.zip README-install.txt; do
+            if [ -s "$f" ]; then files="${files}${f}"$'\n'; fi
+          done
+          {
+            echo 'files<<LISTEOF'
+            printf '%s' "$files"
+            echo 'LISTEOF'
+          } >> "$GITHUB_OUTPUT"
+          echo "قائمة الرفع:"; printf '%s\n' "$files"
+
+      - name: Update unified latest release (Windows)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Nexora — الإصدار الرسمي الأحدث
+          body: |
+            ## 📥 التحميل المباشر
+
+            **هذا هو الإصدار الرسمي الأحدث من التطبيق.**
+
+            ### 🖥️ لويندوز
+            - **الأسهل:** حمّل `NexoraSetup.exe` وثبّته كأي برنامج (قائمة ابدأ + سطح المكتب).
+            - أو النسخة المحمولة `nexora-windows.zip`: فك الضغط ثم شغّل `Run.bat`.
+            - أول تشغيل قد يحذّر SmartScreen: «مزيد من المعلومات» ثم «تشغيل على أي حال».
+
+            ### 📱 للأندرويد (APK)
+            - يُرفع ملف الأندرويد تلقائيًا هنا بعد انتهاء بناء APK (قد يتأخر بضع دقائق).
+            - ثبّت `nexora-universal.apk` على الجهاز (كل المعالجات).
+
+            > يتم تحديث هذه الصفحة تلقائيًا بعد كل بناء ناجح.
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: رفع أصول الإصدار (مع إعادة المحاولة)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # ❗ السبب الجذري لتكرار "Error saving asset": softprops/action-gh-release
+          # يحذف الأصل القديم أولاً ثم يرفع البديل، ورفع ملف 24MB ينتهي
+          # بالفشل بعد ~39 ثانية في كل مرة — فيُفقد الأصل بلا تعويض.
+          # actions/upload-artifact يرفع نفس الحجم في ثانيتين، فالمشكلة في
+          # مسار رفع أصول الإصدار لدى softprops تحديداً. gh الرسمي أنجح،
+          # ومع حلقة إعادة محاولة لا يبقى مجال لضياع أصل.
+          files=()
+          for f in NexoraSetup.exe nexora-windows.zip README-install.txt; do
+            [ -s "$f" ] && files+=("$f")
+          done
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::لا ملفات صالحة للرفع"; exit 1
+          fi
+          for attempt in 1 2 3; do
+            echo "محاولة رفع ${attempt}/3: ${files[*]}"
+            if gh release upload latest "${files[@]}" --clobber --repo "${{ github.repository }}"; then
+              echo "✔ تم رفع الأصول في المحاولة ${attempt} إلى ${{ github.repository }}"
+              gh release upload latest "${files[@]}" --clobber --repo "iggdigd218-dev/Nexora" || true
+              exit 0
+            fi
+            echo "⚠️ فشلت المحاولة ${attempt} — إعادة المحاولة بعد 20 ثانية"
+            sleep 20
+          done
+          echo "::error::تعذّر رفع أصول الإصدار بعد 3 محاولات"; exit 1

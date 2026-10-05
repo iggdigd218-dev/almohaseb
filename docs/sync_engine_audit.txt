@@ -1,0 +1,184 @@
+════════════════════════════════════════════════════════════════════════
+   تدقيق معماري: محرك المزامنة السحابية — nexora_app
+   الإصدار: 3.38.0+68 (commit 7f651c4) — التاريخ: 2026-09-11
+════════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────
+1) دورة حياة العملية: SQLite المحلي ← Firebase
+──────────────────────────────────────────────────────────────────────
+
+الملفات والدوال بالترتيب الزمني:
+
+  ① الكتابة المحلية   lib/data/repository.dart
+                       saveTx() (~سطر 651) — داخل db.transaction ذرية.
+  ② تسجيل العملية     lib/data/sync/recorder.dart
+                       SyncRecorder.record() (سطر 59).
+  ③ التحفيز الفوري    lib/data/sync/sync_engine.dart
+                       notifyNewOperation() — debounce 80ms ثم processQueue().
+  ④ الدفع للسحابة     lib/data/sync/cloud_firebase_transport.dart
+                       push() (سطر 99) — HTTP PUT بمهلة 10 ثوانٍ.
+
+التدفق:
+  saveTx يكتب في transactions ويستدعي newRecorder(txn) داخل نفس المعاملة
+  ← record() يُدرج صفاً في operations (لقطة كاملة للكيان) + صفاً في
+  sync_queue لكل هدف ← الـ callback الثابت SyncRecorder.onOperationRecorded
+  (مربوط في SyncEngine.start) يفجّر الدفع الفوري.
+
+اختيار الأهداف (recorder.dart ~سطر 108 — بعد دفعة 50):
+  final cloudOn = (map['cloudBackendUrl'] ?? '').trim().isNotEmpty
+      && (map['cloudAutoSync'] ?? '1') != '0';
+  var lanOn = !cloudOn && map['lanSyncEnabled'] == '1';
+  // السحابة المهيأة تلغي هدف LAN كلياً (هندسة السحابة الخالصة).
+
+مسار Realtime Database الدقيق (cloud_firebase_transport.dart سطور 75-80):
+  _root    = $backendUrl/workspaces/$workspaceId
+  _opPath  = $_root/operations/$opId.json     ← PUT عملية واحدة
+  _opsPath = $_root/operations.json           ← GET سحب + قناة SSE
+
+  مسارات إضافية تحت نفس الجذر:
+  /roster/$deviceId.json    سجل الأجهزة السحابي
+  /invites/$token.json      دعوات الانضمام (تُبطل فور الاستخدام)
+  /joinSnapshot.json        لقطة الانضمام الكاملة من المدير
+
+بنية الحمولة المدفوعة (operation.dart toMap + push):
+  {
+    "id": "OP-uuid",                  ← أساس Idempotency
+    "device_id": "DEVICE-XXXX",
+    "workspace_id": "default",
+    "user_id": 3,
+    "entity_type": "tx",              ← tx/account/item/voucher/stockMove/…
+    "entity_id": "1726…",
+    "op_type": "create",              ← create/update/delete_/restore/settings
+    "version": 2,                     ← نسخة الكيان بعد العملية
+    "parent_op_id": "",
+    "payload": { لقطة كاملة + سطور الفاتورة في items[] },
+    "device_time": "ISO8601",
+    "timestamp": "ISO8601",
+    "server_ts": {".sv":"timestamp"}  ← فيربيس يستبدله بوقت خادمه (ms)
+  }
+  server_ts (سطر 106) = حجر الأساس ضد انحراف ساعات الأجهزة.
+
+──────────────────────────────────────────────────────────────────────
+2) الاستقبال والتعارضات
+──────────────────────────────────────────────────────────────────────
+
+المستمع — ليس onChildAdded (لا Firebase SDK؛ REST خالص):
+  cloud_firebase_transport.dart سطور 327-417 — قناة SSE يدوية:
+  _sseLoop() يفتح GET /operations.json?orderBy="$key"&limitToLast=1
+  بترويسة Accept: text/event-stream. أي حدث put/patch (بعد تجاهل
+  اللقطة الافتتاحية) يستدعي onCloudChanged ← pull() تزايدي فوري.
+  إعادة اتصال بتراجع أسّي 2ث ← 120ث.
+  شبكة أمان: سحب دوري كل 45 ثانية (_cloudPullTimer في sync_engine).
+
+التطبيق المحلي — لا upsert أعمى ولا SQL خام مباشر:
+  lib/data/sync/apply_remote.dart ← applyRemoteOperation(txn, op, resolver):
+  1. Idempotency: op.id موجود في operations؟ ← تجاهل (سطر 30).
+  2. فحص وجود الكيان + آخر نسخة محلية ← قرار الـ resolver.
+  3. التطبيق مفلتر بالمخطط: PRAGMA table_info ثم بناء صف من الأعمدة
+     الموجودة فعلاً ← txn.update إن وُجد الصف، أو txn.insert مع إكمال
+     أعمدة NOT NULL الناقصة بقيم آمنة (سطور 125-160).
+  الكل داخل معاملة واحدة (خصائص ACID محفوظة).
+
+حسم التعارضات — lib/data/sync/conflict_resolver.dart (سطور 18-75):
+  سلّم حسم حتمي يعطي نفس النتيجة على كل الأجهزة:
+  1. incoming.version > localVersion  ← طبّق.  أقل ← تجاهل.
+  2. تعادل النسخ:
+     - نفس الجهاز ← طبّق (تكرار آمن).
+     - وإلا: timestamp الأحدث يفوز.
+     - تعادل تام: deviceId الأصغر معجمياً يفوز (ثابت عبر الأجهزة).
+  3. حالة غامضة ← صف notifications «تعارض في المزامنة» + حفظ العملية
+     دون تطبيق.
+
+  ملاحظة: server_ts ليس للحسم — هو مؤشر السحب فقط:
+  pull() يقرأ lastCloudTs:$wsId من sync_meta ويرشّح
+  orderBy="server_ts"&startAt= مع تداخل ثانيتين، مع تراجع تلقائي
+  لجلب كامل + فرز محلي عند غياب ".indexOn" (سطور 191-201).
+
+──────────────────────────────────────────────────────────────────────
+3) الأجهزة والمستخدمون + منطق بانر الخطر
+──────────────────────────────────────────────────────────────────────
+
+لماذا قائمتان منفصلتان (Devices / Users)؟
+
+  devices (core/database.dart سطر 316) — الهوية الفيزيائية:
+    id (بصمة عتاد حتمية منذ v68)، auth_secret، is_owner،
+    revoked_at/expelled_at، last_seen_at.
+    تُدار عبر initSyncInfra (repository.dart:51) والاقتران
+    وroster السحابي (cloud_join.dart: syncRoster).
+
+  users — الهوية المنطقية:
+    الدور (admin/agent/accountant/dataentry/viewer) + سلسلة
+    الصلاحيات CSV.
+
+  الربط: devices.user_id ← users.id (مفتاح أجنبي).
+
+  السبب المعماري للفصل:
+  - المدير يعيّن دوراً للجهاز بعد اقترانه (الجهاز يصل «بلا صلاحية»).
+  - نقل الملكية/تبديل المستخدم لا يمس هوية الجهاز.
+  - صلاحيات المستخدم تتزامن ككيان (EntityKind.user) بينما سجل
+    الجهاز يمر عبر roster منفصل.
+  واجهة «إدارة المجموعة» تعرضهما كتبويبين (_DevicesTab/_UsersTab).
+
+مشغّل بانر الخطر — sync_engine.dart: _checkDangerState() (~سطر 257):
+
+  SELECT COUNT(DISTINCT q.operation_id) c,
+         MIN(q.created_at) oldest, MAX(q.attempts) att
+  FROM sync_queue q JOIN operations o ON o.id = q.operation_id
+  WHERE q.status IN ('pending','failed','syncing')
+    AND o.entity_type NOT IN ('message','conversation')
+
+  - العدّ بعمليات مميّزة (لا صفوف طابور) — هدفا lan+cloud لنفس
+    العملية لا يضاعفان العدد (إصلاح دفعة 49).
+  - العتبة: (عمر ≥ 10 دقائق و attempts ≥ 5) أو عمر ≥ 30 دقيقة.
+  - وضع standalone ← صافٍ دائماً.
+  - يُفحص كل 8 ثوانٍ + فور نهاية كل processQueue إن كان البانر ظاهراً.
+  - البث عبر SyncEngine.onSyncDanger الثابت ← home_shell.dart يعرض
+    MaterialBanner بأزرار: «إعادة المحاولة والمزامنة فوراً» (سبينر) /
+    «فحص الحالة» / «إخفاء» (غفوة 30 دقيقة).
+  - صفر عالق ← بث null ← إخفاء لحظي للبانر.
+
+──────────────────────────────────────────────────────────────────────
+4) طابور الأوفلاين وإعادة المحاولة
+──────────────────────────────────────────────────────────────────────
+
+التعريف — core/database.dart سطر 361:
+  sync_queue(id, operation_id, status, target, attempts, last_error,
+             next_try_at, created_at, updated_at,
+             UNIQUE(operation_id, target),
+             FK operation_id ← operations ON DELETE CASCADE)
+  + فهرس idx_queue_status على (status, next_try_at).
+
+العمليات المنطقية — lib/data/sync/sync_queue.dart (SyncQueueOps):
+  pickPending()    يرتّب attempts ASC (منع تجويع العمليات الجديدة
+                   خلف طابور قديم عالق).
+  markFailed()     لا فشل نهائي إطلاقاً — دائماً يعود pending مع
+                   backoff: 5ث ← 10 ← 20 ← 45 ← 60ث ثم سقف دقيقتين
+                   للأبد حتى تنجح.
+  retryFailed()    تصفير كامل (يدوي) — الحالة والمحاولات والمواعيد.
+  resumeBackoff()  تصفير next_try_at فقط (عودة الاتصال) — دفعة 49.
+
+محفزات إعادة المحاولة عند عودة الاتصال (sync_engine.dart):
+  1. مؤقّت دوري 8 ثوانٍ ← processQueue() يلتقط ما حان next_try_at.
+     (لا حزمة connectivity_plus أصلاً — المحاولة الدورية هي الكاشف.)
+  2. عودة قرين: PresenceService.onPeerOnline (مناداة كل 3 ثوانٍ)
+     ← resumeBackoff() ← دفع في الثانية نفسها.
+  3. جرس السحابة: أول استجابة SSE ناجحة بعد انقطاع = الشبكة عادت
+     ← pull فوري + الدورة التالية تدفع المعلّق.
+  4. يدوي: forceSyncNow()/triggerImmediateSync() من بانر الخطر أو
+     شاشة المزامنة.
+  5. عند الإقلاع: recoverInterrupted() (صفوف syncing يتيمة) + هجرة
+     تنظيف صفوف lan العالقة عند سحابة مهيأة (دفعة 50).
+
+──────────────────────────────────────────────────────────────────────
+ملاحظتان للمرحلة القادمة (قبل تنفيذ الاقتران الجديد)
+──────────────────────────────────────────────────────────────────────
+
+1. فهرس server_ts: أضف ".indexOn": "server_ts" في قواعد RTDB تحت
+   /workspaces/$ws/operations — التراجع للجلب الكامل يعمل لكنه مكلف
+   مع نمو سجل العمليات.
+
+2. دمج قائمتي Devices/Users واجهياً: بطاقة واحدة «جهاز + دوره» في
+   شاشة إدارة المجموعة، دون مساس بالفصل البنيوي السليم في قاعدة
+   البيانات — هذا هو التوحيد الأنسب لدفعة الاقتران القادمة.
+
+════════════════════════ نهاية التقرير ════════════════════════

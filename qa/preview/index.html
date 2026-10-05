@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>سجل المبيعات — تشغيل Flutter الحقيقي</title>
+<style>*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#071b20;color:#e8f5f3}body{display:flex;flex-direction:column}header{padding:10px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #214049;flex-wrap:wrap}header b{font-size:14px}header small{color:#9fc7c3}#status{font-size:12px;margin-inline-start:auto;color:#58dbc1}button{border:1px solid #396b72;color:#e7fff9;border-radius:6px;background:#14333a;padding:6px 10px;cursor:pointer}#screen{flex:1;min-height:0;direction:ltr;background:#071b20}footer{font-size:11px;padding:7px 15px;color:#98bcb9;border-top:1px solid #214049}</style>
+<header><b>سجل المبيعات والديون · Flutter</b><small>تشغيل Linux اختباري للكود الفعلي</small><span id="status">جارٍ الاتصال…</span><button id="full">ملء الشاشة</button></header>
+<div id="screen"></div><footer>تفاعل بالنقر والكتابة. قاعدة SQLite معزولة للاختبار فقط. هذه ليست نسخة Android، والكاميرا والبصمة وGoogle والواتساب تحتاج اختبارًا على الأجهزة المدعومة. لا تدخل بيانات حساسة.</footer>
+<script type="module">
+import RFB from './core/rfb.js';
+const url=new URL('websockify',location.href);url.protocol=location.protocol==='https:'?'wss:':'ws:';
+const rfb=new RFB(document.getElementById('screen'),url.href,{shared:true});
+rfb.scaleViewport=true;rfb.resizeSession=false;rfb.background='#071b20';
+rfb.addEventListener('connect',()=>document.getElementById('status').textContent='● متصل بالتطبيق الحقيقي');
+rfb.addEventListener('disconnect',()=>document.getElementById('status').textContent='انقطع الاتصال — أعد تحميل المعاينة');
+document.getElementById('full').onclick=()=>document.documentElement.requestFullscreen?.();
+</script></html>

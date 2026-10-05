@@ -1,0 +1,6 @@
+{
+  "name": "سجل المبيعات والديون - Nexora",
+  "description": "نظام محاسبي متكامل لإدارة الحسابات والديون ونقاط البيع والفواتير والمخزون وإدارة المنشأة",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
