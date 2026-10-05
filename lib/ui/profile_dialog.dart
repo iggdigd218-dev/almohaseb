@@ -286,6 +286,7 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
       return;
     }
 
+    if (!mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(

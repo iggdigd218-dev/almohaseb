@@ -17,6 +17,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../core/factory_reset.dart';
 import 'auto_backup.dart';
 import '../repository.dart';
+import 'cloud_firebase_transport.dart';
 import 'cloud_join.dart';
 import 'workspace_recovery.dart';
 import 'device_id.dart';
@@ -575,11 +576,13 @@ class AccountWorkspace {
 
       // سحب أي عمليات مزامنة إضافية من عقدة /operations للمساحة المسترجعة
       try {
-        await CloudJoin.pullOnce(
-          repo,
+        await CloudFirebaseTransport(
+          repo: repo,
+          dbProvider: () => repo.database,
           backendUrl: backendUrl,
           workspaceId: toWorkspaceId,
-        ).timeout(const Duration(seconds: 10));
+          idTokenProvider: () => FirebaseAuthRest.cloudIdToken(),
+        ).pull(forceFullSync: true).timeout(const Duration(seconds: 10));
       } catch (_) {}
 
       // 5) هوية سحابية مستقلة مقترنة بالمساحة الجديدة.
