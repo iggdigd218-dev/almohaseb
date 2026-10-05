@@ -19,6 +19,7 @@ import '../../core/app_version.dart';
 import '../../core/cloud_config.dart';
 import '../google_drive_service.dart';
 import '../repository.dart';
+import 'firebase_auth_service.dart';
 import 'subscription_guard.dart';
 
 class AutoBackupService {
@@ -45,7 +46,8 @@ class AutoBackupService {
   /// يرفع نسخة كاملة صامتة لمسار مساحة العمل — أفضل جهد: أي فشل يُبتلع
   /// (شبكة غائبة/اشتراك منتهٍ) وتُعاد المحاولة في الدورة القادمة.
   /// 🔒 مقيدة بالتجربة/الاشتراك: الانتهاء يحجب السحابة الخاصة تلقائياً.
-  static Future<bool> silentWorkspaceBackup(Repo repo) async {
+  static Future<bool> silentWorkspaceBackup(Repo repo,
+      {bool force = false}) async {
     try {
       final st = await repo.settings();
       final url = effectiveBackendUrl(st['cloudBackendUrl']);
@@ -57,10 +59,12 @@ class AutoBackupService {
       if (mode == 'member') return false;
       if ((st['account.email'] ?? '').trim().isEmpty) return false;
       final ws = await repo.activeWorkspaceId();
-      final blocked = await SubscriptionGuard.isBlocked(repo,
-          backendUrl: url, workspaceId: ws);
-      if (blocked) return false;
-      final payload = await repo.exportAll(withImages: false);
+      if (!force) {
+        final blocked = await SubscriptionGuard.isBlocked(repo,
+            backendUrl: url, workspaceId: ws);
+        if (blocked) return false;
+      }
+      final payload = await repo.exportAll(withImages: false, localOnly: true);
       final now = DateTime.now();
       final rec = {
         'app': 'sijil',
@@ -109,23 +113,41 @@ class AutoBackupService {
     return map;
   }
 
+  static Uri _withAuth(String target, String? token) {
+    final u = Uri.parse(target);
+    if (token == null || token.isEmpty) return u;
+    return u.replace(queryParameters: {...u.queryParameters, 'auth': token});
+  }
+
   static Future<Map<String, dynamic>?> _requestJson(
     String target, {
     String method = 'GET',
     Object? body,
   }) async {
-    final uri = Uri.parse(target);
+    var uri = _withAuth(target, FirebaseAuthRest.cachedIdToken);
     final headers = {'Content-Type': 'application/json'};
-    final res = method == 'PUT'
+    var res = method == 'PUT'
         ? await http
             .put(uri, headers: headers, body: jsonEncode(body))
             .timeout(const Duration(seconds: 60))
         : await http.get(uri, headers: headers).timeout(
             const Duration(seconds: 30));
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      final fresh = await FirebaseAuthRest.cloudIdToken();
+      if (fresh != null && fresh.isNotEmpty) {
+        uri = _withAuth(target, fresh);
+        res = method == 'PUT'
+            ? await http
+                .put(uri, headers: headers, body: jsonEncode(body))
+                .timeout(const Duration(seconds: 60))
+            : await http.get(uri, headers: headers).timeout(
+                const Duration(seconds: 30));
+      }
+    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw StateError('Cloud HTTP ${res.statusCode}');
     }
-    final text = res.body.trim();
+    final text = utf8.decode(res.bodyBytes).trim();
     if (text.isEmpty || text == 'null') return null;
     return jsonDecode(text) as Map<String, dynamic>;
   }

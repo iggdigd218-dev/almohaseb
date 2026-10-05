@@ -571,8 +571,10 @@ class DeviceCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          // (دفعة 56) مؤشر الحالة السحابية بدل «نشط» العامة.
-                          cloudOnline || isSelf ? 'متصل سحابياً ☁️' : 'غير متصل',
+                          // (دفعة 56) مؤشر الحالة السحابية: إذا انقطعت مزامنة العضو يظهر كغائب حتى يزيله المدير.
+                          cloudOnline || isSelf
+                              ? 'متصل سحابياً ☁️'
+                              : 'غائب (غير متصل)',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(

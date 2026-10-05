@@ -1600,6 +1600,42 @@ class CloudJoin {
     await setDeviceName(repo, deviceName.trim());
     final ourId = await ensureDeviceId(repo);
     final fp = await hardwareFingerprintRaw();
+
+    // ══ (عزل الجهاز تلقائياً من المؤسسة السابقة عند إعادة التثبيت والانضمام لمؤسسة أخرى) ══
+    try {
+      final fpKey = await DeviceRegistry.fingerprintKey(repo);
+      final prevReg = await DeviceRegistry.lookup(
+        backendUrl: url,
+        fingerprint: fpKey,
+      );
+      if (prevReg != null &&
+          prevReg.role == 'member' &&
+          prevReg.workspaceId.isNotEmpty &&
+          prevReg.workspaceId != targetWs) {
+        final oldWs = prevReg.workspaceId;
+        final oldDevId =
+            prevReg.deviceId.isNotEmpty ? prevReg.deviceId : ourId;
+        final oldRoot = _root(url, oldWs);
+        final encOld = Uri.encodeComponent(oldDevId);
+        final nowIso = DateTime.now().toIso8601String();
+        await _putJson('$oldRoot/evictions/$encOld.json', {
+          'deviceId': oldDevId,
+          'reason': 'isolated_joined_another_workspace',
+          'evictedAt': nowIso,
+        });
+        final oldRoster = await _getJson('$oldRoot/roster/$encOld.json');
+        if (oldRoster != null) {
+          await _putJson('$oldRoot/roster/$encOld.json', {
+            ...oldRoster,
+            'is_paired': 0,
+            'revoked_at': nowIso,
+            'expelled_at': nowIso,
+            'isolation_reason': 'joined_another_workspace',
+          });
+        }
+        await _delete(requestPath(url, oldWs, oldDevId));
+      }
+    } catch (_) {}
     // (المرحلة 2) هوية الجهاز المنضم (auth.uid) تُسجَّل داخل الطلب ليضيفها
     // المدير إلى /members بالدور الذي يختاره لحظة الموافقة.
     await FirebaseAuthRest.cloudIdToken();
@@ -1716,6 +1752,87 @@ class CloudJoin {
     final db = await repo.database;
     await db.delete('settings',
         where: "key LIKE 'pendingJoin.%'");
+  }
+
+  /// تطهير شامل للبيانات المحلية والسحابية السابقة للعضو وعزله عن أي مؤسسة سابقة
+  /// لحظة موافقته على تحذير تقديم طلب الانضمام إلى منشأة قائمة.
+  static Future<void> purgeAndIsolateJoiningMember(
+    Repo repo, {
+    required String backendUrl,
+    required String targetWorkspaceId,
+  }) async {
+    final url = backendUrl.trim();
+    final db = await repo.database;
+    try {
+      // 1) تسجيل خروج ومسح أي حساب Google شخصي مرتبط بالجهاز
+      try {
+        await GoogleAuthService(db).signOut();
+      } catch (_) {}
+      final oldUid = await FirebaseAuthRest.savedUid(repo);
+      var root = url;
+      while (root.endsWith('/')) {
+        root = root.substring(0, root.length - 1);
+      }
+      if (root.isNotEmpty && oldUid.isNotEmpty) {
+        try {
+          await _delete(
+              '$root/workspaces/_registry/accounts_index/${Uri.encodeComponent(oldUid)}.json');
+        } catch (_) {}
+      }
+      final st = await repo.settings();
+      final oldEmail = (st['account.email'] ?? st['email'] ?? '').trim();
+      if (root.isNotEmpty && oldEmail.isNotEmpty) {
+        try {
+          final emailKey = AccountWorkspace.emailToKey(oldEmail);
+          await _delete('$root/workspaces/_registry/emails_index/$emailKey.json');
+        } catch (_) {}
+      }
+      await FirebaseAuthRest.clearSession(repo);
+      await db.delete('settings',
+          where: "key IN ('account.email','email','user.email')");
+
+      // 2) إذا كان لهذا الجهاز مساحة سابقة خاصة به (كمدير فردي قبل الانضمام)، نحذفها من السحابة
+      final oldLocalWs = repo.requireWorkspaceId;
+      final ourId = await ensureDeviceId(repo);
+      if (root.isNotEmpty &&
+          oldLocalWs.isNotEmpty &&
+          oldLocalWs != 'default' &&
+          oldLocalWs != targetWorkspaceId) {
+        final onlyOurs =
+            await _workspaceHasOnlyOurDevice(url, oldLocalWs, ourId);
+        if (onlyOurs) {
+          try {
+            await _delete(
+                '$root/workspaces/${Uri.encodeComponent(oldLocalWs)}.json');
+          } catch (_) {}
+        } else {
+          // إذا كان عضواً في مؤسسة سابقة، نعزله منها رسمياً
+          try {
+            final oldRoot = _root(url, oldLocalWs);
+            final encOld = Uri.encodeComponent(ourId);
+            final nowIso = DateTime.now().toIso8601String();
+            await _putJson('$oldRoot/evictions/$encOld.json', {
+              'deviceId': ourId,
+              'reason': 'isolated_joined_another_workspace',
+              'evictedAt': nowIso,
+            });
+            final oldRoster = await _getJson('$oldRoot/roster/$encOld.json');
+            if (oldRoster != null) {
+              await _putJson('$oldRoot/roster/$encOld.json', {
+                ...oldRoster,
+                'is_paired': 0,
+                'revoked_at': nowIso,
+                'expelled_at': nowIso,
+                'isolation_reason': 'joined_another_workspace',
+              });
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 3) تفريغ جميع الجداول المحاسبية المحلية فوراً قبل إرسال الطلب
+      await FactoryReset.wipeAccountingTables(db);
+    } catch (_) {}
   }
 
   /// (دفعة 58 — متطلب 11) «طلب مغادرة»: العضو يكتب طلباً في نفس عقدة

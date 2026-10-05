@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/providers.dart';
 import '../data/repository.dart';
+import '../data/sync/account_workspace.dart';
+import '../data/sync/auto_backup.dart';
 import '../data/sync/firebase_auth_service.dart';
 import '../data/sync/cloud_join.dart';
 import '../data/sync/subscription_guard.dart';
@@ -82,6 +84,8 @@ Future<void> provisionCloudAfterSignIn(
         backendUrl: url, workspaceId: ws);
     await SubscriptionGuard.ensureTrialStarted(repo,
         backendUrl: url, workspaceId: ws);
+    await AccountWorkspace.syncWorkspaceMetaToCloud(repo, backendUrl: url);
+    await AutoBackupService.silentWorkspaceBackup(repo, force: true);
     ref.invalidate(subscriptionProvider);
   } catch (_) {
     // خلفية صامتة.

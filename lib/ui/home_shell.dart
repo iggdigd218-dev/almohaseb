@@ -1187,13 +1187,11 @@ class _HomeShellState extends ConsumerState<HomeShell>
       return;
     }
 
-    if (s == AppScreen.dashboard) {
-      _screenHistory.clear();
-      _screenHistory.add(AppScreen.dashboard);
-    } else {
-      if (_screenHistory.isEmpty || _screenHistory.last != s) {
-        _screenHistory.add(s);
-      }
+    _screenHistory
+      ..clear()
+      ..add(AppScreen.dashboard);
+    if (s != AppScreen.dashboard) {
+      _screenHistory.add(s);
     }
     setState(() => _screen = s);
     // فتح شاشة الدردشة يوسم الرسائل كمقروءة ويصفّر شارتها.
@@ -1329,15 +1327,13 @@ class _HomeShellState extends ConsumerState<HomeShell>
       return;
     }
 
-    // 3) التنقل العكسي بين الشاشات الفرعية حتى العودة للرئيسية
+    // 3) أي شاشة فرعية داخل القشرة تعود مباشرة إلى الرئيسية بضغطة واحدة فقط
+    // دون المرور على سجل كل النوافذ والأيقونات التي زارها المستخدم.
     if (_screen != AppScreen.dashboard) {
-      if (_screenHistory.length > 1) {
-        _screenHistory.removeLast();
-        final prev = _screenHistory.last;
-        setState(() => _screen = prev);
-      } else {
-        _go(AppScreen.dashboard);
-      }
+      _screenHistory
+        ..clear()
+        ..add(AppScreen.dashboard);
+      setState(() => _screen = AppScreen.dashboard);
       return;
     }
 
@@ -2605,9 +2601,9 @@ class _Drawer extends ConsumerWidget {
                                 final st =
                                     rref.watch(settingsProvider).valueOrNull ??
                                         const <String, String>{};
-                                final email =
-                                    (st['account.email'] ?? user?.email ?? '')
-                                        .trim();
+                                final email = googleLinked
+                                    ? (st['account.email'] ?? '').trim()
+                                    : '';
                                 final biz = (st['businessName'] ?? '').trim();
                                 if (email.isEmpty && biz.isEmpty) {
                                   return Padding(

@@ -383,7 +383,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       final repo = ref.read(repoProvider);
       for (final e in _ctrls.entries) {
-        await repo.setSetting(e.key, e.value.text.trim());
+        await repo.setSyncedSetting(e.key, e.value.text.trim());
+      }
+      final stAfter = await repo.settings();
+      final url = effectiveBackendUrl(stAfter['cloudBackendUrl']);
+      if (url.isNotEmpty) {
+        unawaited(AutoBackupService.silentWorkspaceBackup(repo, force: true));
       }
       await repo.logActivity('حفظ الإعدادات', 'settings', '');
       bump(ref);
@@ -457,9 +462,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         // المفتاح (مستخدم سابق) يُستنتج نوعه من نمط مساحة العمل بدل أن
         // يُخفى عنه قسم المجموعة الذي يستخدمه فعلاً.
         final storedType = (st['account.type'] ?? '').toString().trim();
-        final accountType = storedType.isNotEmpty
-            ? storedType
-            : (wsMode == 'standalone' ? 'individual' : 'enterprise');
+        final hasEmailLinked =
+            (st['account.email'] ?? '').toString().trim().isNotEmpty ||
+                (ref.watch(googleLinkedProvider).valueOrNull ?? false);
+        final accountType = hasEmailLinked
+            ? 'enterprise'
+            : (storedType.isNotEmpty
+                ? storedType
+                : (wsMode == 'standalone' ? 'individual' : 'enterprise'));
         final isIndividual = accountType != 'enterprise';
         // (3.70.0 — إعادة التصميم) تبويبات وبطاقات نقر مستقلة مصنّفة —
         // بلا قوائم منسدلة متداخلة (ExpansionTile) إطلاقاً.
@@ -1027,7 +1037,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           // إعدادات الفردي محصورة — لا مسارات مؤسسة فيها.
                           // (دفعة 65) الحساب الفردي: خيار «الانضمام إلى مؤسسة قائمة»
                           // يبقى متاحاً ومستقلاً لمن يرغب بالعمل تحت إدارة متجر آخر.
-                          if (isIndividual) ...[
+                          if (isIndividual && !hasEmailLinked && wsMode != 'member') ...[
                             const SizedBox(height: 18),
                             _Collapsible(
                               title: 'الانضمام إلى مؤسسة قائمة',

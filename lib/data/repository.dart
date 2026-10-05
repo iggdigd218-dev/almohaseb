@@ -4402,7 +4402,10 @@ class Repo {
   ///
   /// اختلاف ترتيب الجداول لا يؤثر؛ أما الصف غير الصالح أو المرجع المفقود
   /// فيفشل العملية كلها ويعيد SQLite الحالة السابقة بدل استعادة جزئية صامتة.
-  Future<int> importAll(Map<String, Object?> backup) async {
+  Future<int> importAll(
+    Map<String, Object?> backup, {
+    bool allowCrossFingerprint = false,
+  }) async {
     await _ensureCan('manage_backup');
     final db = await _db;
     final mode = await workspaceMode();
@@ -4421,7 +4424,8 @@ class Repo {
     }
     // داخل مجموعة: تُرفض أي نسخة غير صادرة من المجموعة نفسها — استيراد
     // بيانات غريبة يفسد دفاتر كل الأجهزة عند أول مزامنة.
-    if (mode == 'member' || mode == 'host') {
+    // يستثنى من ذلك استرداد مساحة عمل المالك نفسه عبر حساب Google (allowCrossFingerprint).
+    if (!allowCrossFingerprint && (mode == 'member' || mode == 'host')) {
       final ourFp = await _groupFingerprint();
       final theirFp = (backup['group_fingerprint'] as String?) ?? '';
       if (ourFp.isNotEmpty && theirFp != ourFp) {

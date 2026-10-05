@@ -71,7 +71,7 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
       text: devName.isNotEmpty ? devName : (user?.name ?? ''),
     );
     _emailCtrl = TextEditingController(
-      text: (st['account.email'] ?? user?.email ?? '').trim(),
+      text: (st['account.email'] ?? '').trim(),
     );
     _phoneCtrl = TextEditingController(
       text: (st['phone'] ?? st['whatsapp'] ?? '').trim(),
@@ -118,10 +118,20 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
 
   Future<void> _signInWithGoogle() async {
     if (_googleBusy) return;
+    final repo = ref.read(repoProvider);
+    if (await repo.workspaceMode() == 'member') {
+      if (mounted) {
+        showSnack(
+          context,
+          'هذا الجهاز مرتبط كعضو في منشأة قائمة — لا يُسمح بتسجيل حساب Google أثناء الارتباط.',
+          error: true,
+        );
+      }
+      return;
+    }
     setState(() => _googleBusy = true);
     Sfx.click();
     try {
-      final repo = ref.read(repoProvider);
       final db = await repo.database;
       final r = await GoogleAuthService(db).signIn();
       final gu = r.user;
@@ -150,27 +160,12 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
         displayName: gu.displayName ?? '',
       );
 
-      final wsId = await ensureWorkspace(db, repo: repo);
-      await linkWorkspaceToGoogle(
-        db,
-        workspaceId: wsId,
-        googleId: gu.id,
-        email: gu.email,
-        name: gu.displayName ?? '',
-      );
       if ((gu.photoUrl ?? '').isNotEmpty) {
         await repo.setSetting('account.photoPath', gu.photoUrl!);
       }
       await repo.setSetting(Repo.accountEmailKey, gu.email);
       await repo.setSetting('email', gu.email);
-
-      // ضمان ترقية مالك الجهاز فوراً إلى مدير النظام بصلاحيات كاملة (محلياً أولاً دون تعليق الواجهة)
-      final curMode = await repo.workspaceMode();
-      if (curMode != 'member') {
-        await repo.checkAndAutoPromoteManager();
-        await repo.ensureSelfPermissionRow(roleCode: 'admin');
-        unawaited(repo.restoreManagerOwnership());
-      }
+      await repo.setSetting('account.type', 'enterprise');
 
       final st = await repo.settings();
       final url = effectiveBackendUrl(st['cloudBackendUrl']);
@@ -179,11 +174,46 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
         backendUrl: url,
         account: account,
       ).timeout(
-        const Duration(seconds: 6),
+        const Duration(seconds: 25),
         onTimeout: () => AccountLinkOutcome.migrated,
       );
 
-      if ((gu.displayName ?? '').trim().isNotEmpty &&
+      final activeWsId = await ensureWorkspace(db, repo: repo);
+      await linkWorkspaceToGoogle(
+        db,
+        workspaceId: activeWsId,
+        googleId: gu.id,
+        email: gu.email,
+        name: gu.displayName ?? '',
+      );
+
+      // ضمان ترقية مالك الجهاز فوراً إلى مدير النظام بصلاحيات كاملة
+      final curMode = await repo.workspaceMode();
+      if (curMode != 'member') {
+        await repo.checkAndAutoPromoteManager();
+        await repo.ensureSelfPermissionRow(roleCode: 'admin');
+        unawaited(repo.restoreManagerOwnership());
+      }
+
+      // تحديث حقول النافذة بالبيانات المسترجعة من المساحة السحابية
+      final refreshedSt = await repo.settings();
+      if ((refreshedSt['businessName'] ?? '').trim().isNotEmpty) {
+        _bizNameCtrl.text = refreshedSt['businessName']!.trim();
+      }
+      if ((refreshedSt['businessActivity'] ?? '').trim().isNotEmpty) {
+        _bizActivityCtrl.text = refreshedSt['businessActivity']!.trim();
+      }
+      if ((refreshedSt['phone'] ?? refreshedSt['whatsapp'] ?? '').trim().isNotEmpty) {
+        _phoneCtrl.text =
+            (refreshedSt['phone'] ?? refreshedSt['whatsapp'] ?? '').trim();
+      }
+      if ((refreshedSt['address'] ?? '').trim().isNotEmpty) {
+        _addressCtrl.text = refreshedSt['address']!.trim();
+      }
+      if ((refreshedSt['account.name'] ?? '').trim().isNotEmpty &&
+          _userNameCtrl.text.trim().isEmpty) {
+        _userNameCtrl.text = refreshedSt['account.name']!.trim();
+      } else if ((gu.displayName ?? '').trim().isNotEmpty &&
           _userNameCtrl.text.trim().isEmpty) {
         _userNameCtrl.text = gu.displayName!.trim();
         await repo.renameSelfDevice(gu.displayName!.trim());
@@ -256,6 +286,33 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
       return;
     }
 
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.warning_amber_rounded,
+            color: Colors.orange, size: 40),
+        title: const Text('تحذير: الانضمام لمنشأة قائمة'),
+        content: const Text(
+          'سيتم حذف جميع بياناتك المحلية والسحابية السابقة نهائياً (الحسابات، السندات، الأصناف، المحادثات، والنسخ السحابية الخاصة بك) ولن يتم استرجاع أي بيانات سابقة.\n\n'
+          'إذا كان هذا الجهاز مرتبطاً بمؤسسة سابقة فسيتم عزله عنها تلقائياً، وستدخل المنشأة الجديدة نظيفاً تماماً ببيانات المنشأة المرتبط بها فقط.\n\n'
+          'هل توافق على المتابعة؟',
+          style: TextStyle(height: 1.7),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.orange),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('أوافق — حذف بياناتي والانضمام'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     setState(() => _joinBusy = true);
     Sfx.click();
     try {
@@ -269,6 +326,12 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
         }
       }
       if (targetWs.isEmpty) targetWs = 'default';
+
+      await CloudJoin.purgeAndIsolateJoiningMember(
+        repo,
+        backendUrl: backendUrl,
+        targetWorkspaceId: targetWs,
+      );
 
       await CloudJoin.requestJoin(
         repo,
@@ -393,17 +456,66 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
 
       if (isOwner) {
         final emailVal = _emailCtrl.text.trim();
+        final phoneVal = _phoneCtrl.text.trim();
+        final st = await repo.settings();
+        final url = effectiveBackendUrl(st['cloudBackendUrl']);
+        final wsId = repo.requireWorkspaceId;
+
+        if (url.isNotEmpty) {
+          if (emailVal.isNotEmpty) {
+            final existingEmailWs = await AccountWorkspace.lookupByEmail(
+              backendUrl: url,
+              email: emailVal,
+            );
+            if (existingEmailWs.isNotEmpty && existingEmailWs != wsId) {
+              if (mounted) {
+                setState(() => _saving = false);
+                showSnack(
+                  context,
+                  'هذا البريد الإلكتروني مرتبط بمساحة منشأة أخرى على السحابة ولا يمكن تكراره.',
+                  error: true,
+                );
+              }
+              return;
+            }
+          }
+          if (phoneVal.isNotEmpty) {
+            final existingPhoneWs = await AccountWorkspace.lookupByPhone(
+              backendUrl: url,
+              phone: phoneVal,
+            );
+            if (existingPhoneWs.isNotEmpty && existingPhoneWs != wsId) {
+              if (mounted) {
+                setState(() => _saving = false);
+                showSnack(
+                  context,
+                  'رقم الهاتف هذا مرتبط بمساحة منشأة أخرى على السحابة ولا يمكن تكراره.',
+                  error: true,
+                );
+              }
+              return;
+            }
+          }
+        }
+
         if (emailVal.isNotEmpty) {
           await repo.setSetting('account.email', emailVal);
           await repo.setSetting('email', emailVal);
         }
-        await repo.setSetting('phone', _phoneCtrl.text.trim());
-        await repo.setSetting('whatsapp', _phoneCtrl.text.trim());
-        await repo.setSetting('businessName', _bizNameCtrl.text.trim());
-        await repo.setSetting('businessActivity', _bizActivityCtrl.text.trim());
-        await repo.setSetting('address', _addressCtrl.text.trim());
+        await repo.setSyncedSetting('phone', phoneVal);
+        await repo.setSyncedSetting('whatsapp', phoneVal);
+        await repo.setSyncedSetting('businessName', _bizNameCtrl.text.trim());
+        await repo.setSyncedSetting(
+            'businessActivity', _bizActivityCtrl.text.trim());
+        await repo.setSyncedSetting('address', _addressCtrl.text.trim());
         if (emailVal.isNotEmpty) {
           await repo.checkAndAutoPromoteManager();
+        }
+        if (url.isNotEmpty) {
+          unawaited(AccountWorkspace.syncWorkspaceMetaToCloud(
+            repo,
+            backendUrl: url,
+          ));
         }
       }
 
@@ -488,7 +600,8 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ══════════ 1) بطاقة حساب Google الموحّدة ══════════
+              // ══════════ 1) بطاقة حساب Google الموحّدة (لغير الأعضاء فقط) ══════════
+              if (wsMode != 'member')
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -606,8 +719,8 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
                 ),
               ),
 
-              // ══════════ 2) ربط هذا الجهاز كعضو في مجموعة ══════════
-              if (wsMode != 'member') ...[
+              // ══════════ 2) ربط هذا الجهاز كعضو في مجموعة (مخفي عند التسجيل بالبريد) ══════════
+              if (wsMode != 'member' && !googleLinked) ...[
                 const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.all(10),

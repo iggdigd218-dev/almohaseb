@@ -169,17 +169,37 @@ Future<void> _performSignOut(WidgetRef ref, Repo repo) async {
       await GoogleAuthService(db).signOut();
     } catch (_) {}
     await FirebaseAuthRest.clearSession(repo);
+    // مسح صريح وشامل للبريد السابق من كافة الإعدادات والجداول المحلية حتى لا يظهر في أي مكان بعد الخروج
+    for (final k in const [
+      'account.email',
+      'email',
+      'user.email',
+      'company.email',
+      'account.photoPath',
+    ]) {
+      try {
+        await repo.setSetting(k, '');
+      } catch (_) {}
+    }
+    try {
+      await db.update('users', {'email': ''}, where: 'is_owner = 1 OR id = 1');
+    } catch (_) {}
+    try {
+      await db.update('workspaces', {'owner_email': '', 'owner_google_id': ''});
+    } catch (_) {}
     // جلسة مجهولة صامتة بديلة — المزامنة المحلية والسحابية تستمر
     // دون انقطاع أثناء غياب المدير (لا توقف للمحرك ولا لمسار الطابور).
     await FirebaseAuthRest.initSilentAuth(repo);
     ref.invalidate(googleLinkedProvider);
+    ref.invalidate(currentUserProvider);
     ref.invalidate(settingsProvider);
     ref.invalidate(drawerPhotoProvider);
+    ref.invalidate(isOwnerProvider);
+    ref.invalidate(workspaceModeProvider);
     ref.read(refreshProvider.notifier).state++;
     final c = rootNavigatorKey.currentContext;
     if (c != null && c.mounted) {
-      showSnack(c, 'تم تسجيل الخروج — النظام والمزامنة مستمران؛ '
-          'عودتك فورية ببريدك وكلمة مرورك');
+      showSnack(c, 'تم تسجيل الخروج رسمياً وبشكل كامل من الحساب ✅');
     }
   } catch (e) {
     final c = rootNavigatorKey.currentContext;

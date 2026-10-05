@@ -183,10 +183,12 @@ class _JoinApprovalScreenState extends ConsumerState<JoinApprovalScreen> {
             color: Colors.orange, size: 40),
         title: const Text('تحذير: الانضمام للمجموعة'),
         content: const Text(
-          'سيتم حذف جميع بياناتك الحالية نهائياً — الحسابات والسندات '
-          'والأصناف والمحادثات — ولا يمكن التراجع.\n\n'
-          'ستدخل المجموعة نظيفاً تماماً ببيانات المجموعة فقط، وصلاحياتك '
-          'يحددها مدير المجموعة.\n\nهل توافق على المتابعة؟',
+          'سيتم حذف جميع بياناتك المحلية والسحابية الحالية نهائياً — الحسابات '
+          'والسندات والأصناف والمحادثات والنسخ السحابية الخاصة بك — ولن يتم '
+          'استرجاع أي بيانات سابقة.\n\n'
+          'إذا كان جهازك مرتبطاً بمؤسسة سابقة فسيتم عزله عنها تلقائياً، وستدخل '
+          'المجموعة نظيفاً تماماً ببيانات المنشأة المرتبط بها فقط.\n\n'
+          'هل توافق على المتابعة؟',
           style: TextStyle(height: 1.7),
         ),
         actions: [
@@ -228,6 +230,11 @@ class _JoinApprovalScreenState extends ConsumerState<JoinApprovalScreen> {
     });
     try {
       final repo = ref.read(repoProvider);
+      await CloudJoin.purgeAndIsolateJoiningMember(
+        repo,
+        backendUrl: url,
+        targetWorkspaceId: ws,
+      );
       await CloudJoin.requestJoin(
         repo,
         backendUrl: url,

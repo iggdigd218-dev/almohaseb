@@ -42,7 +42,11 @@ String? debugFirebaseApiKeyOverride;
 /// المفتاح الفعّال.
 String get effectiveFirebaseApiKey {
   if (debugFirebaseApiKeyOverride != null) return debugFirebaseApiKeyOverride!;
-  if (kFirebaseWebApiKey.isNotEmpty) return kFirebaseWebApiKey;
+  final k = kFirebaseWebApiKey.trim();
+  // حماية من تمرير سر فارغ أو قديم تالف عبر --dart-define في CI
+  if (k.isNotEmpty && k.startsWith('AIzaSy') && !k.contains('0')) {
+    return k;
+  }
   return 'AIzaSyATvivcsVdgrPbvlwVDAWFHGQ-C3vlFySc';
 }
 

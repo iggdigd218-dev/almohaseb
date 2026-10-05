@@ -334,37 +334,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         displayName: gu.displayName ?? '',
       );
 
-      final isPersonal = _choice == 'personal';
       final st = await repo.settings();
       final url = effectiveBackendUrl(st['cloudBackendUrl']);
 
-      if (isPersonal) {
-        // ══ نمط الحساب الفردي ══
-        await completeOnboarding(repo,
-            storeName: _name, currencyCode: _currency);
-        await repo.setSetting('account.type', 'individual');
-        await FirebaseAuthRest.saveSession(repo, account);
-        if (account.email.trim().isNotEmpty) {
-          await repo.setSetting('account.email', account.email.trim());
-        }
-        await repo.restoreManagerOwnership();
-        await repo.checkAndAutoPromoteManager();
-        await repo.ensureSelfPermissionRow(roleCode: 'admin');
+      // نحفظ الاسم والعملة كقيم مبدئية قبل الفحص السحابي، فإذا وُجدت مساحة سابقة
+      // مرتبطة بهذا البريد على السحابة تستبدلها بيانات المنشأة المسترجعة بالكامل!
+      await completeOnboarding(repo,
+          storeName: _name, currencyCode: _currency);
+      // عند التسجيل بواسطة البريد الإلكتروني يُعتمد المستخدم كمنشئ/مالك حساب منشأة
+      await repo.setSetting('account.type', 'enterprise');
 
-        statusText = '✅ تم إعداد حسابك الفردي بنجاح!\nجاري الدخول...';
-        updateDialog?.call(() {});
-        await Future.delayed(const Duration(milliseconds: 500));
-
-        if (dialogOpen && mounted) {
-          dialogOpen = false;
-          Navigator.of(context, rootNavigator: true).pop();
-        }
-        bump(ref);
-        await _finishAndNavigate();
-        return;
-      }
-
-      // ══ نمط حساب المنشأة (المؤسسة) ══
       AccountLinkOutcome outcome = AccountLinkOutcome.migrated;
       if (url.isNotEmpty) {
         try {
@@ -372,24 +351,25 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             repo,
             backendUrl: url,
             account: account,
-          ).timeout(const Duration(seconds: 6));
+          ).timeout(const Duration(seconds: 25));
         } catch (_) {
           outcome = AccountLinkOutcome.migrated;
         }
       }
 
-      await completeOnboarding(repo,
-          storeName: _name, currencyCode: _currency);
       await repo.setSetting('account.type', 'enterprise');
       await FirebaseAuthRest.saveSession(repo, account);
       if (account.email.trim().isNotEmpty) {
         await repo.setSetting('account.email', account.email.trim());
+        await repo.setSetting('email', account.email.trim());
       }
       await repo.restoreManagerOwnership();
       await repo.checkAndAutoPromoteManager();
       await repo.ensureSelfPermissionRow(roleCode: 'admin');
 
       if (outcome == AccountLinkOutcome.switched) {
+        // استُرجعت مساحة سابقة قائمة — ندخل مباشرة إلى الرئيسية دون فتح معالج إنشاء مجموعة جديدة
+        _choice = 'personal';
         statusText =
             '✅ تم استرجاع مساحة عمل منشأتك وبياناتها بنجاح!\nجاري الدخول كمدير أساسي...';
       } else {

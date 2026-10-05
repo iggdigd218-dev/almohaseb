@@ -55,14 +55,14 @@ const List<String> kDriveGoogleScopes = <String>[
   kDriveAppDataScope,
 ];
 
-/// النطاقات الموحّدة للتطبيق.
-const List<String> kUnifiedGoogleScopes = kAuthGoogleScopes;
+/// النطاقات الموحّدة للتطبيق (تشمل صلاحية النسخ السحابي لتظهر أذونات Google للموافقة عليها عند التسجيل).
+const List<String> kUnifiedGoogleScopes = kDriveGoogleScopes;
 
 /// إنشاء كائن `GoogleSignIn`.
 ///
-/// للمصادقة العادية: نطاقات 'email' و 'profile' فقط لمنع تعليق شاشة موافقة Drive.
-/// لخدمة Drive: يُمرّر `forDrive: true`.
-GoogleSignIn? createUnifiedGoogleSignIn({bool forDrive = false}) {
+/// يطلب النطاقات الموحدة (البريد + الملف الشخصي + مجلد بيانات التطبيق السحابي)
+/// لتظهر شاشة أذونات Google للموافقة عليها رسمياً عند التسجيل.
+GoogleSignIn? createUnifiedGoogleSignIn({bool forDrive = true}) {
   try {
     return GoogleSignIn(
       scopes: forDrive ? kDriveGoogleScopes : kAuthGoogleScopes,
@@ -84,7 +84,7 @@ class GoogleAuthService {
 
   /// المثال الموحّد (يعيد null على منصات لا تدعمه كويندوز/لينكس).
   GoogleSignIn? _ensureSignIn() {
-    _googleSignIn ??= createUnifiedGoogleSignIn(forDrive: false);
+    _googleSignIn ??= createUnifiedGoogleSignIn(forDrive: true);
     return _googleSignIn;
   }
 
