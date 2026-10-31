@@ -9,18 +9,14 @@
 //  • كل مستند PDF: ثيم بالخط العربي + اتجاه RTL.
 //  • لا حرف عربي بلا رسم (glyph) في الخط المدمج = لا مربعات.
 //  • لا خط لاتيني افتراضي (Helvetica/Courier/Times) في أي مستند.
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:nexora_app/core/accounting.dart';
-import 'package:nexora_app/core/models.dart';
 import 'package:nexora_app/core/pdf_fonts.dart';
-import 'package:nexora_app/core/thermal_invoice_doc.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -42,44 +38,6 @@ void main() {
     'التاريخ: 24/09/2026',
   ];
 
-  Tx sampleTx() => Tx(
-        id: 1,
-        accountId: 7,
-        type: OpType.revenue,
-        amount: 12500,
-        currency: 'YER',
-        date: DateTime(2026, 9, 24, 10, 30),
-        reference: '1024',
-        description: 'فاتورة مبيعات',
-        createdAt: DateTime(2026, 9, 24),
-        updatedAt: DateTime(2026, 9, 24),
-      );
-
-  Account sampleAccount() => Account(
-        id: 7,
-        name: 'عبدالله محمد حسين',
-        kind: AccountKind.customer,
-        currency: 'YER',
-        createdAt: DateTime(2026, 9, 24),
-        updatedAt: DateTime(2026, 9, 24),
-      );
-
-  List<InvoiceLine> sampleLines() => const <InvoiceLine>[
-        InvoiceLine(
-          name: 'زيت نباتي 1 لتر',
-          unit: 'لتر',
-          quantity: 3,
-          unitPrice: 1500,
-        ),
-        InvoiceLine(
-          name: 'أرز بسمتي 5 كجم',
-          unit: 'كجم',
-          quantity: 2,
-          unitPrice: 4000,
-        ),
-      ];
-
-  // ============ 1) الأصول ============
   test('ARF-01 الملفان معلنان في pubspec وموجودان على القرص', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
     expect(pubspec, contains('assets/fonts/'),
@@ -145,88 +103,22 @@ void main() {
     }
   });
 
-  // ============ 4) مستند فاتورة نقطة البيع ============
-  test('ARF-05 فاتورة نقطة البيع: خط عربي مدمج ولا خط لاتيني افتراضي',
-      () async {
-    PdfFonts.resetCacheForTest();
-    final doc = await buildThermalInvoiceDocument(
-      tx: sampleTx(),
-      account: sampleAccount(),
-      lines: sampleLines(),
-      orgName: 'متجر النخبة للتجارة',
-      orgPhone: '777123456',
-      footer: 'شكراً لزيارتكم!',
-    );
 
-    // الخط الذي تحمّله الخدمة هو نفسه المدمج في المستند — نتحقق من هويته
-    // العربية من ملف TTF نفسه (Cairo) قبل فحص أثره داخل البايتات.
-    final parser = TtfParser(await rootBundle.load(kPdfFontRegularAsset));
-    expect(parser.fontName, contains('Cairo'),
-        reason: 'الخط الأساس ليس عربياً: ${parser.fontName}');
-    expect(parser.unicode, isTrue,
-        reason: 'الخط بلا خريطة يونيكود ⇒ لا يمكن ترميز العربية');
-
-    // لا خط افتراضي من عائلة Helvetica/Courier/Times في أي مكان بالمستند:
-    // وجوده يعني نصاً عربياً بلا خط (بالضبط سبب المربعات).
-    final raw = latin1.decode(doc.bytes, allowInvalid: true);
-    for (final latinFont in <String>[
-      'Helvetica',
-      'Courier',
-      'Times',
-      'ZapfDingbats'
-    ]) {
-      expect(raw, isNot(contains('/$latinFont')),
-          reason: 'يستخدم الخط اللاتيني $latinFont ⇒ حروف عربية مفقودة');
-    }
-    expect(raw, contains('Cairo'), reason: 'الخط العربي غير مذكور في الملف');
-    expect(raw, contains('Identity-H'),
-        reason: 'الخط ليس بترميز Identity-H (نص يونيكود ثنائي البايت)');
-    expect(raw, contains('FontFile2'), reason: 'ملف الخط غير مضمّن في PDF');
-    // الخط مُضمَّن كمجموعة فرعية مضغوطة (FontFile2) فالملف يبقى صغيراً؛
-    // ملف بلا خط مدمج يقلّ عن 3KB عادةً.
-    expect(doc.bytes.length, greaterThan(8 * 1024),
-        reason: 'الملف صغير جداً: الخط المدمج غائب على الأرجح');
-  });
-
-  // ============ 5) المعاينة تحفظ النص العربي كما هو ============
-  test('ARF-06 بايتات الفاتورة قابلة للحفظ وتبدأ بتوقيع PDF صالح', () async {
-    final bytes = await buildThermalInvoicePdf(
-      tx: sampleTx(),
-      account: sampleAccount(),
-      lines: sampleLines(),
-      orgName: 'متجر النخبة',
-      orgPhone: '777123456',
-      footer: 'شكراً لزيارتكم!',
-      stamp: true,
-    );
-    expect(bytes.lengthInBytes, greaterThan(8 * 1024));
-    expect(latin1.decode(bytes.take(5).toList()), startsWith('%PDF-'));
-    expect(latin1.decode(bytes, allowInvalid: true), contains('%%EOF'));
-  });
 
   // ============ 6) حارس مصدر: لا رجوع إلى مستند بلا خط ============
   test('ARF-07 كل مستندات PDF تستخدم خدمة الخطوط واتجاه RTL', () {
     final files = <String>[
-      'lib/ui/pos_screen.dart',
       'lib/ui/voucher_doc.dart',
       'lib/ui/reports_screen.dart',
     ];
     for (final path in files) {
       final src = File(path).readAsStringSync();
-      // نقطة البيع تبني الفاتورة عبر thermal_invoice_doc (الذي يستخدم
-      // الخدمة مباشرة)؛ السند والتقارير يستدعيانها مباشرة.
-      final usesFontService =
-          src.contains('PdfFonts') || src.contains('buildThermalInvoicePdf');
+      // السند والتقارير يستدعيان خدمة الخطوط مباشرة.
+      final usesFontService = src.contains('PdfFonts');
       expect(usesFontService, isTrue,
           reason: '$path لا يستخدم خدمة الخطوط العربية');
 
-      // RTL قد يكون في الشاشة نفسها أو في وحدة المستند التي تستدعيها.
-      final sources = <String>[src];
-      if (src.contains('buildThermalInvoicePdf')) {
-        sources
-            .add(File('lib/core/thermal_invoice_doc.dart').readAsStringSync());
-      }
-      expect(sources.any((s) => s.contains('pw.TextDirection.rtl')), isTrue,
+      expect(src.contains('pw.TextDirection.rtl'), isTrue,
           reason: '$path بلا اتجاه RTL');
     }
   });

@@ -52,25 +52,12 @@ class OrgInfo {
       );
 }
 
-pw.Widget _tableCell(String value, pw.Font? font) => pw.Padding(
-      padding: const pw.EdgeInsets.all(6),
-      child: pw.Text(
-        value,
-        textAlign: pw.TextAlign.center,
-        style: pw.TextStyle(fontSize: 9, font: font),
-      ),
-    );
-
-String _quantity(double value) =>
-    value == value.roundToDouble() ? Fmt.money(value) : Fmt.money(value, 2);
-
 /// يبني ملف PDF بمقاس A4 للسند — نفس تخطيط `voucherHTML` في نسخة الويب.
 Future<Uint8List> buildVoucherPdf({
   required Voucher v,
   required Account? account,
   required CurrencyDef currency,
   required OrgInfo org,
-  List<InvoiceLine> items = const [],
   bool stamp = false,
 }) async {
   // (2026-09-24) تحميل موحّد عبر خدمة الخطوط: مصدر واحد، تخزين مؤقت،
@@ -291,61 +278,6 @@ Future<Uint8List> buildVoucherPdf({
               ],
             ),
           ),
-          if (items.isNotEmpty) ...[
-            pw.Text(
-              'تفاصيل المشتريات',
-              style: pw.TextStyle(fontSize: 13, font: bold, color: brand),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Table(
-              border: pw.TableBorder.all(color: border, width: .6),
-              columnWidths: const {
-                0: pw.FlexColumnWidth(3.2),
-                1: pw.FlexColumnWidth(1.2),
-                2: pw.FlexColumnWidth(1.7),
-                3: pw.FlexColumnWidth(1.7),
-              },
-              children: [
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: soft),
-                  children: [
-                    _tableCell('الصنف', bold),
-                    _tableCell('الكمية', bold),
-                    _tableCell('سعر الوحدة', bold),
-                    _tableCell('الإجمالي', bold),
-                  ],
-                ),
-                for (final line in items)
-                  pw.TableRow(
-                    children: [
-                      _tableCell(line.name, null),
-                      _tableCell(
-                        '${_quantity(line.quantity)} ${line.unit}',
-                        null,
-                      ),
-                      _tableCell(
-                        '${Fmt.money(line.unitPrice, currency.decimal)} ${currency.symbol}',
-                        null,
-                      ),
-                      _tableCell(
-                        '${Fmt.money(line.total, currency.decimal)} ${currency.symbol}',
-                        bold,
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-            pw.SizedBox(height: 8),
-            pw.Align(
-              alignment: pw.AlignmentDirectional.centerEnd,
-              child: pw.Text(
-                'إجمالي المشتريات: ${Fmt.money(items.fold<double>(0, (sum, line) => sum + line.total), currency.decimal)} ${currency.symbol}',
-                style: pw.TextStyle(fontSize: 11, font: bold, color: brand),
-              ),
-            ),
-            pw.SizedBox(height: 16),
-          ],
-
           // صندوق المبلغ
           pw.Container(
             width: double.infinity,
@@ -443,7 +375,6 @@ String voucherText({
   required Account? account,
   required CurrencyDef currency,
   required String orgName,
-  List<InvoiceLine> items = const [],
 }) {
   final b = StringBuffer()
     ..writeln('📄 ${v.kind.label} رقم ${v.number}')
@@ -453,21 +384,6 @@ String voucherText({
       'المبلغ: ${Fmt.money(v.amount, currency.decimal)} ${currency.symbol}',
     )
     ..writeln('البيان: ${v.statement.isEmpty ? '—' : v.statement}');
-  if (items.isNotEmpty) {
-    b.writeln('تفاصيل المشتريات:');
-    for (var i = 0; i < items.length; i++) {
-      final line = items[i];
-      b.writeln(
-        '${i + 1}. ${line.name} — ${_quantity(line.quantity)} ${line.unit} × '
-        '${Fmt.money(line.unitPrice, currency.decimal)} ${currency.symbol} = '
-        '${Fmt.money(line.total, currency.decimal)} ${currency.symbol}',
-      );
-    }
-    final total = items.fold<double>(0, (sum, line) => sum + line.total);
-    b.writeln(
-      'إجمالي المشتريات: ${Fmt.money(total, currency.decimal)} ${currency.symbol}',
-    );
-  }
   if (orgName.isNotEmpty) b.writeln(orgName);
   return b.toString();
 }

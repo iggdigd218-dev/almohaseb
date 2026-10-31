@@ -23,13 +23,6 @@ class DashboardScreen extends ConsumerWidget {
     // (3.70.0 — توحيد الثيم) تدرجات مطابقة تماماً لألوان أقسام القائمة
     // الجانبية (_colorOf في home_shell) — لا درجات شاذة خارج اللوحة.
     _Tile(
-      'المبيعات',
-      Icons.shopping_cart_rounded,
-      Color(0xFF22C55E),
-      Color(0xFF16A34A),
-      AppScreen.pos,
-    ),
-    _Tile(
       'العملاء',
       Icons.groups_rounded,
       Color(0xFF3B82F6),
@@ -42,13 +35,6 @@ class DashboardScreen extends ConsumerWidget {
       Color(0xFFFBBF24),
       Color(0xFFF59E0B),
       AppScreen.vouchers,
-    ),
-    _Tile(
-      'إدارة المنتجات',
-      Icons.inventory_2_rounded,
-      Color(0xFFA78BFA),
-      Color(0xFF8B5CF6),
-      AppScreen.inventory,
     ),
     _Tile(
       'المعاملات',

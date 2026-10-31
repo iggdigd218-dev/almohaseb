@@ -42,7 +42,6 @@ void main() {
           account: null,
           currency: kDefaultCurrencies.first,
           org: org,
-          items: const [],
           stamp: stamp,
         ))
             .length;

@@ -14,7 +14,6 @@ import '../core/receipt_image.dart';
 import '../core/theme.dart';
 import '../data/providers.dart';
 import 'calculator.dart';
-import 'pos_screen.dart';
 import 'tx_share.dart';
 import 'widgets.dart';
 
@@ -86,7 +85,6 @@ class _TxFormState extends ConsumerState<TxForm> {
   /// العملة الأساسية = الأولى في قائمة العملات (سعرها 1 دوماً).
   String get _baseCurrencyCode =>
       _currencies.isNotEmpty ? _currencies.first.code : 'YER';
-  List<InvoiceLine> _invoiceLines = [];
   bool _loading = true;
   bool _saving = false;
   bool _saveSlow = false;
@@ -106,9 +104,6 @@ class _TxFormState extends ConsumerState<TxForm> {
       final accs = await repo.accounts(includeArchived: true);
       final curs = await repo.currencies();
       final t = widget.existing;
-      final invoiceLines = t?.id == null
-          ? const <InvoiceLine>[]
-          : await repo.transactionItems(t!.id!);
 
       _accounts = accs;
       _currencies = curs;
@@ -127,7 +122,6 @@ class _TxFormState extends ConsumerState<TxForm> {
         _desc.text = t.description;
         _ref.text = widget.isCopy ? '' : t.reference;
         _notes.text = t.notes;
-        _invoiceLines = invoiceLines;
       } else {
         if (widget.presetType != null) {
           _type = widget.presetType!;
@@ -185,10 +179,6 @@ class _TxFormState extends ConsumerState<TxForm> {
       _accounts.where((a) => a.id == _accountId).firstOrNull;
 
   bool get _isTransfer => _type == OpType.transfer;
-
-  /// تفاصيل فاتورة المبيعات (الأصناف) تظهر فقط لعمليات البيع (قبض أو عليه).
-  bool get _hasInvoiceDetails =>
-      _type == OpType.debit || _type == OpType.inflow;
 
   /// نص الأثر المتوقّع — نفس تلميح نسخة الويب.
 
@@ -268,40 +258,15 @@ class _TxFormState extends ConsumerState<TxForm> {
           if (proceed != true || !mounted) return;
         }
       }
-      final saleLines =
-          _hasInvoiceDetails ? _invoiceLines : const <InvoiceLine>[];
       // A timeout does NOT cancel an SQLite write. Report a slow/unknown state
       // without permitting a retry until the original write has resolved.
       slowWarning = Timer(const Duration(seconds: 10), () {
         if (mounted) setState(() => _saveSlow = true);
       });
-      savedId = await repo.saveTx(tx, items: saleLines);
+      savedId = await repo.saveTx(tx);
       slowWarning.cancel();
       if (mounted) bump(ref);
 
-      // Existing stock workflow is separate from the financial transaction.
-      // Its atomicity is tracked explicitly as an outstanding QA issue.
-      var stockFailed = false;
-      if ((_type == OpType.inflow || _type == OpType.debit) &&
-          saleLines.isNotEmpty) {
-        for (final line in saleLines) {
-          if (line.itemId == null) continue;
-          try {
-            await repo
-                .addStockMove(StockMove(
-                  itemId: line.itemId!,
-                  quantity: line.quantity,
-                  kind: StockKind.sale,
-                  date: now,
-                  createdAt: now,
-                  notes: 'مبيع عملية #$savedId',
-                ))
-                .timeout(const Duration(seconds: 3));
-          } catch (_) {
-            stockFailed = true;
-          }
-        }
-      }
       var saved = tx.copyWith(id: savedId);
       try {
         saved = await repo
@@ -332,11 +297,8 @@ class _TxFormState extends ConsumerState<TxForm> {
       if (share == TxShareOutcome.failed) {
         message.write(' — تعذّر فتح المشاركة؛ الحفظ المحلي ناجح');
       }
-      if (stockFailed) {
-        message.write(' — تعذّر تحديث بعض المخزون، راجعه قبل المتابعة');
-      }
       showSnack(context, message.toString(),
-          error: stockFailed || share == TxShareOutcome.failed, silent: true);
+          error: share == TxShareOutcome.failed, silent: true);
       Navigator.pop(context, true);
       // إنشاء عملية جديدة: اهتزاز طويل (1.5 ث) + صوت مميز؛ التعديل: نجاح عادي.
       if (widget.existing == null || widget.isCopy) {
@@ -371,42 +333,6 @@ class _TxFormState extends ConsumerState<TxForm> {
   bool _advancedOpen = false;
 
   Widget _typeChips() => _typeGrid();
-
-  Widget _invoiceShortcut() {
-    return Card(
-      color: AppColors.primarySoftOf(context),
-      child: ListTile(
-        leading: const Icon(Icons.point_of_sale, size: 22),
-        title: const Text(
-          'فتح شاشة المبيعات لإضافة الفاتورة',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-        subtitle: const Text(
-          'تنتقل إلى نقطة البيع لتسجيل الفاتورة كاملة مع العملاء والأصناف',
-        ),
-        trailing: const Icon(Icons.chevron_left),
-        onTap: _saving
-            ? null
-            : () {
-                Sfx.click();
-                // افتح شاشة المبيعات مباشرة مهما كانت الجهة التي فتحت النموذج.
-                // الاعتماد سابقاً على إشارة 'open_pos' كان يعمل فقط من زر
-                // «تسجيل عملية» في شاشة العمليات، ويبدو «بلا استجابة» من
-                // بقية الشاشات (تفاصيل الحساب، التعديل، التكرار...).
-                final nav = Navigator.of(context);
-                nav.pop();
-                nav.push(
-                  MaterialPageRoute(
-                    builder: (_) => Scaffold(
-                      appBar: AppBar(title: const Text('🛒 المبيعات')),
-                      body: const PosScreen(),
-                    ),
-                  ),
-                );
-              },
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -515,10 +441,6 @@ class _TxFormState extends ConsumerState<TxForm> {
                       _amountRow(),
                       const SizedBox(height: 6),
                       AmountWords(controller: _amount),
-                      if (_hasInvoiceDetails) ...[
-                        const SizedBox(height: 8),
-                        _invoiceShortcut(),
-                      ],
                       if (_type == OpType.settle) ...[
                         const SizedBox(height: 14),
                         _signPicker(),

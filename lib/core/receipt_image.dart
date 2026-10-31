@@ -26,7 +26,6 @@ class ReceiptData {
   final String orgPhone;
   final String logoPath;
   final String footer;
-  final List<InvoiceLine> items;
 
   const ReceiptData({
     required this.title,
@@ -42,7 +41,6 @@ class ReceiptData {
     this.orgPhone = '',
     this.logoPath = '',
     this.footer = '',
-    this.items = const [],
     this.isDebit = true,
   });
 
@@ -55,12 +53,9 @@ class ReceiptData {
     required CurrencyDef currency,
     double? balanceAfter,
     required Map<String, String> settings,
-    List<InvoiceLine> items = const [],
   }) =>
       ReceiptData(
-        title: tx.type == OpType.debit && items.isNotEmpty
-            ? 'فاتورة مبيع آجل'
-            : tx.type.label,
+        title: tx.type.label,
         number: tx.reference,
         accountName: account?.name ?? '—',
         accountPhone: account?.phone ?? '',
@@ -73,7 +68,6 @@ class ReceiptData {
         orgPhone: settings['phone'] ?? '',
         logoPath: settings['logo'] ?? '',
         footer: settings['voucherFooter'] ?? '',
-        items: items,
         // المبلغ عليه (مدين/صرف/مصروف) = أحمر؛ له (قبض/دائن/إيراد) = أخضر.
         isDebit: tx.type == OpType.debit ||
             tx.type == OpType.outflow ||
@@ -102,8 +96,6 @@ Future<String> buildReceiptImage(ReceiptData d) async {
       (d.accountPhone.isNotEmpty ? 1 : 0) +
       1; // التاريخ والوقت (يُرسم لاحقاً في قسم التفاصيل)
   final detailRows = (d.statement.isNotEmpty ? 1 : 0) + 1;
-  final itemsBlock =
-      d.items.isEmpty ? 0.0 : (54.0 + d.items.length * 52.0 + 56.0 + 24.0);
   final balanceBlock = d.balanceAfter != null ? 96.0 : 0.0;
   final height = headerH +
       bandH +
@@ -111,7 +103,6 @@ Future<String> buildReceiptImage(ReceiptData d) async {
       24 +
       amountH +
       24 +
-      itemsBlock +
       detailRows * rowH +
       16 +
       balanceBlock +
@@ -230,51 +221,7 @@ Future<String> buildReceiptImage(ReceiptData d) async {
   );
   y += amountH + 24;
 
-  // ===== 5) جدول الأصناف (صنف/كمية/سعر/إجمالي) مثل سند نكسورا =====
-  if (d.items.isNotEmpty) {
-    const tPad = pad;
-    const tw = w - tPad * 2;
-    // أعمدة من اليمين: الصنف 40٪، الكمية 15٪، السعر 22.5٪، الإجمالي 22.5٪.
-    const cName = w - tPad; // حافة يمنى
-    const cQty = w - tPad - tw * 0.40 - tw * 0.075;
-    const cPrice = tPad + tw * 0.225 + tw * 0.1125;
-    const cTotal = tPad + tw * 0.1125;
-    // رأس الجدول.
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-          Rect.fromLTWH(tPad, y, tw, 46), const Radius.circular(10)),
-      Paint()..color = const Color(0xFFF3F4F6),
-    );
-    _text(canvas, 'الصنف', cName - 14, y + 8, 22, muted, alignEnd: true);
-    _text(canvas, 'الكمية', cQty, y + 8, 22, muted, center: true);
-    _text(canvas, 'السعر', cPrice, y + 8, 22, muted, center: true);
-    _text(canvas, 'الإجمالي', cTotal, y + 8, 22, muted, center: true);
-    y += 54;
-    for (final it in d.items) {
-      _text(canvas, it.name, cName - 14, y, 23, ink,
-          bold: true, alignEnd: true, maxWidth: tw * 0.38);
-      _text(canvas, _quantity(it.quantity), cQty, y, 23, ink, center: true);
-      _text(canvas, Fmt.money(it.unitPrice, d.currency.decimal), cPrice, y, 23,
-          ink, center: true);
-      _text(canvas, Fmt.money(it.total, d.currency.decimal), cTotal, y, 23,
-          ink, bold: true, center: true);
-      y += 52;
-    }
-    // صف الإجمالي.
-    final itemsTotal =
-        d.items.fold<double>(0, (sum, line) => sum + line.total);
-    canvas.drawRect(
-        Rect.fromLTWH(tPad, y, tw, 2), Paint()..color = line);
-    y += 12;
-    _text(canvas, 'الإجمالي', w - tPad - 14, y, 24, ink,
-        bold: true, alignEnd: true);
-    _text(canvas,
-        '${Fmt.money(itemsTotal, d.currency.decimal)} ${d.currency.symbol}',
-        tPad + 14, y, 26, ink, bold: true, alignStart: true);
-    y += 56;
-    divider();
-  }
-
+  // ===== 5) التفاصيل والتاريخ والوقت (جدول الأصناف أُزيل مع المبيعات) =====
   // ===== 6) التفاصيل + التاريخ والوقت =====
   if (d.statement.isNotEmpty) infoRow('التفاصيل', d.statement);
   infoRow('التاريخ والوقت', Fmt.dateTime(d.date));
@@ -343,9 +290,6 @@ Future<String> buildReceiptImage(ReceiptData d) async {
   await file.writeAsBytes(data, flush: true);
   return file.path;
 }
-
-String _quantity(double value) =>
-    value == value.roundToDouble() ? Fmt.money(value) : Fmt.money(value, 2);
 
 void _text(
   Canvas canvas,

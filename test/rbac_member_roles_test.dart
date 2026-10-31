@@ -148,13 +148,10 @@ void main() {
       expect(visibleScreens.contains(AppScreen.transactions), isFalse, reason: 'العمليات محجوبة عن الكاشير');
       expect(visibleScreens.contains(AppScreen.settings), isFalse, reason: 'الإعدادات محجوبة عن الكاشير');
       expect(visibleScreens.contains(AppScreen.reports), isFalse, reason: 'التقارير محجوبة عن الكاشير');
-      expect(visibleScreens.contains(AppScreen.inventory), isFalse, reason: 'المخزون محجوب عن الكاشير');
       expect(visibleScreens.contains(AppScreen.trash), isFalse, reason: 'سلة المهملات محجوبة عن الكاشير');
       expect(visibleScreens.contains(AppScreen.backup), isFalse, reason: 'النسخ الاحتياطي محجوب عن الكاشير');
       expect(visibleScreens.contains(AppScreen.group), isFalse, reason: 'إدارة المجموعة محجوبة عن الكاشير');
 
-      // الشاشة المتاحة للكاشير
-      expect(visibleScreens.contains(AppScreen.pos), isTrue, reason: 'نقطة البيع متاحة للكاشير');
     });
 
     test('المدير تظهر له كافة الشاشات والإعدادات', () {
@@ -177,8 +174,6 @@ void main() {
       expect(visibleScreens.contains(AppScreen.transactions), isTrue);
       expect(visibleScreens.contains(AppScreen.settings), isTrue);
       expect(visibleScreens.contains(AppScreen.reports), isTrue);
-      expect(visibleScreens.contains(AppScreen.inventory), isTrue);
-      expect(visibleScreens.contains(AppScreen.pos), isTrue);
       expect(visibleScreens.contains(AppScreen.trash), isTrue);
       expect(visibleScreens.contains(AppScreen.backup), isTrue);
     });

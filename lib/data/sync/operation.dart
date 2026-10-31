@@ -10,9 +10,6 @@ enum OpKind { create, update, delete_, restore, settings }
 enum EntityKind {
   account,
   tx,
-  item,
-  itemCategory,
-  stockMove,
   voucher,
   user,
   currency,
@@ -21,8 +18,7 @@ enum EntityKind {
   conversation, // محادثات الدردشة
   message, // رسائل الدردشة (دردشة المجموعة بين الأجهزة)
   unknown, // نوع من إصدار أحدث — يُتجاهل بأمان ولا يُكتب في أي جدول
-  userPermission, // (3.70) صفوف الصلاحيات المحلية user_permissions
-  section; // (2026-09-22) أقسام المتجر (sections)
+  userPermission; // (3.70) صفوف الصلاحيات المحلية user_permissions
 
   /// ══ (2026-09-22) أمان الإصدارات المختلطة ══
   /// كان أي نوع غير معروف يسقط على `tx` فيُدرج صف القسم/الكيان الجديد في

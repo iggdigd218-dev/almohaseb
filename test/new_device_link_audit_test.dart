@@ -35,19 +35,6 @@ void main() {
   });
 
   group('Tombstones and Soft Delete Exclusion Tests', () {
-    test('Item model respects isDeleted flag', () {
-      final item = Item(
-        id: 1,
-        name: 'منتج ممسوح',
-        isDeleted: true,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-      expect(item.isDeleted, isTrue);
-
-      final map = item.toMap();
-      expect(map['is_deleted'], equals(1));
-    });
 
     test('Tombstone payload parsing and status', () {
       final tombstone = {

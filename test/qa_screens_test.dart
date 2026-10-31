@@ -21,8 +21,6 @@ import 'package:nexora_app/ui/currencies_screen.dart';
 import 'package:nexora_app/ui/dashboard_screen.dart';
 import 'package:nexora_app/ui/devices_screen.dart';
 import 'package:nexora_app/ui/group_management_screen.dart';
-import 'package:nexora_app/ui/inventory_screen.dart';
-import 'package:nexora_app/ui/pos_screen.dart';
 import 'package:nexora_app/ui/reports_screen.dart';
 import 'package:nexora_app/ui/settings_screen.dart';
 import 'package:nexora_app/ui/transactions_screen.dart';
@@ -54,7 +52,6 @@ void main() {
     'transactions': const TransactionsScreen(),
     'vouchers': const VouchersScreen(),
     'reports': const ReportsScreen(),
-    'inventory': const InventoryScreen(),
     'currencies': const CurrenciesScreen(),
     'chat': const ChatScreen(),
     'group': const GroupManagementScreen(),
@@ -64,7 +61,6 @@ void main() {
     'trash': const TrashScreen(),
     'activity': const ActivityScreen(),
     'settings': const SettingsScreen(),
-    'pos': const PosScreen(),
   };
   for (final width in [360.0, 1000.0]) {
     for (final entry in screens.entries) {
@@ -121,9 +117,6 @@ void main() {
             container.read(devicesProvider.future),
             container.read(isOwnerProvider.future),
             container.read(countsProvider.future),
-            container.read(itemCategoriesProvider.future),
-            container.read(itemsProvider.future),
-            container.read(inventorySummaryProvider.future),
             container.read(reportDataProvider.future),
             container.read(trashProvider.future),
             container.read(activityProvider.future),

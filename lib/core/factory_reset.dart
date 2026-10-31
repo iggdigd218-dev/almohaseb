@@ -28,15 +28,10 @@ class FactoryReset {
   /// لا تُمسّ: settings، sync_meta، devices، google_auth، workspaces،
   /// users، currencies — هوية الجهاز وإعداداته تبقى سليمة.
   static const List<String> kAccountingTables = <String>[
-    'transaction_items', // ابن transactions/items
-    'stock_moves',       // ابن items
     'messages',          // ابن conversations
     'transactions',
     'vouchers',
-    'items',
-    'item_categories',
     'categories',
-    'sections',
     'conversations',
     'trash',
     'activity',

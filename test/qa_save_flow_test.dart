@@ -41,21 +41,13 @@ class UiRepo extends Repo {
   @override
   Future<List<CurrencyDef>> currencies() async => kDefaultCurrencies;
   @override
-  Future<List<Item>> items(
-          {String q = '',
-          bool includeArchived = false,
-          bool includeDeleted = false}) async =>
-      [];
-  @override
   Future<Map<String, String>> settings() async => {};
   @override
   Future<AppUser?> currentUser() async => null;
   @override
-  Future<List<InvoiceLine>> transactionItems(int txId) async => [];
-  @override
   Future<List<Tx>> findDuplicates(Tx tx) async => duplicates;
   @override
-  Future<int> saveTx(Tx tx, {List<InvoiceLine>? items}) async {
+  Future<int> saveTx(Tx tx) async {
     saveCalls++;
     if (saveError != null) throw saveError!;
     final id = await (saveGate?.future ?? Future.value(tx.id ?? saveCalls));

@@ -18,9 +18,6 @@ class ShellNav {
   /// الشاشة الرئيسية (لوحة المعلومات).
   static const String home = 'home';
 
-  /// المخزون.
-  static const String inventory = 'inventory';
-
   static void go(String target) {
     if (target.isEmpty) return;
     // إعادة إطلاق نفس الهدف: إفراغ القيمة أولاً حتى يُلتقط التغيير.

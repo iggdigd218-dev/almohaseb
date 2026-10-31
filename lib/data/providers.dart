@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/accounting.dart';
 import '../core/format.dart';
@@ -63,45 +62,6 @@ final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
 
 /// إخفاء الأرصدة.
 final hideBalancesProvider = StateProvider<bool>((ref) => false);
-
-/// وضع واجهة التطبيق والقائمة الجانبية (المبيعات / المحاسبة).
-enum NavAppMode {
-  pos, // وضع المبيعات
-  ledger, // وضع المحاسبة
-}
-
-class NavAppModeNotifier extends StateNotifier<NavAppMode> {
-  NavAppModeNotifier() : super(NavAppMode.ledger) {
-    _load();
-  }
-
-  static const _prefKey = 'app_nav_mode';
-
-  Future<void> _load() async {
-    try {
-      final sp = await SharedPreferences.getInstance();
-      final val = sp.getString(_prefKey);
-      if (val == 'ledger') {
-        state = NavAppMode.ledger;
-      } else if (val == 'pos') {
-        state = NavAppMode.pos;
-      }
-    } catch (_) {}
-  }
-
-  Future<void> setMode(NavAppMode mode) async {
-    state = mode;
-    try {
-      final sp = await SharedPreferences.getInstance();
-      await sp.setString(_prefKey, mode == NavAppMode.ledger ? 'ledger' : 'pos');
-    } catch (_) {}
-  }
-}
-
-final navAppModeProvider =
-    StateNotifierProvider<NavAppModeNotifier, NavAppMode>((ref) {
-  return NavAppModeNotifier();
-});
 
 /// العملات المعرَّفة.
 final currenciesProvider = FutureProvider<List<CurrencyDef>>((ref) async {
@@ -698,69 +658,6 @@ final messagesProvider = FutureProvider.family<List<ChatMessage>, int>((
   return ref
       .watch(repoProvider)
       .messages(convId)
-      .timeout(const Duration(seconds: 8), onTimeout: () => const []);
-});
-
-// ==================== الأصناف والمخزون ====================
-
-/// (2026-09-22) أقسام المتجر (المستوى الأول: قسم ← فئة ← صنف).
-final sectionsProvider = FutureProvider<List<Section>>((ref) async {
-  ref.watch(refreshProvider);
-  return ref
-      .read(repoProvider)
-      .sections()
-      .timeout(const Duration(seconds: 8), onTimeout: () => []);
-});
-
-/// فئات الأصناف التي تظهر أولًا في شاشة المخزون.
-final itemCategoriesProvider = FutureProvider<List<ItemCategory>>((ref) async {
-  ref.watch(refreshProvider);
-  return ref
-      .read(repoProvider)
-      .itemCategories()
-      .timeout(const Duration(seconds: 8), onTimeout: () => []);
-});
-
-/// (2026-09-22) شجرة الفئات: الفئات الرئيسية وفي كل واحدة أبناؤها
-/// المباشرون — قراءة واحدة تُجمَّع محلياً (بلا استعلام لكل فئة).
-final itemCategoryTreeProvider = FutureProvider<List<ItemCategory>>((ref) async {
-  ref.watch(refreshProvider);
-  return ref
-      .read(repoProvider)
-      .itemCategoryTree()
-      .timeout(const Duration(seconds: 8), onTimeout: () => []);
-});
-
-/// نص البحث في شاشة المخزون.
-final itemQueryProvider = StateProvider<String>((ref) => '');
-
-/// الأصناف المطابقة للبحث الحالي.
-final itemsProvider = FutureProvider<List<Item>>((ref) async {
-  ref.watch(refreshProvider);
-  final q = ref.watch(itemQueryProvider);
-  return ref
-      .read(repoProvider)
-      .items(q: q)
-      .timeout(const Duration(seconds: 8), onTimeout: () => []);
-});
-
-/// ملخّص المخزون: التكلفة والقيمة والأرباح.
-final inventorySummaryProvider = FutureProvider<Map<String, double>>((
-  ref,
-) async {
-  ref.watch(refreshProvider);
-  return ref.read(repoProvider).inventorySummary();
-});
-
-/// حركات صنف بعينه.
-final stockMovesProvider = FutureProvider.family<List<StockMove>, int>((
-  ref,
-  itemId,
-) async {
-  ref.watch(refreshProvider);
-  return ref
-      .read(repoProvider)
-      .stockMoves(itemId: itemId)
       .timeout(const Duration(seconds: 8), onTimeout: () => const []);
 });
 

@@ -67,7 +67,7 @@ enum UpdateStatus {
 }
 
 /// منصّة التنزيل المطلوبة.
-enum UpdatePlatform { android, windows, other }
+enum UpdatePlatform { android, other }
 
 class UpdateInfo {
   final UpdateStatus status;
@@ -180,7 +180,6 @@ class UpdateService {
 
   static UpdatePlatform detectPlatform() {
     if (PlatformInfo.isAndroid) return UpdatePlatform.android;
-    if (PlatformInfo.isWindows) return UpdatePlatform.windows;
     return UpdatePlatform.other;
   }
 
@@ -305,20 +304,9 @@ class UpdateService {
     String? downloadUrl;
     if (downloads is Map) {
       if (platform == UpdatePlatform.android) {
-        // حزمة المعالج المطابق (أصغر بنحو النصف) والشاملة بديلاً آمناً.
+        // الحزمة الشاملة الوحيدة — تعمل على كل المعالجات.
         downloadUrl = pickAndroidApkUrl(downloads, androidAbiKey());
-      } else if (platform == UpdatePlatform.windows) {
-        final v = downloads['windows'];
-        if (v is String && v.startsWith('https://')) {
-          downloadUrl = v;
-        } else if (downloads['windows'] != null) {
-          downloadUrl = downloads['windows'].toString();
-        }
       }
-    }
-    // احتياطي لويندوز: إذا كان البيان بلا رابط مباشر لويندوز
-    if (downloadUrl == null && platform == UpdatePlatform.windows) {
-      downloadUrl = 'https://github.com/iggdigd218-dev/almohaseb/releases/download/latest/NexoraSetup.exe';
     }
     final release = map['releaseUrl'];
     final releaseUrl = (release is String && release.startsWith('https://'))

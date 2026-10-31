@@ -850,18 +850,13 @@ Future<void> showActivityDetails(
     'account' => 'accounts',
     'tx' => 'transactions',
     'voucher' => 'vouchers',
-    'item' => 'items',
-    'item_category' => 'item_categories',
     'user' => 'users',
-    'stock' => 'stock_moves',
     _ => null,
   };
   final typeLabel = switch (refType) {
     'account' => 'حساب',
     'tx' => 'عملية حسابية',
     'voucher' => 'سند',
-    'item' => 'صنف',
-    'item_category' => 'فئة أصناف',
     'user' => 'مستخدم',
     'stock' => 'حركة مخزون',
     'trash' => 'سلة المهملات',

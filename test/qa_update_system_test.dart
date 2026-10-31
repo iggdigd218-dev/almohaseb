@@ -37,7 +37,6 @@ String manifest({
       'releaseUrl': 'https://github.com/x/y/releases/tag/latest',
       'downloads': {
         'android': 'https://github.com/x/y/releases/download/latest/app.apk',
-        'windows': 'https://github.com/x/y/releases/download/latest/app.zip',
       },
       'publishedAt': '2026-09-06T10:00:00Z',
       'notes': notes,
@@ -145,9 +144,6 @@ void main() {
       final a = await svcReturning(manifest(), platform: UpdatePlatform.android)
           .check();
       expect(a.downloadUrl, endsWith('app.apk'));
-      final w = await svcReturning(manifest(), platform: UpdatePlatform.windows)
-          .check();
-      expect(w.downloadUrl, endsWith('app.zip'));
       final o = await svcReturning(manifest(), platform: UpdatePlatform.other)
           .check();
       expect(o.downloadUrl, isNull);

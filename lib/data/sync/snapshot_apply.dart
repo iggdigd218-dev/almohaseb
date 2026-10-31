@@ -23,18 +23,13 @@ class SnapshotApply {
       // «حذف كامل»: يشمل أيضاً القوالب والإشعارات وإعدادات العمل القديمة —
       // لا يبقى من بيانات الجهاز القديمة أي أثر بعد الانضمام.
       const clearTables = [
-        'sections',
         'templates',
         'notifications',
         'accounts',
         'transactions',
-        'transaction_items',
         'vouchers',
         'currencies',
         'categories',
-        'item_categories',
-        'items',
-        'stock_moves',
         'conversations',
         'messages',
         'users',
@@ -123,14 +118,9 @@ class SnapshotApply {
       await insertAll('devices');
       await insertAll('accounts');
       await insertAll('transactions');
-      await insertAll('transaction_items');
       await insertAll('vouchers');
       await insertAll('currencies');
       await insertAll('categories');
-      await insertAll('sections');
-      await insertAll('item_categories');
-      await insertAll('items');
-      await insertAll('stock_moves');
       await insertAll('conversations');
       await insertAll('messages');
       await insertAll('trash');

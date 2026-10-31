@@ -16,7 +16,7 @@ class AppDatabase {
 
   static Database? _db;
   static Future<Database>? _opening;
-  static const int _version = 26;
+  static const int _version = 27;
 
   static int get schemaVersion => _version;
 
@@ -226,17 +226,6 @@ class AppDatabase {
         created_at TEXT NOT NULL
       )''');
 
-    // ---------- فئات المخزون ----------
-    // ---------- الأقسام (المستوى الأول: قسم ← فئة ← صنف) ----------
-    await db.execute(createSectionsSql);
-    await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_sections_ws ON sections(workspace_id)');
-
-    await db.execute(createItemCategoriesSql);
-    await db.execute(
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_item_categories_name ON item_categories(name COLLATE NOCASE)',
-    );
-
     // ---------- المستخدمون والصلاحيات ----------
     await db.execute('''
       CREATE TABLE IF NOT EXISTS users (
@@ -342,16 +331,6 @@ class AppDatabase {
         created_at TEXT NOT NULL
       )''');
 
-    // ---------- الأصناف والمخزون ----------
-    await db.execute(createItemsSql);
-    await db.execute(createStockSql);
-    await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_stock_item ON stock_moves(item_id)');
-    await db.execute(createTransactionItemsSql);
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_tx_items_tx ON transaction_items(tx_id)',
-    );
-
     // ---------- الإعدادات ----------
     await db.execute('''
       CREATE TABLE IF NOT EXISTS settings (
@@ -410,35 +389,6 @@ class AppDatabase {
       await migrateToV22(db);
     } catch (_) {}
     try {
-      // (2026-09-22) عمود الأب لشجرة الفئات — idempotent: قواعد قديمة
-      // أُنشئ جدولها قبل إضافة parent_id تُرقّى عند كل فتح.
-      await migrateToV23(db);
-    } catch (_) {}
-    try {
-      // (2026-09-22) عمود القسم — مُرقّى هنا أيضاً احتياطاً بعد إصلاح
-      // سلسلة onUpgrade أعلاه (قاعدة فُتحت بلا هجرة تبقى عاملة).
-      await migrateToV24(db);
-    } catch (_) {}
-    try {
-      // (2026-09-24) ترميم ذاتي صريح: إن تعذّرت الهجرتان لأي سبب (قاعدة
-      // مستوردة، هجرة فاشلة سابقاً، PRAGMA غير متاح) نضيف العمودين بـ ALTER
-      // مباشر داخل try/catch — لا انهيار عند الفتح، ولا استثناء في الواجهة.
-      await ensureItemCategoryColumns(db);
-    } catch (_) {}
-    try {
-      // (2026-09-24) أعمدة هوية الأقسام — نفس المنطق: ترميم مباشر إن
-      // تعذّرت الهجرة لأي سبب.
-      await ensureSectionColumns(db);
-    } catch (_) {}
-    try {
-      // (2026-09-24) عمود الترقيم السريع (PLU): ترميم ذاتي عند كل فتح —
-      // قاعدة مستوردة أو هجرة فاشلة تبقى عاملة، ويُرقّم ما بلا رقم فقط.
-      await migrateToV26(db);
-    } catch (_) {}
-    try {
-      // (2026-09-26) أعمدة حالة الحذف والنشاط للأصناف (is_deleted, is_active)
-      await _addColumn(db, 'items', 'is_deleted', 'INTEGER NOT NULL DEFAULT 0');
-      await _addColumn(db, 'items', 'is_active', 'INTEGER NOT NULL DEFAULT 1');
       // أعمدة الورديات وربط العمليات بالكاشير وصلاحية الخصم
       await _addColumn(db, 'transactions', 'created_by_user_id', 'INTEGER');
       await _addColumn(db, 'transactions', 'cashier_name', "TEXT DEFAULT ''");
@@ -452,16 +402,6 @@ class AppDatabase {
         'CREATE INDEX IF NOT EXISTS idx_user_perms_ws_user ON user_permissions(store_id, user_id)',
       );
       await db.execute('DROP TABLE IF EXISTS local_staff');
-      // (2026-09-26) فك تعليق أي فئات تشير لأقسام محذوفة أو غير موجودة لتعود تحت «عام»
-      await db.execute('''
-        UPDATE item_categories
-        SET section_id = NULL
-        WHERE section_id IS NOT NULL
-          AND section_id NOT IN (
-            SELECT id FROM sections
-            WHERE deleted_at IS NULL OR deleted_at = ''
-          )
-      ''');
     } catch (_) {}
   }
 
@@ -572,112 +512,6 @@ class AppDatabase {
     } catch (_) {}
   }
 
-  /// (2026-09-24) ترميم ذاتي لأعمدة شجرة الفئات في `item_categories`.
-  ///
-  /// المشكلة التي يعالجها: قاعدة بيانات مُرقّاة أُنشئ جدولها قبل إضافة
-  /// `parent_id`/`section_id` لا تمرّ بـ [createSchema] (الجدول موجود)،
-  /// فتبقى بلا العمودين، وأي كتابة للفئة تفشل بـ
-  /// `DatabaseException(table item_categories has no column named …)`.
-  ///
-  /// idempotent بالكامل: يتحقق بـ `PRAGMA table_info` قبل ALTER، وكل أمر
-  /// داخل try/catch فلا يضرّ وجود العمود مسبقاً ولا غياب الجدول.
-  static Future<void> ensureItemCategoryColumns(Database db) async {
-    await _alterAddColumn(db, 'item_categories', 'parent_id', 'INTEGER');
-    await _alterAddColumn(db, 'item_categories', 'section_id', 'INTEGER');
-    // (2026-09-24) الحذف الناعم: القواعد القديمة تملكها من _migrate4to5،
-    // والجديدة من التعريف؛ والترميم يضمن وجودها في الحالتين.
-    await _alterAddColumn(db, 'item_categories', 'deleted_at', "TEXT DEFAULT ''");
-    await _alterAddColumn(db, 'item_categories', 'deleted_by', 'INTEGER');
-    await _alterAddColumn(
-        db, 'item_categories', 'restore_op_id', "TEXT DEFAULT ''");
-    // (2026-09-24) الهوية البصرية للفئة: أيقونة + لون باستيل + صورة.
-    await _alterAddColumn(
-        db, 'item_categories', 'icon_key', "TEXT DEFAULT ''");
-    await _alterAddColumn(
-        db, 'item_categories', 'color_hex', "TEXT DEFAULT ''");
-    await _alterAddColumn(
-        db, 'item_categories', 'image_path', "TEXT DEFAULT ''");
-    // ── الفهارس الحيوية ──
-    // عزل المساحات: كل استعلام فئات مقيد بـ workspace_id.
-    try {
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_item_cat_ws '
-          'ON item_categories(workspace_id)');
-    } catch (_) {}
-    try {
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_item_cat_parent '
-          'ON item_categories(parent_id)');
-    } catch (_) {}
-    // تسريع الفرز والبحث في الأصناف (شاشة المخزون ترتّب بالكمية والسعر).
-    try {
-      await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_items_qty ON items(quantity)');
-    } catch (_) {}
-    try {
-      await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_items_price ON items(sell_price)');
-    } catch (_) {}
-    try {
-      await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_cat_section ON item_categories(section_id)');
-    } catch (_) {}
-
-    // (2026-09-26) فك تعارضات قيد الفرادة مع الفئات المحذوفة:
-    // إذا كان هناك فئة محذوفة سابقة بنفس اسم فئة أخرى، نضيف لاحقة لاسم المحذوفة
-    // لتحرير قيد الفرادة `idx_item_categories_name` تلقائياً دون كسر التاريخ.
-    try {
-      await db.execute('''
-        UPDATE item_categories
-        SET name = name || ' (محذوف ' || id || ')'
-        WHERE (deleted_at IS NOT NULL AND deleted_at != '')
-          AND name IN (
-            SELECT name FROM item_categories
-            GROUP BY name COLLATE NOCASE
-            HAVING COUNT(*) > 1
-          )
-      ''');
-    } catch (_) {}
-  }
-
-  /// (2026-09-24) ترميم ذاتي لأعمدة هوية الأقسام في `sections`
-  /// (`icon_key`, `color_hex`, `image_path`) — نفس فلسفة
-  /// [ensureItemCategoryColumns]: idempotent ولا يُسقط فتح التطبيق.
-  static Future<void> ensureSectionColumns(Database db) async {
-    await _alterAddColumn(db, 'sections', 'icon_key', "TEXT DEFAULT ''");
-    await _alterAddColumn(db, 'sections', 'color_hex', "TEXT DEFAULT ''");
-    await _alterAddColumn(db, 'sections', 'image_path', "TEXT DEFAULT ''");
-  }
-
-  /// (2026-09-24) الهوية البصرية للأقسام والفئات: أيقونة من الكتالوج،
-  /// لون باستيل للكرت، وصورة اختيارية. idempotent — آمن على كل القواعد.
-  static Future<void> migrateToV25(Database db) async {
-    await ensureSectionColumns(db);
-    await _alterAddColumn(
-        db, 'item_categories', 'icon_key', "TEXT DEFAULT ''");
-    await _alterAddColumn(
-        db, 'item_categories', 'color_hex', "TEXT DEFAULT ''");
-    await _alterAddColumn(
-        db, 'item_categories', 'image_path', "TEXT DEFAULT ''");
-  }
-
-  /// `ALTER TABLE … ADD COLUMN` آمن: يتجاهل «duplicate column name» وأي
-  /// خطأ بنيوي آخر فلا يُسقط فتح التطبيق (خط دفاع أخير بعد الهجرات).
-  static Future<void> _alterAddColumn(
-    Database db,
-    String table,
-    String column,
-    String type,
-  ) async {
-    try {
-      final cols = await db.rawQuery('PRAGMA table_info($table)');
-      if (cols.any((c) => c['name'] == column)) return;
-    } catch (_) {}
-    try {
-      await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
-    } catch (_) {
-      // العمود موجود أصلاً أو الجدول لم يُنشأ بعد — ليس خطأً قاتلاً.
-    }
-  }
-
   /// جداول المزامنة الجديدة (v5).
   static const createSyncSchemaSql = '''
       CREATE TABLE IF NOT EXISTS workspaces (
@@ -765,109 +599,6 @@ class AppDatabase {
       );
   ''';
 
-  /// (2026-09-22) أقسام المتجر (المستوى الأول في الهرمية):
-  /// إلكترونيات · ملابس · مواد غذائية · خدمات … والفئات تتبع الأقسام.
-  static const createSectionsSql = '''
-      CREATE TABLE IF NOT EXISTS sections (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        workspace_id TEXT NOT NULL DEFAULT 'default',
-        name        TEXT NOT NULL,
-        icon        TEXT DEFAULT '',
-        -- (2026-09-24) هوية القسم البصرية: أيقونة من كتالوج نكسورا،
-        -- لون باستيل للكرت، وصورة اختيارية.
-        icon_key    TEXT DEFAULT '',
-        color_hex   TEXT DEFAULT '',
-        image_path  TEXT DEFAULT '',
-        sort_order  INTEGER NOT NULL DEFAULT 0,
-        deleted_at  TEXT DEFAULT '',
-        created_at  TEXT NOT NULL,
-        updated_at  TEXT NOT NULL
-      )''';
-
-  static const createItemCategoriesSql = '''
-      CREATE TABLE IF NOT EXISTS item_categories (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        workspace_id TEXT NOT NULL DEFAULT 'default',
-        name       TEXT NOT NULL,
-        -- (2026-09-24) SET NULL لا CASCADE: حذف فئة أب يمحو أبناءها محلياً
-        -- دون أن تُولَّد عمليات حذف متزامنة لها ⇒ بقية الأجهزة تبقى متسقة.
-        parent_id  INTEGER NULL REFERENCES item_categories(id) ON DELETE SET NULL,
-        section_id INTEGER NULL REFERENCES sections(id) ON DELETE SET NULL,
-        -- (2026-09-24) هوية الفئة البصرية (مثل الأقسام).
-        icon_key    TEXT DEFAULT '',
-        color_hex   TEXT DEFAULT '',
-        image_path  TEXT DEFAULT '',
-        -- (2026-09-24) أعمدة الحذف الناعم موحّدة مع بقية جداول الكيانات؛
-        -- كانت تُضاف للقواعد القديمة فقط (_migrate4to5) فتختلف بنية التثبيت
-        -- الجديد عن المُرقّى. صارت جزءاً من التعريف والترميم معاً.
-        deleted_at TEXT DEFAULT '',
-        deleted_by INTEGER,
-        restore_op_id TEXT DEFAULT '',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )''';
-
-  static const createItemsSql = '''
-      CREATE TABLE IF NOT EXISTS items (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        workspace_id  TEXT NOT NULL DEFAULT 'default',
-        name          TEXT NOT NULL,
-        category_id   INTEGER,
-        section_id    INTEGER NULL REFERENCES sections(id) ON DELETE SET NULL,
-        plu           INTEGER,
-        sku           TEXT DEFAULT '',
-        unit          TEXT DEFAULT 'حبة',
-        buy_price     REAL NOT NULL DEFAULT 0,
-        sell_price    REAL NOT NULL DEFAULT 0,
-        quantity      REAL NOT NULL DEFAULT 0,
-        min_quantity  REAL NOT NULL DEFAULT 0,
-        currency      TEXT NOT NULL DEFAULT 'YER',
-        category      TEXT DEFAULT '',
-        notes         TEXT DEFAULT '',
-        image         TEXT DEFAULT '',
-        archived      INTEGER NOT NULL DEFAULT 0,
-        is_deleted    INTEGER NOT NULL DEFAULT 0,
-        is_active     INTEGER NOT NULL DEFAULT 1,
-        deleted_at    TEXT DEFAULT '',
-        deleted_by    INTEGER,
-        restore_op_id TEXT DEFAULT '',
-        created_at    TEXT NOT NULL,
-        updated_at    TEXT NOT NULL,
-        FOREIGN KEY (category_id) REFERENCES item_categories (id) ON DELETE SET NULL
-      )''';
-
-  static const createStockSql = '''
-      CREATE TABLE IF NOT EXISTS stock_moves (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        workspace_id TEXT NOT NULL DEFAULT 'default',
-        item_id     INTEGER NOT NULL,
-        kind        TEXT NOT NULL,
-        quantity    REAL NOT NULL DEFAULT 0,
-        unit_price  REAL NOT NULL DEFAULT 0,
-        account_id  INTEGER,
-        notes       TEXT DEFAULT '',
-        date        TEXT NOT NULL,
-        deleted_at  TEXT DEFAULT '',
-        deleted_by  INTEGER,
-        restore_op_id TEXT DEFAULT '',
-        created_at  TEXT NOT NULL,
-        FOREIGN KEY (item_id) REFERENCES items (id) ON DELETE CASCADE
-      )''';
-
-  static const createTransactionItemsSql = '''
-      CREATE TABLE IF NOT EXISTS transaction_items (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        tx_id       INTEGER NOT NULL,
-        workspace_id TEXT NOT NULL DEFAULT 'default',
-        item_id     INTEGER,
-        name        TEXT NOT NULL,
-        unit        TEXT NOT NULL DEFAULT 'حبة',
-        quantity    REAL NOT NULL CHECK (quantity > 0),
-        unit_price  REAL NOT NULL CHECK (unit_price >= 0),
-        total       REAL NOT NULL CHECK (total >= 0),
-        FOREIGN KEY (tx_id) REFERENCES transactions (id) ON DELETE CASCADE,
-        FOREIGN KEY (item_id) REFERENCES items (id) ON DELETE SET NULL
-      )''';
 
   /// ترقية المخطط مع الحفاظ على كل البيانات القائمة.
   /// ينشئ جداول المزامنة المفقودة بأمان (للدفاع ضد قواعد قديمة ناقصة).
@@ -1068,41 +799,8 @@ class AppDatabase {
     await _ensureCoreSyncTables(db);
 
     if (from < 2) {
-      await db.execute(createItemsSql);
-      await db.execute(createStockSql);
-      await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_stock_item ON stock_moves(item_id)');
       await _addColumn(db, 'transactions', 'image', "TEXT DEFAULT ''");
       await _addColumn(db, 'users', 'password', "TEXT DEFAULT ''");
-    }
-    if (from < 3) {
-      await db.execute(createTransactionItemsSql);
-      await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_tx_items_tx ON transaction_items(tx_id)',
-      );
-    }
-    if (from < 4) {
-      await db.execute(createItemCategoriesSql);
-      await db.execute(
-        'CREATE UNIQUE INDEX IF NOT EXISTS idx_item_categories_name ON item_categories(name COLLATE NOCASE)',
-      );
-      await _addColumn(db, 'items', 'category_id', 'INTEGER');
-      final now = DateTime.now().toIso8601String();
-      await db.execute('''
-        INSERT OR IGNORE INTO item_categories (name, created_at, updated_at)
-        SELECT DISTINCT TRIM(category), '$now', '$now'
-        FROM items
-        WHERE TRIM(COALESCE(category, '')) <> ''
-      ''');
-      await db.execute('''
-        UPDATE items
-        SET category_id = (
-          SELECT c.id
-          FROM item_categories c
-          WHERE c.name = TRIM(items.category) COLLATE NOCASE
-        )
-        WHERE TRIM(COALESCE(category, '')) <> ''
-      ''');
     }
     // ====== Migration v4 -> v5: بنية Local-First Sync ======
     if (from < 5) {
@@ -1319,24 +1017,16 @@ class AppDatabase {
     if (from < 22) {
       await migrateToV22(db);
     }
-    // ====== v23 (2026-09-22): شجرة الفئات — عمود parent_id ======
-    if (from < 23) {
-      await migrateToV23(db);
-    }
-    // ====== v24 (2026-09-22): أقسام المتجر — عمود section_id ======
-    // كان migrateToV24 معرّفاً ولا يستدعيه أحد: قاعدة مُرقّاة لا تمرّ بـ
-    // onCreate (الجدول موجود أصلاً) فتبقى بلا section_id، وأول إضافة فئة
-    // تفشل بـ «table item_categories has no column named section_id».
-    if (from < 24) {
-      await migrateToV24(db);
-    }
-    // ====== v25 (2026-09-24): الهوية البصرية — icon_key/color_hex/image_path ======
-    if (from < 25) {
-      await migrateToV25(db);
-    }
-    // ====== v26 (2026-09-24): نظام الترقيم السريع PLU ======
-    if (from < 26) {
-      await migrateToV26(db);
+    // ====== v27 (تنظيف 2026-10-31): اجتثاث المخزون والمبيعات ======
+    // التطبيق صار «دفتر حسابات» خالصًا — تُسقط جداول الأصناف والأقسام
+    // والفئات وحركات المخزون وبنود الفواتير نهائيًا من أي قاعدة قديمة.
+    // (IF EXISTS: القواعد الجديدة تُنشأ أصلًا بلا هذه الجداول.)
+    if (to >= 27) {
+      await db.execute('DROP TABLE IF EXISTS transaction_items');
+      await db.execute('DROP TABLE IF EXISTS stock_moves');
+      await db.execute('DROP TABLE IF EXISTS items');
+      await db.execute('DROP TABLE IF EXISTS item_categories');
+      await db.execute('DROP TABLE IF EXISTS sections');
     }
     // ====== v17: ضمان المخطط الكامل عند كل فتح (إصلاح قواعد ويندوز الناقصة) ======
     // أي جدول ناقص من بناء سابق يُنشأ، والبذرة idempotent. هذا يغلق نهائيًا
@@ -1468,87 +1158,6 @@ class AppDatabase {
     } catch (_) {}
   }
 
-  /// (2026-09-22) هرمية القسم → الفئة → الصنف:
-  ///   • جدول sections (أقسام المتجر).
-  ///   • section_id في item_categories و items (اختياري — الفئة بلا قسم
-  ///     تُصنَّف تلقائياً تحت «عام»).
-  /// idempotent وآمن على القواعد القديمة: كل الفئات والأصناف القائمة تبقى
-  /// بلا قسم محدد حتى يختار المستخدم، ويُنشأ قسم «عام» عند الحاجة.
-  static Future<void> migrateToV24(Database db) async {
-    await db.execute(createSectionsSql);
-    try {
-      await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_sections_ws '
-          'ON sections(workspace_id)');
-    } catch (_) {}
-    await _addColumn(db, 'item_categories', 'section_id', 'INTEGER');
-    await _addColumn(db, 'items', 'section_id', 'INTEGER');
-    try {
-      await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_cat_section '
-          'ON item_categories(section_id)');
-    } catch (_) {}
-    try {
-      await db.execute(
-          'CREATE INDEX IF NOT EXISTS idx_items_section '
-          'ON items(section_id)');
-    } catch (_) {}
-  }
-
-  /// (2026-09-22) شجرة الفئات: إضافة عمود parent_id إلى item_categories
-  /// وفهرسه. idempotent — آمن على القواعد الجديدة والقديمة معاً، ولا يغيّر
-  /// أي بيانات: كل الفئات القائمة تبقى جذوراً (parent_id = NULL).
-  /// Migration v25 → v26 (2026-09-24): **نظام الترقيم السريع (PLU)**.
-  ///
-  /// يمنح كل صنف رقماً تسلسلياً فريداً يبدأ من 1 بترتيب هرمي
-  /// (قسم ← فئة ← صنف)، ثم **يثبت للأبد**: لا يُعاد ترتيبه عند أي فرز،
-  /// ولا يُعاد استخدام رقم صنف محذوف. الأرقام موجودة للبحث السريع
-  /// (`7` + Enter يضيف حبة، `7*3` يضيف ثلاثاً) وليست للعرض على البطاقة.
-  static Future<void> migrateToV26(Database db) async {
-    await _addColumn(db, 'items', 'plu', 'INTEGER');
-    try {
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_items_plu ON items(plu)');
-    } catch (_) {}
-
-    // الأصناف التي بلا رقم فقط (التعبئة idempotent وتعمل على أي قاعدة).
-    final rows = await db.rawQuery('''
-      SELECT i.id AS id
-      FROM items i
-      LEFT JOIN item_categories c ON c.id = i.category_id
-      LEFT JOIN sections s ON s.id = COALESCE(i.section_id, c.section_id)
-      WHERE i.plu IS NULL
-      ORDER BY (s.name IS NULL), s.name,
-               (c.name IS NULL), c.name,
-               i.name, i.id
-    ''');
-    if (rows.isEmpty) return;
-    var next = await nextPlu(db);
-    for (final r in rows) {
-      await db.update('items', {'plu': next},
-          where: 'id = ?', whereArgs: [r['id']]);
-      next++;
-    }
-  }
-
-  /// أول رقم PLU متاح (MAX الحالي + 1) — لا يُعاد استخدام رقم محذوف أبداً.
-  static Future<int> nextPlu(Database db) async {
-    try {
-      final rows = await db.rawQuery('SELECT COALESCE(MAX(plu), 0) AS m FROM items');
-      return ((rows.first['m'] ?? 0) as num).toInt() + 1;
-    } catch (_) {
-      return 1;
-    }
-  }
-
-
-  static Future<void> migrateToV23(Database db) async {
-    await _addColumn(db, 'item_categories', 'parent_id', 'INTEGER');
-    try {
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_item_cat_parent '
-          'ON item_categories(parent_id)');
-    } catch (_) {}
-  }
-
   static Future<void> _migrate4to5(Database db) async {
     // 1) إنشاء الجداول الجديدة (workspaces, devices, operations, sync_queue, sync_meta, google_auth).
     await execSchemaScript(db, createSyncSchemaSql);
@@ -1572,10 +1181,6 @@ class AppDatabase {
       'vouchers',
       'currencies',
       'categories',
-      'item_categories',
-      'items',
-      'stock_moves',
-      'transaction_items',
       'users',
       'conversations',
       'messages',
@@ -1591,8 +1196,7 @@ class AppDatabase {
       if (t != 'activity' &&
           t != 'conversations' &&
           t != 'messages' &&
-          t != 'categories' &&
-          t != 'transaction_items') {
+          t != 'categories') {
         await _addColumn(db, t, 'deleted_at', "TEXT DEFAULT ''");
         await _addColumn(db, t, 'deleted_by', "INTEGER");
         await _addColumn(db, t, 'restore_op_id', "TEXT DEFAULT ''");
@@ -1605,8 +1209,6 @@ class AppDatabase {
       'accounts',
       'transactions',
       'vouchers',
-      'items',
-      'stock_moves',
       'users',
       'currencies',
     ]) {

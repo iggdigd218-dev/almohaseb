@@ -697,14 +697,9 @@ class Repo {
       const tables = [
         'accounts',
         'transactions',
-        'transaction_items',
         'vouchers',
         'currencies',
         'categories',
-        'item_categories',
-        'sections',
-        'items',
-        'stock_moves',
         'conversations',
         'messages',
         'users',
@@ -783,13 +778,9 @@ class Repo {
       const entityTables = [
         'accounts',
         'transactions',
-        'transaction_items',
         'vouchers',
         'currencies',
         'categories',
-        'item_categories',
-        'items',
-        'stock_moves',
         'conversations',
         'messages',
         'users',
@@ -1085,9 +1076,8 @@ class Repo {
     return rows.map(Tx.fromMap).toList();
   }
 
-  /// يحفظ العملية وسطور الفاتورة معًا. تمرير [items] (حتى لو كانت فارغة)
-  /// يستبدل السطور القديمة، أما null فيُبقيها كما هي عند تحديث الصورة.
-  Future<int> saveTx(Tx tx, {List<InvoiceLine>? items}) async {
+  /// يحفظ العملية المالية.
+  Future<int> saveTx(Tx tx) async {
     // معرّف الحساب 0 يعني "بدون حساب" (بيع نقدي لعميل عابر). نخزّنه NULL
     // حتى لا يكسر قيد المفتاح الأجنبي (FOREIGN KEY 787).
     final t = (tx.accountId == 0 || tx.fromId == 0 || tx.toId == 0)
@@ -1167,24 +1157,11 @@ class Repo {
         map['updated_at'] = now;
         id = await txn.insert('transactions', map);
         final saved = Map<String, Object?>.from(map)..['id'] = id;
-        if (items != null) {
-          await txn.delete(
-            'transaction_items',
-            where: 'tx_id = ?',
-            whereArgs: [id],
-          );
-          for (final line in items) {
-            final lm = line.toMap(transactionId: id);
-            lm['workspace_id'] = requireWorkspaceId;
-            lm['id'] = newGlobalId();
-            await txn.insert('transaction_items', lm);
-          }
-        }
         await rec.record(
           entityType: EntityKind.tx,
           entityId: '$id',
           opType: OpKind.create,
-          payload: saved..['items'] = await _lineMaps(txn, id),
+          payload: saved,
         );
       } else {
         id = t.id!;
@@ -1199,25 +1176,12 @@ class Repo {
         map.remove('id');
         map['updated_at'] = now;
         await txn.update('transactions', map, where: 'id = ?', whereArgs: [id]);
-        if (items != null) {
-          await txn.delete(
-            'transaction_items',
-            where: 'tx_id = ?',
-            whereArgs: [id],
-          );
-          for (final line in items) {
-            final lm = line.toMap(transactionId: id);
-            lm['workspace_id'] = requireWorkspaceId;
-            lm['id'] = newGlobalId();
-            await txn.insert('transaction_items', lm);
-          }
-        }
         final saved = Map<String, Object?>.from(map)..['id'] = id;
         await rec.record(
           entityType: EntityKind.tx,
           entityId: '$id',
           opType: OpKind.update,
-          payload: saved..['items'] = await _lineMaps(txn, id),
+          payload: saved,
         );
       }
       await logActivityTx(
@@ -1230,14 +1194,6 @@ class Repo {
     return id;
   }
 
-  /// سطور الفاتورة بصيغة خرائط لإرفاقها في حمولة المزامنة.
-  Future<List<Map<String, Object?>>> _lineMaps(
-      DatabaseExecutor txn, int txId) async {
-    final rows = await txn.query('transaction_items',
-        where: 'tx_id = ?', whereArgs: [txId], orderBy: 'id ASC');
-    return rows.map(Map<String, Object?>.from).toList();
-  }
-
   /// العمليات النقدية (إيراد/مصروف/قبض/صرف) يمكن حفظها بدون حساب مرتبط،
   /// مثل بيع نقدي لعميل عابر في نقطة البيع.
   static bool _allowsAnonymousAccount(OpType type) =>
@@ -1245,18 +1201,6 @@ class Repo {
       type == OpType.expense ||
       type == OpType.inflow ||
       type == OpType.outflow;
-
-  /// تفاصيل الأصناف المرتبطة بعملية مالية.
-  Future<List<InvoiceLine>> transactionItems(int txId) async {
-    final db = await _db;
-    final rows = await db.query(
-      'transaction_items',
-      where: 'tx_id = ?',
-      whereArgs: [txId],
-      orderBy: 'id ASC',
-    );
-    return rows.map(InvoiceLine.fromMap).toList();
-  }
 
   /// القفل التاريخي للتدقيق: إعداد `auditLockDays` (0 = معطل) يمنع غير
   /// المدير من تعديل/حذف عملية مالية أقدم من المدة المحددة — حماية دفترية
@@ -1319,7 +1263,6 @@ class Repo {
         'store': 'transactions',
         'payload': jsonEncode({
           'transaction': Map.from(rows.first),
-          'items': [],
         }),
         'label':
             'عملية بمبلغ ${rows.first['amount']} ${rows.first['currency']}',
@@ -3398,9 +3341,6 @@ class Repo {
       const wipeTables = <(String, EntityKind)>[
         ('transactions', EntityKind.tx),
         ('vouchers', EntityKind.voucher),
-        ('stock_moves', EntityKind.stockMove),
-        ('items', EntityKind.item),
-        ('item_categories', EntityKind.itemCategory),
         ('accounts', EntityKind.account),
       ];
       for (final (table, kind) in wipeTables) {
@@ -3419,11 +3359,7 @@ class Repo {
     //    والأجهزة والصلاحيات تبقى كما هي.
     await db.transaction((txn) async {
       const tables = [
-        'transaction_items',
         'transactions',
-        'stock_moves',
-        'items',
-        'item_categories',
         'vouchers',
         'accounts',
         'messages',
@@ -4069,10 +4005,6 @@ class Repo {
             'restore_op_id': '',
             'updated_at': now,
           };
-          if (store == 'items') {
-            upd['is_deleted'] = 0;
-            upd['is_active'] = 1;
-          }
           await txn.update(
             store,
             upd,
@@ -4095,10 +4027,6 @@ class Repo {
         } else {
           payload.remove('deleted_at');
           payload['updated_at'] = now;
-          if (store == 'items') {
-            payload['is_deleted'] = 0;
-            payload['is_active'] = 1;
-          }
           await txn.insert(
             store,
             payload,
@@ -4120,11 +4048,8 @@ class Repo {
   EntityKind _entityKindFor(String table) => switch (table) {
         'accounts' => EntityKind.account,
         'transactions' => EntityKind.tx,
-        'items' => EntityKind.item,
         'vouchers' => EntityKind.voucher,
         'users' => EntityKind.user,
-        'item_categories' => EntityKind.itemCategory,
-        'stock_moves' => EntityKind.stockMove,
         _ => EntityKind.tx,
       };
 
@@ -4213,18 +4138,14 @@ class Repo {
   static const backupTables = [
     'accounts',
     'transactions',
-    'transaction_items',
     'vouchers',
     'currencies',
     'categories',
-    'item_categories',
     'users',
     'conversations',
     'messages',
     'activity',
     'settings',
-    'items',
-    'stock_moves',
     'templates',
   ];
 
@@ -4235,16 +4156,9 @@ class Repo {
     'users',
     'accounts',
     'transactions',
-    // (2026-09-24) الأقسام قبل الفئات: section_id مفتاح أجنبي إلى sections
-    // — كانت sections غائبة تماماً عن مسار الاستعادة.
-    'sections',
-    'item_categories',
-    'items',
-    'transaction_items',
     'vouchers',
     'conversations',
     'messages',
-    'stock_moves',
     'templates',
     'settings',
     'activity',
@@ -4254,16 +4168,12 @@ class Repo {
   static const _stableIdTables = [
     'accounts',
     'transactions',
-    'transaction_items',
     'vouchers',
     'categories',
-    'item_categories',
     'users',
     'conversations',
     'messages',
     'activity',
-    'items',
-    'stock_moves',
     'templates',
   ];
 
@@ -4325,7 +4235,6 @@ class Repo {
         (data['transactions'], 'image'),
         (data['transactions'], 'attachment'),
         (data['accounts'], 'image'),
-        (data['items'], 'image'),
       ]) {
         final rows = entry.$1;
         if (rows is! List) continue;
@@ -4456,22 +4365,17 @@ class Repo {
           'messages',
           'conversations',
           'activity',
-          'stock_moves',
-          'transaction_items',
-          'items',
-          'vouchers',
+                'vouchers',
           'transactions',
           'accounts',
           'categories',
-          'item_categories',
-          'users',
+            'users',
           'currencies',
           'settings',
           'templates',
           'trash',
           'notifications',
-          'sections',
-        ]) {
+          ]) {
           await txn.delete(table);
         }
         // استعادة نظيفة: صفوف الطابور المعلقة تشير لعمليات ما قبل الاستعادة
@@ -4486,11 +4390,6 @@ class Repo {
         } catch (_) {
           // قواعد قديمة بلا جداول مزامنة.
         }
-
-        // (2026-09-24) معرّفات الأقسام المعروفة: تُستخدم لإفراغ أي مرجع
-        // يتيم (section_id لقسم لم يصل بعد) بدل إسقاط الاستعادة كلها.
-        final sectionRows = await txn.query('sections', columns: ['id']);
-        final knownSectionIds = <Object?>{for (final r in sectionRows) r['id']};
 
         var imported = 0;
         for (final table in _importOrder) {
@@ -4528,14 +4427,6 @@ class Repo {
               final oldPath = clean['value'];
               clean['value'] = oldPath is String ? (remap[oldPath] ?? '') : '';
             }
-            // حماية المفتاح الأجنبي: فئة/صنف يشير إلى قسم غير متوفر محلياً
-            // ⇒ نُفرغ العلاقة مؤقتاً (NULL) فيُعرض تحت «عام» بدل كسر قيد
-            // sections(id) وإسقاط الاستعادة بأكملها.
-            if ((table == 'item_categories' || table == 'items') &&
-                clean['section_id'] != null &&
-                !knownSectionIds.contains(clean['section_id'])) {
-              clean['section_id'] = null;
-            }
             if (clean.isEmpty) {
               throw BackupImportException(
                 'الصف ${index + 1} في $table لا يحتوي أعمدة مفهومة.',
@@ -4562,10 +4453,6 @@ class Repo {
                 clean,
                 conflictAlgorithm: ConflictAlgorithm.abort,
               );
-              // كل قسم يُستورد يصبح مرجعاً معروفاً لما بعده من الفئات.
-              if (table == 'sections' && clean['id'] != null) {
-                knownSectionIds.add(clean['id']);
-              }
             } catch (e) {
               throw BackupImportException(
                 'تعذّر استيراد الصف ${index + 1} من $table؛ أُلغيت الاستعادة بالكامل: $e',
@@ -4614,10 +4501,7 @@ class Repo {
       ('categories', EntityKind.category),
       ('currencies', EntityKind.currency),
       ('accounts', EntityKind.account),
-      ('item_categories', EntityKind.itemCategory),
-      ('items', EntityKind.item),
       ('transactions', EntityKind.tx),
-      ('stock_moves', EntityKind.stockMove),
       ('vouchers', EntityKind.voucher),
       ('users', EntityKind.user),
     ];
@@ -4626,10 +4510,6 @@ class Repo {
       final rows = await db.query(table);
       for (final row in rows) {
         final payload = Map<String, Object?>.from(row);
-        // سطور الفاتورة تُرحّل داخل حمولة العملية المالية نفسها.
-        if (kind == EntityKind.tx) {
-          payload['items'] = await _lineMaps(db, row['id'] as int);
-        }
         final entityId =
             kind == EntityKind.currency ? '${row['code']}' : '${row['id']}';
         await rec.record(
@@ -4666,15 +4546,12 @@ class Repo {
   bool _isImageColumn(String table, String column) =>
       (table == 'transactions' &&
           (column == 'image' || column == 'attachment')) ||
-      ((table == 'accounts' || table == 'items') && column == 'image');
+      (table == 'accounts' && column == 'image');
 
   /// يتحقق من العلاقات التي لم يفرضها المخطط صراحةً.
   Future<void> _validateOptionalReferences(DatabaseExecutor db) async {
     final checks = <({String table, String column, String parent})>[
-      (table: 'stock_moves', column: 'account_id', parent: 'accounts'),
       (table: 'vouchers', column: 'tx_id', parent: 'transactions'),
-      (table: 'items', column: 'category_id', parent: 'item_categories'),
-      (table: 'transaction_items', column: 'item_id', parent: 'items'),
     ];
     for (final check in checks) {
       final rows = await db.rawQuery('''
@@ -4810,30 +4687,15 @@ class Repo {
       'entries': 'transactions',
       'operations': 'transactions',
       'records': 'transactions',
-      'transaction_items': 'transaction_items',
-      'transactionitems': 'transaction_items',
-      'tx_items': 'transaction_items',
-      'txitems': 'transaction_items',
-      'invoice_items': 'transaction_items',
-      'invoiceitems': 'transaction_items',
       'vouchers': 'vouchers',
       'receipts': 'vouchers',
       'currencies': 'currencies',
       'categories': 'categories',
-      'item_categories': 'item_categories',
-      'itemcategories': 'item_categories',
-      'inventory_categories': 'item_categories',
-      'product_categories': 'item_categories',
       'users': 'users',
       'conversations': 'conversations',
       'messages': 'messages',
       'activity': 'activity',
       'settings': 'settings',
-      'items': 'items',
-      'products': 'items',
-      'inventory': 'items',
-      'stock_moves': 'stock_moves',
-      'stockmoves': 'stock_moves',
       'templates': 'templates',
     };
 
@@ -4866,862 +4728,6 @@ class Repo {
   // ══════════════════════════════════════════════════════════════════════
 
   /// اسم القسم الافتراضي: الفئة بلا قسم تُصنَّف تحته تلقائياً في العرض.
-  static const String generalSectionName = 'عام';
-
-  Future<List<Section>> sections() async {
-    final db = await _db;
-    final rows = await db.query(
-      'sections',
-      where: "deleted_at IS NULL OR deleted_at = ''",
-      orderBy: 'sort_order ASC, name COLLATE NOCASE ASC',
-    );
-    return rows.map(Section.fromMap).toList();
-  }
-
-  /// قسم «عام»: يُنشأ مرة واحدة ليكون ملاذ الفئات بلا قسم.
-  Future<int> ensureGeneralSection() async {
-    final db = await _db;
-    final existing = await db.query('sections',
-        where: 'name = ?', whereArgs: [generalSectionName], limit: 1);
-    if (existing.isNotEmpty) return existing.first['id'] as int;
-    final now = DateTime.now();
-    final id = await db.insert('sections', {
-      'id': newGlobalId(),
-      'name': generalSectionName,
-      'icon': 'apps',
-      'sort_order': 0,
-      'deleted_at': '',
-      'created_at': now.toIso8601String(),
-      'updated_at': now.toIso8601String(),
-    });
-    await queueOperation(
-      entityType: EntityKind.section,
-      entityId: '$id',
-      opType: OpKind.create,
-      payload: {
-        'id': id,
-        'name': generalSectionName,
-        'icon': 'apps',
-        'sort_order': 0,
-      },
-    );
-    return id;
-  }
-
-  Future<int> saveSection(Section section) async {
-    await _ensureCan(section.id == null ? 'add_tx' : 'edit_tx');
-    final name = section.name.trim();
-    if (name.isEmpty) throw ArgumentError('اسم القسم مطلوب');
-    final db = await _db;
-    // (2026-09-24) الفرادة مقيدة بمساحة العمل وبالأقسام النشطة (غير المحذوفة):
-    // نفس الاسم مسموح في مساحة أخرى وممنوع تكراره بين الأقسام النشطة الحالية.
-    final duplicate = await db.query(
-      'sections',
-      columns: ['id'],
-      where:
-          "name = ? COLLATE NOCASE AND id != ? AND workspace_id = ? AND (deleted_at IS NULL OR deleted_at = '')",
-      whereArgs: [name, section.id ?? -1, requireWorkspaceId],
-      limit: 1,
-    );
-    if (duplicate.isNotEmpty) throw StateError('يوجد قسم بهذا الاسم مسبقًا');
-
-    final now = DateTime.now();
-    late final int id;
-
-    // فحص ما إذا كان هناك قسم محذوف سابقاً بنفس الاسم لإعادة استخدامه وتنشيطه
-    final deletedMatch = await db.query(
-      'sections',
-      columns: ['id'],
-      where:
-          "name = ? COLLATE NOCASE AND workspace_id = ? AND deleted_at IS NOT NULL AND deleted_at != ''",
-      whereArgs: [name, requireWorkspaceId],
-      limit: 1,
-    );
-
-    if (section.id == null) {
-      if (deletedMatch.isNotEmpty) {
-        // إعادة تنشيط السجل المحذوف وتحديث بياناته بالكامل
-        id = deletedMatch.first['id'] as int;
-        await db.update(
-          'sections',
-          {
-            'name': name,
-            'icon': section.icon,
-            'icon_key': section.iconKey,
-            'color_hex': section.colorHex,
-            'image_path': section.imagePath,
-            'sort_order': section.sortOrder,
-            'deleted_at': '',
-            'updated_at': now.toIso8601String(),
-          },
-          where: 'id = ?',
-          whereArgs: [id],
-        );
-        // تنظيف أي سجلات محذوفة مكررة أخرى بنفس الاسم إن وُجدت
-        await db.delete(
-          'sections',
-          where:
-              "name = ? COLLATE NOCASE AND workspace_id = ? AND id != ? AND deleted_at IS NOT NULL AND deleted_at != ''",
-          whereArgs: [name, requireWorkspaceId, id],
-        );
-        await queueOperation(
-          entityType: EntityKind.section,
-          entityId: '$id',
-          opType: OpKind.create,
-          payload: {
-            'id': id,
-            'name': name,
-            'icon': section.icon,
-            'icon_key': section.iconKey,
-            'color_hex': section.colorHex,
-            'image_path': section.imagePath,
-            'sort_order': section.sortOrder,
-            'deleted_at': '',
-          },
-        );
-      } else {
-        id = await db.insert('sections', {
-          'id': newGlobalId(),
-          // (2026-09-24) مساحة العمل تُحفظ صراحةً: بلاها يبقى الصف على
-          // القيمة الافتراضية 'default' فلا يطابقه فحص الفرادة المقيد بالمساحة.
-          'workspace_id': requireWorkspaceId,
-          'name': name,
-          'icon': section.icon,
-          'icon_key': section.iconKey,
-          'color_hex': section.colorHex,
-          'image_path': section.imagePath,
-          'sort_order': section.sortOrder,
-          'deleted_at': '',
-          'created_at': now.toIso8601String(),
-          'updated_at': now.toIso8601String(),
-        });
-        await queueOperation(
-          entityType: EntityKind.section,
-          entityId: '$id',
-          opType: OpKind.create,
-          payload: {
-            'id': id,
-            'name': name,
-            'icon': section.icon,
-            'icon_key': section.iconKey,
-            'color_hex': section.colorHex,
-            'image_path': section.imagePath,
-            'sort_order': section.sortOrder,
-            'deleted_at': '',
-          },
-        );
-      }
-    } else {
-      id = section.id!;
-      // عند تعديل اسم قسم قائم، نحذف أي سجلات محذوفة سابقة بنفس الاسم الجديد
-      if (deletedMatch.isNotEmpty) {
-        await db.delete(
-          'sections',
-          where:
-              "name = ? COLLATE NOCASE AND workspace_id = ? AND id != ? AND deleted_at IS NOT NULL AND deleted_at != ''",
-          whereArgs: [name, requireWorkspaceId, id],
-        );
-      }
-      await db.update(
-        'sections',
-        {
-          'name': name,
-          'icon': section.icon,
-          'icon_key': section.iconKey,
-          'color_hex': section.colorHex,
-          'image_path': section.imagePath,
-          'sort_order': section.sortOrder,
-          'deleted_at': '',
-          'updated_at': now.toIso8601String(),
-        },
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-      await queueOperation(
-        entityType: EntityKind.section,
-        entityId: '$id',
-        opType: OpKind.update,
-        payload: {
-          'id': id,
-          'name': name,
-          'icon': section.icon,
-          'icon_key': section.iconKey,
-          'color_hex': section.colorHex,
-          'image_path': section.imagePath,
-          'sort_order': section.sortOrder,
-          'deleted_at': '',
-        },
-      );
-    }
-    await logActivity('حفظ قسم: $name', 'section', '$id');
-    return id;
-  }
-
-  /// حذف قسم: يحذف القسم وكافة الفئات التابعة له تلقائياً (حذف تتابعي)
-  /// مع فك ربط الأصناف من القسم والفئات التابعة لتبقى بيانات المنتجات محفوظة.
-  Future<void> deleteSection(int id) async {
-    await _ensureCan('delete_tx');
-    final db = await _db;
-    final now = DateTime.now().toIso8601String();
-
-    // جلب كافة الفئات التابعة لهذا القسم لحذفها وتصعيد حركات الحذف
-    final catRows = await db.query(
-      'item_categories',
-      where: 'section_id = ?',
-      whereArgs: [id],
-    );
-    final catIds = catRows.map((r) => r['id'] as int).toList();
-
-    await db.transaction((txn) async {
-      // 1) فك ربط أصناف هذا القسم
-      await txn.update(
-        'items',
-        {'section_id': null, 'updated_at': now},
-        where: 'section_id = ?',
-        whereArgs: [id],
-      );
-
-      // 2) فك ربط أصناف الفئات التابعة للقسم ومسح اسم الفئة
-      for (final catId in catIds) {
-        await txn.update(
-          'items',
-          {'category_id': null, 'category': '', 'updated_at': now},
-          where: 'category_id = ?',
-          whereArgs: [catId],
-        );
-      }
-
-      // 3) حذف الفئات التابعة للقسم من جدول الفئات
-      if (catIds.isNotEmpty) {
-        await txn.delete(
-          'item_categories',
-          where: 'section_id = ?',
-          whereArgs: [id],
-        );
-      }
-
-      // 4) تعليم القسم كمحذوف
-      await txn.update(
-        'sections',
-        {'deleted_at': now, 'updated_at': now},
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-
-      // 5) تسجيل عمليات الحذف في طابور المزامنة
-      final rec = await newRecorder(txn);
-      for (final catId in catIds) {
-        await rec.record(
-          entityType: EntityKind.itemCategory,
-          entityId: '$catId',
-          opType: OpKind.delete_,
-          payload: {'id': catId},
-        );
-      }
-      await rec.record(
-        entityType: EntityKind.section,
-        entityId: '$id',
-        opType: OpKind.delete_,
-        payload: {'id': id},
-      );
-    });
-    await logActivity('حذف قسم وحذف فئاته التابعة (${catIds.length} فئة)', 'section', '$id');
-  }
-
-  /// (2026-09-22) فئات الأصناف.
-  /// [rootsOnly] = true  ⇒ الفئات الرئيسية فقط (parent_id IS NULL).
-  /// [parentId]          ⇒ الأبناء المباشرون لفئة بعينها.
-  /// كلتا الحالتين مدعومتان بفهرس idx_item_cat_parent (استعلام محلي فوري).
-  Future<List<ItemCategory>> itemCategories({
-    bool rootsOnly = false,
-    int? parentId,
-    int? sectionId,
-  }) async {
-    final db = await _db;
-    const delClause =
-        "(deleted_at IS NULL OR TRIM(deleted_at) = '' OR TRIM(deleted_at) = 'null')";
-    final whereList = <String>[delClause];
-    List<Object?>? args;
-    if (rootsOnly && sectionId != null) {
-      whereList.add('parent_id IS NULL AND (section_id = ? OR section_id IS NULL)');
-      args = [sectionId];
-    } else if (rootsOnly) {
-      whereList.add('parent_id IS NULL');
-    } else if (parentId != null) {
-      whereList.add('parent_id = ?');
-      args = [parentId];
-    } else if (sectionId != null) {
-      // قسم محدد: فئاته + الفئات بلا قسم (تظهر تحت «عام»).
-      whereList.add('(section_id = ? OR section_id IS NULL)');
-      args = [sectionId];
-    }
-    final rows = await db.query(
-      'item_categories',
-      where: whereList.join(' AND '),
-      whereArgs: args,
-      orderBy: 'name COLLATE NOCASE ASC',
-    );
-    return rows.map(ItemCategory.fromMap).toList();
-  }
-
-  /// (2026-09-22) الشجرة كاملة: الفئات الرئيسية وفي كل واحدة أبناؤها
-  /// المباشرون — قراءة واحدة للجدول تُجمَّع في الذاكرة (بلا استعلامات
-  /// متتابعة لكل فئة).
-  Future<List<ItemCategory>> itemCategoryTree() async {
-    final all = await itemCategories();
-    final roots = <ItemCategory>[];
-    final byParent = <int, List<ItemCategory>>{};
-    for (final c in all) {
-      final p = c.parentId;
-      if (p == null) {
-        roots.add(c);
-      } else {
-        byParent.putIfAbsent(p, () => <ItemCategory>[]).add(c);
-      }
-    }
-    return roots
-        .map((r) => r.withChildren(byParent[r.id] ?? const []))
-        .toList();
-  }
-
-  /// إضافة فئة أو تعديل اسمها مع تحديث اسم الفئة في الأصناف التابعة لها.
-  Future<int> saveItemCategory(ItemCategory category) async {
-    await _ensureCan(category.id == null ? 'add_tx' : 'edit_tx');
-    final name = category.name.trim();
-    if (name.isEmpty) throw ArgumentError('اسم الفئة مطلوب');
-
-    final db = await _db;
-    final duplicate = await db.query(
-      'item_categories',
-      columns: ['id'],
-      where:
-          "name = ? COLLATE NOCASE AND id != ? AND (deleted_at IS NULL OR deleted_at = '')",
-      whereArgs: [name, category.id ?? -1],
-      limit: 1,
-    );
-    if (duplicate.isNotEmpty) {
-      throw StateError('توجد فئة بهذا الاسم مسبقًا');
-    }
-
-    // تنظيف أي فئات محذوفة سابقة بنفس الاسم
-    await db.delete(
-      'item_categories',
-      where:
-          "name = ? COLLATE NOCASE AND id != ? AND deleted_at IS NOT NULL AND deleted_at != ''",
-      whereArgs: [name, category.id ?? -1],
-    );
-
-    late final int id;
-    if (category.id == null) {
-      final now = DateTime.now().toIso8601String();
-      id = await db.insert('item_categories', {
-        'id': newGlobalId(),
-        'name': name,
-        if (category.parentId != null) 'parent_id': category.parentId,
-        if (category.sectionId != null) 'section_id': category.sectionId,
-        'icon_key': category.iconKey,
-        'color_hex': category.colorHex,
-        'image_path': category.imagePath,
-        'created_at': category.createdAt.toIso8601String(),
-        'updated_at': now,
-      });
-      await queueOperation(
-        entityType: EntityKind.itemCategory,
-        entityId: '$id',
-        opType: OpKind.create,
-        payload: {
-          'id': id,
-          'name': name,
-          if (category.parentId != null) 'parent_id': category.parentId,
-          if (category.sectionId != null) 'section_id': category.sectionId,
-          'icon_key': category.iconKey,
-          'color_hex': category.colorHex,
-          'image_path': category.imagePath,
-          'created_at': category.createdAt.toIso8601String(),
-          'updated_at': now,
-        },
-      );
-      await logActivity('إضافة فئة أصناف: $name', 'item_category', '$id');
-      return id;
-    }
-
-    id = category.id!;
-    final now = DateTime.now().toIso8601String();
-    final parentId = category.parentId;
-    // (2026-09-22) منع الدوران في الشجرة: الفئة لا تكون أباً لنفسها،
-    // ولا أباً لأحد أجدادها (مسار الأبناء حلقي ⇒ بيانات تالفة).
-    if (parentId != null) {
-      if (parentId == id) {
-        throw StateError('لا يمكن جعل الفئة أباً لنفسها');
-      }
-      var cursor = parentId;
-      for (var guard = 0; guard < 64; guard++) {
-        final row = await db.query('item_categories',
-            columns: ['parent_id'],
-            where: 'id = ?',
-            whereArgs: [cursor],
-            limit: 1);
-        if (row.isEmpty) break;
-        final up = row.first['parent_id'] as int?;
-        if (up == null) break;
-        if (up == id) {
-          throw StateError('لا يمكن جعل الفئة فرعاً لأحد فروعها');
-        }
-        cursor = up;
-      }
-    }
-    // (2026-09-24) نقرأ القسم **السابق** قبل التحديث: قراءته بعد التحديث
-    // تعيد القسم الجديد نفسه فلا يحدث أي نقل (خطأ مقارنة صامت).
-    final prevRows = await db.query('item_categories',
-        columns: ['section_id'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final prevSection =
-        prevRows.isEmpty ? null : prevRows.first['section_id'] as int?;
-    await db.transaction((txn) async {
-      await txn.update(
-        'item_categories',
-        {
-          'name': name,
-          'parent_id': parentId,
-          'section_id': category.sectionId,
-          'icon_key': category.iconKey,
-          'color_hex': category.colorHex,
-          'image_path': category.imagePath,
-          'updated_at': now,
-        },
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-      // (2026-09-24) نقل الفئة إلى قسم جديد ⇒ أصنافها تتبعها.
-      await txn.update(
-        'items',
-        <String, Object?>{
-          'category': name,
-          'updated_at': now,
-          if (prevSection != category.sectionId) 'section_id': category.sectionId,
-        },
-        where: 'category_id = ?',
-        whereArgs: [id],
-      );
-      final rec = await newRecorder(txn);
-      await rec.record(
-        entityType: EntityKind.itemCategory,
-        entityId: '$id',
-        opType: OpKind.update,
-        payload: {
-          'id': id,
-          'name': name,
-          'parent_id': parentId,
-          'section_id': category.sectionId,
-          'icon_key': category.iconKey,
-          'color_hex': category.colorHex,
-          'image_path': category.imagePath,
-          'updated_at': now,
-        },
-      );
-    });
-    await logActivity('تعديل فئة أصناف: $name', 'item_category', '$id');
-    return id;
-  }
-
-  /// يحذف الفئة فقط، ويفك ربط أصنافها لتبقى بيانات الأصناف محفوظة.
-  Future<void> deleteItemCategory(int id) async {
-    await _ensureCan('delete_tx');
-    final db = await _db;
-    final rows = await db.query(
-      'item_categories',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    if (rows.isEmpty) return;
-    final name = rows.first['name'] as String;
-    final now = DateTime.now().toIso8601String();
-    await db.transaction((txn) async {
-      await txn.update(
-        'items',
-        {'category_id': null, 'category': '', 'updated_at': now},
-        where: 'category_id = ?',
-        whereArgs: [id],
-      );
-      // (2026-09-22) الفئات الفرعية تُرقّى إلى الجذر بدل أن يمحوها
-      // قيد CASCADE — حذفُ فئة رئيسية لا يفقد فئاتها الفرعية.
-      await txn.update(
-        'item_categories',
-        {'parent_id': null, 'updated_at': now},
-        where: 'parent_id = ?',
-        whereArgs: [id],
-      );
-      await txn.delete('item_categories', where: 'id = ?', whereArgs: [id]);
-      final rec = await newRecorder(txn);
-      await rec.record(
-        entityType: EntityKind.itemCategory,
-        entityId: '$id',
-        opType: OpKind.delete_,
-        payload: {'id': id},
-      );
-    });
-    await logActivity('حذف فئة أصناف: $name', 'item_category', '$id');
-  }
-
-  // ==================== الأصناف والمخزون ====================
-
-  Future<List<Item>> items({
-    bool includeArchived = false,
-    String q = '',
-    bool includeDeleted = false,
-  }) async {
-    final db = await _db;
-    final where = <String>[];
-    final args = <Object?>[];
-    if (!includeArchived) where.add('i.archived = 0');
-    if (!includeDeleted) {
-      where.add('(i.is_deleted = 0 OR i.is_deleted IS NULL)');
-      where.add(
-          "(i.deleted_at IS NULL OR TRIM(i.deleted_at) = '' OR TRIM(i.deleted_at) = 'null')");
-    }
-    if (q.trim().isNotEmpty) {
-      where.add('(i.name LIKE ? OR i.sku LIKE ? OR COALESCE(c.name, i.category) LIKE ? OR i.notes LIKE ?)');
-      final like = '%${q.trim()}%';
-      args.addAll([like, like, like, like]);
-    }
-    final whereClause = where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}';
-    final sql = '''
-      SELECT i.*, COALESCE(c.name, i.category, '') AS category_name
-      FROM items i
-      LEFT JOIN item_categories c ON i.category_id = c.id
-      $whereClause
-      ORDER BY i.name COLLATE NOCASE
-    ''';
-    final rows = await db.rawQuery(sql, args.isEmpty ? null : args);
-    return rows.map(Item.fromMap).toList();
-  }
-
-  Future<Item?> item(int id, {bool includeDeleted = false}) async {
-    final db = await _db;
-    final where = includeDeleted
-        ? 'id = ?'
-        : "id = ? AND (is_deleted = 0 OR is_deleted IS NULL) AND (deleted_at IS NULL OR TRIM(deleted_at) = '' OR TRIM(deleted_at) = 'null')";
-    final r = await db.query('items', where: where, whereArgs: [id]);
-    return r.isEmpty ? null : Item.fromMap(r.first);
-  }
-
-  /// (2026-09-24) هل يسمح الإعداد «السماح بالبيع عند نفاد الرصيد الدفتري»؟
-  ///
-  /// تُقرأ داخل منفّذ المعاملة نفسها: استعلام عبر [settings] (اتصال آخر)
-  /// أثناء احتفاظ المعاملة بقفل كتابة ⇒ تجميد متبادل (deadlock) يجمّد
-  /// الحركة 30 ثانية ثم يُفشل الاختبار/العملية.
-  Future<bool> _allowNegativeStock(DatabaseExecutor txn) async {
-    try {
-      final rows = await txn.query(
-        'settings',
-        columns: ['value'],
-        where: 'key = ?',
-        whereArgs: ['allowNegativeStock'],
-        limit: 1,
-      );
-      return rows.isNotEmpty && '${rows.first['value']}' == '1';
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<int> saveItem(Item it) async {
-    await _ensureCan(it.id == null ? 'add_tx' : 'edit_tx');
-    final db = await _db;
-    // فرادة الباركود/SKU: صنفان بنفس الباركود يفسدان مسح نقطة البيع.
-    final sku = it.sku.trim();
-    if (sku.isNotEmpty) {
-      final dup = await db.query('items',
-          columns: ['id', 'name'],
-          where: "sku = ? AND COALESCE(deleted_at,'') = ''"
-              "${it.id != null ? ' AND id != ?' : ''}",
-          whereArgs: it.id != null ? [sku, it.id] : [sku],
-          limit: 1);
-      if (dup.isNotEmpty) {
-        throw StateError(
-            'الباركود «$sku» مستخدم مسبقاً للصنف «${dup.first['name']}». '
-            'كل صنف يجب أن يملك باركوداً فريداً.');
-      }
-    }
-    // (2026-09-22) القسم: إن لم يُحدَّد للصنف صراحةً نستمدّه من فئته،
-    // فتبقى الهرمية (قسم ← فئة ← صنف) متسقة بلا جهد من المستخدم.
-    Item itemToSave = it;
-    if (it.categoryId != null) {
-      final catRows = await db.query('item_categories',
-          columns: ['section_id'],
-          where: 'id = ?',
-          whereArgs: [it.categoryId],
-          limit: 1);
-      final sid = catRows.isEmpty ? null : catRows.first['section_id'] as int?;
-      // (2026-09-24) الفئة هي المرجع في الهرمية (قسم ← فئة ← صنف):
-      //  • بلا قسم للصنف ⇒ يستمدّه من فئته (السلوك القديم).
-      //  • قسم صريح يخالف قسم فئته ⇒ يُصحَّح تلقائياً.
-      if (sid != null && (it.sectionId == null || it.sectionId != sid)) {
-        itemToSave = it.copyWith(sectionId: sid);
-      }
-    }
-    late final int id;
-    if (itemToSave.id == null) {
-      // (2026-09-24) رقم الترقيم السريع: يُعيَّن مرة واحدة عند الإضافة
-      // من أعلى رقم موجود + 1، ثم يثبت للأبد (لا إعادة ترتيب ولا تدوير).
-      if (itemToSave.plu == null) {
-        itemToSave = itemToSave.copyWith(plu: await AppDatabase.nextPlu(db));
-      }
-      id = await db.insert(
-          'items', itemToSave.toMap()..['id'] = newGlobalId());
-      await queueOperation(
-        entityType: EntityKind.item,
-        entityId: '$id',
-        opType: OpKind.create,
-        payload: itemToSave.toMap()..['id'] = id,
-      );
-      await logActivity('إضافة صنف: ${itemToSave.name}', 'item', '$id');
-    } else {
-      id = itemToSave.id!;
-      final map = itemToSave.toMap();
-      await db.update('items', map, where: 'id = ?', whereArgs: [id]);
-      await queueOperation(
-        entityType: EntityKind.item,
-        entityId: '$id',
-        opType: OpKind.update,
-        payload: map,
-      );
-      await logActivity('تعديل صنف: ${it.name}', 'item', '$id');
-    }
-    return id;
-  }
-
-  /// حذف ناعم للصنف (تبقى سطور الفواتير التاريخية باسم الصنف).
-  Future<void> deleteItem(int id) async {
-    await _ensureCan('delete_tx');
-    final db = await _db;
-    final now = DateTime.now().toIso8601String();
-    final r = await db.query('items', where: 'id = ?', whereArgs: [id]);
-    if (r.isEmpty) return;
-    await db.transaction((txn) async {
-      await txn.update(
-        'items',
-        {
-          'deleted_at': now,
-          'is_deleted': 1,
-          'is_active': 0,
-          'deleted_by': _currentUserId,
-          'updated_at': now,
-        },
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-      final updated = (await txn.query(
-        'items',
-        where: 'id = ?',
-        whereArgs: [id],
-        limit: 1,
-      ))
-          .first;
-      await SyncRecorder(
-        db: txn,
-        deviceId: requireDeviceId,
-        workspaceId: requireWorkspaceId,
-        userId: _currentUserId,
-      ).record(
-        entityType: EntityKind.item,
-        entityId: '$id',
-        opType: OpKind.delete_,
-        payload: Map<String, Object?>.from(updated),
-      );
-      await txn.insert('trash', {
-        'store': 'items',
-        'payload': jsonEncode(r.first),
-        'label': 'صنف: ${r.first['name']}',
-        'created_at': now,
-      });
-    });
-    await logActivity('حذف صنف', 'item', '$id');
-  }
-
-  Future<List<StockMove>> stockMoves({int? itemId, int limit = 200}) async {
-    final db = await _db;
-    final rows = await db.query(
-      'stock_moves',
-      where: itemId == null ? null : 'item_id = ?',
-      whereArgs: itemId == null ? null : [itemId],
-      orderBy: 'date DESC, id DESC',
-      limit: limit,
-    );
-    return rows.map(StockMove.fromMap).toList();
-  }
-
-  /// يسجّل حركة مخزنية ويحدّث كمية الصنف تلقائيًا.
-  Future<int> addStockMove(StockMove m) async {
-    await _ensureCan('add_tx');
-    final db = await _db;
-    late final int id;
-    String? lowName;
-    var lowQty = 0.0;
-    var lowMin = 0.0;
-    await db.transaction((txn) async {
-      id = await txn.insert('stock_moves', m.toMap()..['id'] = newGlobalId());
-      final r = await txn.query(
-        'items',
-        where: 'id = ?',
-        whereArgs: [m.itemId],
-        limit: 1,
-      );
-      if (r.isNotEmpty) {
-        final it = Item.fromMap(r.first);
-        final delta = m.kind == StockKind.adjust
-            ? m.quantity - it.quantity
-            : m.kind.qtySign * m.quantity;
-        // منع البيع/الخصم بما يتجاوز الرصيد المتاح (لا مخزون سالب).
-        // (سلامة الحساب) مقارنة بتسامح: كمية متاحة 0.29999999999999999
-        // كانت ترفض بيع 0.3 المتاح واقعيّاً.
-        // (2026-09-24) حكم صارم: الرصيد الناتج عن أي حركة (بيع/تسوية/
-        // مرتجع …) لا يصير سالباً إلا بتفعيل «السماح بالبيع عند نفاد الرصيد
-        // الدفتري» صراحةً في الإعدادات.
-        final allowNegative = await _allowNegativeStock(txn);
-        final resultingQty = it.quantity + delta;
-        if (!allowNegative && Fmt.moneyGt(0, resultingQty)) {
-          throw StateError(
-            m.kind == StockKind.sale
-                ? 'الكمية المطلوبة من «${it.name}» غير متوفرة. '
-                    'المتاح: ${it.quantity.toStringAsFixed(0)} ${it.unit}.'
-                : 'لا يمكن أن يصير رصيد «${it.name}» سالباً '
-                    '(الناتج ${resultingQty.toStringAsFixed(0)} ${it.unit}). '
-                    'فعّل «السماح بالبيع عند نفاد الرصيد» من الإعدادات.',
-          );
-        }
-        final now = DateTime.now().toIso8601String();
-        await txn.update(
-          'items',
-          {'quantity': it.quantity + delta, 'updated_at': now},
-          where: 'id = ?',
-          whereArgs: [m.itemId],
-        );
-        final rec = await newRecorder(txn);
-        await rec.record(
-          entityType: EntityKind.stockMove,
-          entityId: '$id',
-          opType: OpKind.create,
-          payload: m.toMap()..['id'] = id,
-        );
-        await rec.record(
-          entityType: EntityKind.item,
-          entityId: '${m.itemId}',
-          opType: OpKind.update,
-          payload: {
-            'id': m.itemId,
-            'quantity': it.quantity + delta,
-            'updated_at': now,
-          },
-        );
-        await logActivityTx(
-          txn,
-          '${m.kind.label}: ${it.name} × ${m.quantity}',
-          'stock',
-          '$id',
-        );
-        lowName = it.name;
-        lowQty = it.quantity + delta;
-        lowMin = it.minQuantity;
-      }
-    });
-    // تنبيه داخلي عند انخفاض المخزون عن حد التنبيه (بعد التزام العملية).
-    if (lowName != null && lowMin > 0 && lowQty <= lowMin) {
-      await notify(
-        title: 'مخزون منخفض: $lowName',
-        body: 'الكمية المتبقية ${lowQty.toStringAsFixed(0)} '
-            'وصلت حد التنبيه ${lowMin.toStringAsFixed(0)}',
-        kind: 'warning',
-        entityType: 'item',
-        entityId: '${m.itemId}',
-      );
-    }
-    return id;
-  }
-
-  Future<void> deleteStockMove(int id) async {
-    await _ensureCan('delete_tx');
-    final db = await _db;
-    await db.transaction((txn) async {
-      final r = await txn.query(
-        'stock_moves',
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-      if (r.isEmpty) return;
-      final m = StockMove.fromMap(r.first);
-      final itRow = await txn.query(
-        'items',
-        where: 'id = ?',
-        whereArgs: [m.itemId],
-        limit: 1,
-      );
-      await txn.delete('stock_moves', where: 'id = ?', whereArgs: [id]);
-      final rec = await newRecorder(txn);
-      await rec.record(
-        entityType: EntityKind.stockMove,
-        entityId: '$id',
-        opType: OpKind.delete_,
-        payload: {'id': id},
-      );
-      if (itRow.isNotEmpty && m.kind != StockKind.adjust) {
-        final it = Item.fromMap(itRow.first);
-        final now = DateTime.now().toIso8601String();
-        final newQty = it.quantity - m.kind.qtySign * m.quantity;
-        await txn.update(
-          'items',
-          {'quantity': newQty, 'updated_at': now},
-          where: 'id = ?',
-          whereArgs: [m.itemId],
-        );
-        await rec.record(
-          entityType: EntityKind.item,
-          entityId: '${m.itemId}',
-          opType: OpKind.update,
-          payload: {'id': m.itemId, 'quantity': newQty, 'updated_at': now},
-        );
-      }
-    });
-  }
-
-  /// ملخّص المخزون: التكلفة والقيمة والربح المحقق والمتوقع.
-  Future<Map<String, double>> inventorySummary() async {
-    final all = await items();
-    var cost = 0.0, value = 0.0, expected = 0.0, low = 0.0;
-    for (final i in all) {
-      cost += i.stockCost;
-      value += i.stockValue;
-      expected += i.expectedProfit;
-      if (i.low || i.out) low++;
-    }
-    // الربح المحقق فعليًا من حركات البيع مقابل سعر الشراء الحالي.
-    final db = await _db;
-    final rows = await db.rawQuery(
-      "SELECT s.quantity AS q, s.unit_price AS p, i.buy_price AS b "
-      "FROM stock_moves s JOIN items i ON i.id = s.item_id "
-      "WHERE s.kind = 'sale'",
-    );
-    var realised = 0.0, sales = 0.0;
-    for (final r in rows) {
-      final q = ((r['q'] ?? 0) as num).toDouble();
-      final p = ((r['p'] ?? 0) as num).toDouble();
-      final b = ((r['b'] ?? 0) as num).toDouble();
-      realised += (p - b) * q;
-      sales += p * q;
-    }
-    return {
-      'items': all.length.toDouble(),
-      'cost': cost,
-      'value': value,
-      'expected': expected,
-      'realised': realised,
-      'sales': sales,
-      'low': low,
-    };
-  }
-
-  // ==================== الإشعارات الداخلية ====================
-
-  /// أقصى مدة للاحتفاظ بالإشعارات: 6 ساعات فقط
   static const Duration kNotificationRetention = Duration(hours: 6);
 
   /// وقت بدء استخدام التطبيق للمستخدم/الجهاز (ISO8601).
@@ -5888,8 +4894,6 @@ class Repo {
       'accounts': await c('accounts', 'archived = 0'),
       'transactions': await c('transactions'),
       'vouchers': await c('vouchers'),
-      'items': await c('items',
-          "archived = 0 AND (is_deleted = 0 OR is_deleted IS NULL) AND (deleted_at IS NULL OR TRIM(deleted_at) = '' OR TRIM(deleted_at) = 'null')"),
       'trash': await c('trash'),
     };
   }
@@ -6035,7 +5039,7 @@ class Repo {
       if (snapRec != null) {
         if (snapRec['data'] is Map) {
           snap = Map<String, Object?>.from(snapRec['data'] as Map);
-        } else if (snapRec['accounts'] != null || snapRec['items'] != null) {
+        } else if (snapRec['accounts'] != null) {
           snap = Map<String, Object?>.from(snapRec);
         }
       }

@@ -6,11 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/accounting.dart';
 import '../core/shell_nav.dart';
-import '../core/desktop.dart';
 import '../core/models.dart';
 import '../core/app_version.dart';
 import '../core/theme.dart';
@@ -27,7 +25,6 @@ import 'backup_screen.dart';
 import 'chat_screen.dart';
 import 'currencies_screen.dart';
 import 'dashboard_screen.dart';
-import 'inventory_screen.dart';
 
 import 'dart:async';
 
@@ -37,7 +34,6 @@ import 'trash_screen.dart';
 import 'transactions_screen.dart';
 import 'tx_form.dart';
 import 'vouchers_screen.dart';
-import 'pos_screen.dart';
 import 'widgets/sync_arrows_indicator.dart';
 import 'widgets/golden_bell_icon.dart';
 import 'sync_ops_screen.dart';
@@ -64,12 +60,10 @@ import '../core/cloud_config.dart';
 /// كل شاشات التطبيق الاثنتي عشرة.
 enum AppScreen {
   dashboard('لوحة التحكم', Icons.dashboard_outlined, Icons.dashboard),
-  pos('نقطة البيع (POS)', Icons.point_of_sale_outlined, Icons.point_of_sale),
   accounts('الحسابات', Icons.people_alt_outlined, Icons.people_alt),
   transactions('العمليات', Icons.receipt_long_outlined, Icons.receipt_long),
   vouchers('السندات', Icons.receipt_outlined, Icons.receipt),
   reports('التقارير', Icons.bar_chart_outlined, Icons.bar_chart),
-  inventory('إدارة المنتجات', Icons.inventory_2_outlined, Icons.inventory_2),
   currencies(
     'العملات',
     Icons.currency_exchange_outlined,
@@ -101,10 +95,9 @@ class _HomeShellState extends ConsumerState<HomeShell>
   AppScreen _screen = AppScreen.dashboard;
 
   // (3.70.0) لوحة التحكم مثبّتة كأول شاشة دائمة على كل المنصات —
-  // عند الإقلاع وبعد تجاوز شاشة القفل (أُلغي الإقلاع المباشر على POS).
+  // عند الإقلاع وبعد تجاوز شاشة القفل.
 
   /// الشريط الجانبي المكتبي: مطوي (أيقونات) أو موسّع (أيقونات + عناوين).
-  bool _railExtended = true;
 
   Timer? _syncTimer;
   bool _updatePrompted = false;
@@ -188,7 +181,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // (2026-09-24) قناة تنقّل من الشاشات الداخلية (زر الرئيسية في نقطة البيع).
+    // (2026-09-24) قناة تنقّل من الشاشات الداخلية (زر الرئيسية).
     ShellNav.request.addListener(_onShellNavRequest);
     // (منع تكرار الحوار) استعادة سجل الطلبات المعالجة قبل أي استطلاع.
     unawaited(_loadHandledJoinRequests());
@@ -226,12 +219,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
         ref.invalidate(deviceRoleProvider);
         ref.invalidate(workspaceModeProvider);
         ref.invalidate(devicesProvider);
-        // (إصلاح مزامنة الكتالوج وإدارة المنتجات) تحديث فوري للأقسام والفئات والأصناف
-        ref.invalidate(itemsProvider);
-        ref.invalidate(itemCategoriesProvider);
-        ref.invalidate(itemCategoryTreeProvider);
-        ref.invalidate(sectionsProvider);
-        ref.invalidate(inventorySummaryProvider);
       });
     });
     // يقظة المجموعة + أذونات النظام الحقيقية (إشعارات/بطارية).
@@ -241,44 +228,12 @@ class _HomeShellState extends ConsumerState<HomeShell>
         .startPeriodicHeartbeat(ref.read(repoProvider));
   }
 
-  /// (متطلب 5) سلوك الإقلاع وتوجيه البداية حسب المنصة والدور
+  /// (متطلب 5) سلوك الإقلاع وتوجيه البداية — دفتر حسابات صرف:
+  /// لوحة التحكم نقطة البداية للجميع، ونظام الصلاحيات يتكفل بحجب
+  /// الشاشات غير المسموح بها لكل دور.
   Future<void> _applyStartupRouting() async {
     if (Platform.environment.containsKey('FLUTTER_TEST')) return;
-
-    final isDesktopPlatform = Platform.isWindows;
-    if (isDesktopPlatform) {
-      ref.read(navAppModeProvider.notifier).setMode(NavAppMode.pos);
-      if (mounted) setState(() => _screen = AppScreen.pos);
-      // استدعاء فوري للأقسام والأصناف
-      ref.read(itemsProvider);
-      ref.read(itemCategoriesProvider);
-      ref.read(sectionsProvider);
-      return;
-    }
-
-    try {
-      final roleAsync = await ref.read(deviceRoleProvider.future);
-      final user = await ref.read(repoProvider).currentUser();
-      final effectiveRole = roleAsync?.role ?? user?.role;
-
-      if (effectiveRole == UserRole.viewer || effectiveRole == UserRole.cashier) {
-        ref.read(navAppModeProvider.notifier).setMode(NavAppMode.pos);
-        if (mounted) setState(() => _screen = AppScreen.pos);
-        ref.read(itemsProvider);
-        ref.read(itemCategoriesProvider);
-      } else if (effectiveRole == UserRole.dataentry) {
-        ref.read(navAppModeProvider.notifier).setMode(NavAppMode.pos);
-        if (mounted) setState(() => _screen = AppScreen.inventory);
-      } else {
-        final sp = await SharedPreferences.getInstance();
-        final saved = sp.getString('app_nav_mode');
-        if (saved == 'pos') {
-          if (mounted) setState(() => _screen = AppScreen.pos);
-        } else {
-          if (mounted) setState(() => _screen = AppScreen.dashboard);
-        }
-      }
-    } catch (_) {}
+    if (mounted) setState(() => _screen = AppScreen.dashboard);
   }
 
   /// داخل مجموعة: يشغّل خدمة اليقظة (foreground service) ليستقبل الجهاز
@@ -436,9 +391,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
         return true;
       case 'account':
         _go(AppScreen.accounts);
-        return true;
-      case 'item' || 'stockMove' || 'itemCategory':
-        _go(AppScreen.inventory);
         return true;
       case 'voucher':
         _go(AppScreen.vouchers);
@@ -675,7 +627,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
       await repo.setSetting(key, today);
       final title = isMorning ? 'صباح الخير' : 'مساء الخير';
       final msg = isMorning
-          ? 'صباح الخير! نتمنى لك يوماً موفقاً مليئاً بالمبيعات الطيبة.'
+          ? 'صباح الخير! نتمنى لك يوماً موفقاً ودفاتر موزونة.'
           : 'مساء الخير! نتمنى لك أمسية هادئة وحسابات رابحة.';
       // صوت هادئ عبر إشعار النظام + نافذة داخلية أنيقة.
       Sfx.systemNotify(title: title, body: msg, peaceful: true);
@@ -1137,8 +1089,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
     switch (target) {
       case ShellNav.home:
         _go(AppScreen.dashboard);
-      case ShellNav.inventory:
-        _go(AppScreen.inventory);
     }
   }
 
@@ -1168,10 +1118,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
     }
     if (s == AppScreen.reports && !can('view_reports')) {
       showSnack(context, 'عرض التقارير مقيد ويتطلب صلاحية المشرف', error: true);
-      return;
-    }
-    if (s == AppScreen.inventory && !can('edit_tx')) {
-      showSnack(context, 'إدارة المنتجات مقيدة لهذا المستخدم', error: true);
       return;
     }
     if (s == AppScreen.trash && !can('delete_tx')) {
@@ -1206,13 +1152,11 @@ class _HomeShellState extends ConsumerState<HomeShell>
   }
 
   Widget _body() => switch (_screen) {
-        AppScreen.pos => const PosScreen(),
         AppScreen.dashboard => DashboardScreen(onOpen: _go),
         AppScreen.accounts => const AccountsScreen(),
         AppScreen.transactions => const TransactionsScreen(),
         AppScreen.vouchers => const VouchersScreen(),
         AppScreen.reports => const ReportsScreen(),
-        AppScreen.inventory => const InventoryScreen(),
         AppScreen.currencies => const CurrenciesScreen(),
         AppScreen.chat => const ChatScreen(),
         AppScreen.group => const GroupManagementScreen(),
@@ -1230,26 +1174,17 @@ class _HomeShellState extends ConsumerState<HomeShell>
     final add = can('add_tx');
     if (!add) return null;
 
-    if (_screen == AppScreen.pos) {
-      return FloatingActionButton.extended(
-        heroTag: 'omni',
-        onPressed: () => PosScreen.openCheckoutBridge?.call(),
-        icon: const Icon(Icons.shopping_cart_checkout_rounded),
-        label: const Text('الدفع'),
-      );
-    }
-
     // (2026-09-22) زر الإضافة السريعة (+) يظهر في الشاشة الرئيسية فقط —
     // بقية الشاشات بلا زر عائم إطلاقاً.
     if (_screen != AppScreen.dashboard) return null;
 
     // (قانون 2026-09-19) الزر العائم «إجراء سريع» كما كان: يفتح ورقة
-    // الخيارات (عملية، سند، حساب، نقطة بيع) بدل نموذج مباشر.
+    // الخيارات (عملية، سند، حساب) بدل نموذج مباشر.
     return _MarkedOperationFab(onPressed: _quickActionSheet);
   }
 
-  /// ورقة الإجراء السريع من زر Omni على الرئيسية: أكثر 4 مهام تكراراً
-  /// بلا تشتيت — عملية، سند، حساب، فتح نقطة البيع.
+  /// ورقة الإجراء السريع من زر Omni على الرئيسية: أهم المهام
+  /// بلا تشتيت — عملية، سند، حساب.
   void _quickActionSheet() {
     Sfx.click();
     showModalBottomSheet(
@@ -1281,14 +1216,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
               onTap: () {
                 Navigator.pop(ctx);
                 openAccountForm(context, ref);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.point_of_sale_outlined),
-              title: const Text('فتح نقطة البيع'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _go(AppScreen.pos);
               },
             ),
             const SizedBox(height: 8),
@@ -1412,97 +1339,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
       _isExitDialogOpen = false;
     }
   }
-
-  /// الشريط الجانبي المكتبي (Navigation Rail) — يحل محل الشريط السفلي
-  /// على الشاشات الكبيرة: أيقونات واضحة + عناوين، قابل للطي، وفي RTL
-  /// يظهر على يمين الشاشة تلقائياً (بداية الاتجاه).
-  Widget _desktopRail() {
-    // في الوضع المستقل تُخفى «حالة المزامنة والأجهزة» — لا شبكات إطلاقاً.
-    final standalone =
-        (ref.watch(workspaceModeProvider).valueOrNull ?? 'standalone') ==
-            'standalone';
-    final entries = <(AppScreen, IconData, String)>[
-      (AppScreen.pos, Icons.point_of_sale_outlined, 'نقطة البيع'),
-      (AppScreen.accounts, Icons.menu_book_outlined, 'دفتر الحسابات والديون'),
-      (
-        AppScreen.transactions,
-        Icons.receipt_long_outlined,
-        'سجل الفواتير اليومية',
-      ),
-      (AppScreen.inventory, Icons.inventory_2_outlined, 'إدارة المنتجات'),
-      if (!standalone)
-        (
-          AppScreen.syncOps,
-          Icons.cloud_sync_outlined,
-          'حالة المزامنة والأجهزة',
-        ),
-      (AppScreen.settings, Icons.settings_outlined, 'الإعدادات'),
-    ];
-    final selectedIdx =
-        entries.indexWhere((e) => e.$1 == _screen).clamp(-1, entries.length);
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        border: BorderDirectional(
-          end: BorderSide(
-            color: Theme.of(context).dividerColor.withValues(alpha: 0.18),
-            width: 1.2,
-          ),
-        ),
-      ),
-      child: SafeArea(
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          width: _railExtended ? 218 : 68,
-          child: Column(
-            children: [
-              const SizedBox(height: 6),
-              // زر الطي/التوسيع.
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: IconButton(
-                  tooltip: _railExtended ? 'طيّ الشريط' : 'توسيع الشريط',
-                  icon: Icon(
-                    _railExtended
-                        ? Icons.menu_open_rounded
-                        : Icons.menu_rounded,
-                  ),
-                  onPressed: () =>
-                      setState(() => _railExtended = !_railExtended),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  children: [
-                    for (var i = 0; i < entries.length; i++)
-                      _RailTile(
-                        icon: entries[i].$2,
-                        label: entries[i].$3,
-                        selected: i == selectedIdx,
-                        extended: _railExtended,
-                        onTap: () => _go(entries[i].$1),
-                      ),
-                    const Divider(height: 20),
-                    // «المزيد» يفتح القائمة الجانبية بكل الأقسام الأخرى.
-                    _RailTile(
-                      icon: Icons.apps_rounded,
-                      label: 'كل الأقسام',
-                      selected: false,
-                      extended: _railExtended,
-                      onTap: () => _scaffoldKey.currentState?.openDrawer(),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _appBarSquircleAction({
     required Widget icon,
     required String tooltip,
@@ -1542,7 +1378,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
   @override
   Widget build(BuildContext context) {
     ref.watch(hideBalancesProvider);
-    final desktop = isDesktopLayout(context);
 
     return ValueListenableBuilder<bool>(
       valueListenable: CloudControlService.instance.isFrozenNotifier,
@@ -1720,19 +1555,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
                           ],
                         ),
                       ),
-                      if (desktop) ...[
-                        const PopupMenuDivider(),
-                        const PopupMenuItem(
-                          value: 'refresh',
-                          child: Row(
-                            children: [
-                              Icon(Icons.refresh_rounded, size: 19, color: Color(0xFF16A34A)),
-                              SizedBox(width: 10),
-                              Text('تحديث والتحقق من الإصدار'),
-                            ],
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 );
@@ -1747,25 +1569,14 @@ class _HomeShellState extends ConsumerState<HomeShell>
         body: Column(
           children: [
             const TrialCountdownBanner(),
-            Expanded(
-              child: desktop
-                  ? Row(
-                      children: [
-                        _desktopRail(),
-                        Expanded(child: _body()),
-                      ],
-                    )
-                  : _body(),
-            ),
+            Expanded(child: _body()),
           ],
         ),
         floatingActionButton: _fab(),
-        bottomNavigationBar: desktop
-            ? null
-            : _MarkedBottomBar(
-                currentScreen: _screen,
-                onSelect: (s) => _go(s),
-              ),
+        bottomNavigationBar: _MarkedBottomBar(
+          currentScreen: _screen,
+          onSelect: (s) => _go(s),
+        ),
       ),
     );
               },
@@ -1790,14 +1601,6 @@ class _MarkedBottomBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final user = ref.watch(currentUserProvider).valueOrNull;
-    final isCashier = user?.role == UserRole.cashier;
-    final navMode = ref.watch(navAppModeProvider);
-
-    if (isCashier || navMode == NavAppMode.pos) {
-      return const SizedBox.shrink();
-    }
-
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bottomPadding = MediaQuery.paddingOf(context).bottom;
 
@@ -2126,65 +1929,6 @@ class _MarkedOperationFab extends StatelessWidget {
 }
 
 /// عنصر واحد في الشريط الجانبي المكتبي — hover ناعم + تمييز واضح للمحدد.
-class _RailTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final bool extended;
-  final VoidCallback onTap;
-  const _RailTile({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.extended,
-    required this.onTap,
-  });
-
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    final color = selected ? primary : AppColors.text2Of(context);
-    final tile = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: HoverLift(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          decoration: BoxDecoration(
-            color:
-                selected ? primary.withValues(alpha: 0.1) : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 22, color: color),
-              if (extended) ...[
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                      color: color,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-    return extended ? tile : Tooltip(message: label, child: tile);
-  }
-}
-
 class _Drawer extends ConsumerWidget {
   final AppScreen current;
   final void Function(AppScreen) onSelect;
@@ -2385,10 +2129,8 @@ class _Drawer extends ConsumerWidget {
         AppScreen.accounts => const Color(0xFF2563EB),
         AppScreen.reports => const Color(0xFF6366F1),
         AppScreen.settings => const Color(0xFF64748B),
-        AppScreen.inventory => const Color(0xFF8B5CF6),
         AppScreen.currencies => AppColors.primary2,
         AppScreen.vouchers => const Color(0xFFF59E0B),
-        AppScreen.pos => const Color(0xFF16A34A),
         AppScreen.chat => const Color(0xFF22C55E),
         AppScreen.group => const Color(0xFF8B5CF6),
         AppScreen.trash => const Color(0xFFE11D48),
@@ -2405,7 +2147,6 @@ class _Drawer extends ConsumerWidget {
     final isOwner = (wsMode == 'member') ? false : (isOwnerAsync ?? true);
     final roleAsync = ref.watch(deviceRoleProvider);
     final role = roleAsync.valueOrNull;
-    final navMode = ref.watch(navAppModeProvider);
 
     final rawRole = user?.role ?? role?.role;
     // حماية سيادية: مالك المنشأة على جهازه هو دائماً وأبداً مدير النظام!
@@ -2431,7 +2172,7 @@ class _Drawer extends ConsumerWidget {
       UserRole.admin => ('مدير النظام', Colors.amber.shade300, Icons.security),
       UserRole.agent => ('وكيل المدير', Colors.greenAccent.shade200, Icons.verified_user),
       UserRole.accountant => ('محاسب', Colors.lightBlueAccent, Icons.calculate),
-      UserRole.cashier => ('كاشير / مبيعات', Colors.orangeAccent.shade200, Icons.point_of_sale),
+      UserRole.cashier => ('كاشير', Colors.orangeAccent.shade200, Icons.point_of_sale),
       UserRole.dataentry => ('إدخال وجرد', Colors.tealAccent, Icons.edit_note),
       UserRole.viewer => ('عرض فقط', Colors.blueGrey.shade100, Icons.visibility_outlined),
     };
@@ -2692,147 +2433,6 @@ class _Drawer extends ConsumerWidget {
             ),
             ),
 
-            // ---------- مفتاح كبسولي للتبديل بين وضع المبيعات ووضع المحاسبة ----------
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: dark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(
-                    color: dark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(18),
-                        onTap: () {
-                          ref.read(navAppModeProvider.notifier).setMode(NavAppMode.pos);
-                          if (current != AppScreen.pos &&
-                              current != AppScreen.inventory &&
-                              current != AppScreen.transactions) {
-                            scheduleMicrotask(() => onSelect(AppScreen.pos));
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: BoxDecoration(
-                            color: navMode == NavAppMode.pos
-                                ? const Color(0xFF0284C7)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(18),
-                            boxShadow: navMode == NavAppMode.pos
-                                ? [
-                                    BoxShadow(
-                                      color: const Color(0xFF0284C7).withValues(alpha: .3),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.point_of_sale_rounded,
-                                size: 16,
-                                color: navMode == NavAppMode.pos
-                                    ? Colors.white
-                                    : AppColors.text2Of(context),
-                              ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  'وضع المبيعات (POS)',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.bold,
-                                    color: navMode == NavAppMode.pos
-                                        ? Colors.white
-                                        : AppColors.text2Of(context),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(18),
-                        onTap: () {
-                          if (effectiveRole == UserRole.cashier) {
-                            showSnack(context, 'وضع الدفاتر مقيد ويتطلب حساب المحاسب أو المدير', error: true);
-                            return;
-                          }
-                          ref.read(navAppModeProvider.notifier).setMode(NavAppMode.ledger);
-                          if (current != AppScreen.accounts &&
-                              current != AppScreen.vouchers &&
-                              current != AppScreen.currencies &&
-                              current != AppScreen.reports) {
-                            scheduleMicrotask(() => onSelect(AppScreen.accounts));
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: BoxDecoration(
-                            color: navMode == NavAppMode.ledger
-                                ? const Color(0xFF0F766E)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(18),
-                            boxShadow: navMode == NavAppMode.ledger
-                                ? [
-                                    BoxShadow(
-                                      color: const Color(0xFF0F766E).withValues(alpha: .3),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.account_balance_wallet_rounded,
-                                size: 16,
-                                color: navMode == NavAppMode.ledger
-                                    ? Colors.white
-                                    : AppColors.text2Of(context),
-                              ),
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text(
-                                  'وضع المحاسبة',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.bold,
-                                    color: navMode == NavAppMode.ledger
-                                        ? Colors.white
-                                        : AppColors.text2Of(context),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
             // ---------- عناصر القائمة حسب الوضع النشط ----------
             Expanded(
               child: ListView(
@@ -2841,40 +2441,21 @@ class _Drawer extends ConsumerWidget {
                   vertical: 4,
                 ),
                 children: [
-                  if (navMode == NavAppMode.pos) ...[
-                    // وضع المبيعات: نقطة البيع، إدارة المنتجات، وسجل العمليات/الفواتير فقط
-                    ..._drawerSection(
-                      context,
-                      'المبيعات والمنتجات',
-                      const [
-                        AppScreen.pos,
-                        AppScreen.inventory,
-                        AppScreen.transactions,
-                      ],
-                      items,
-                      googleLinked,
-                      current,
-                      dark,
-                      onSelect,
-                    ),
-                  ] else ...[
-                    // وضع المحاسبة: الحسابات، السندات، العملات، والتقارير فقط
-                    ..._drawerSection(
-                      context,
-                      'الدفاتر والمحاسبة',
-                      const [
-                        AppScreen.accounts,
-                        AppScreen.vouchers,
-                        AppScreen.currencies,
-                        AppScreen.reports,
-                      ],
-                      items,
-                      googleLinked,
-                      current,
-                      dark,
-                      onSelect,
-                    ),
-                  ],
+                  ..._drawerSection(
+                    context,
+                    'الدفاتر والمحاسبة',
+                    const [
+                      AppScreen.accounts,
+                      AppScreen.vouchers,
+                      AppScreen.currencies,
+                      AppScreen.reports,
+                    ],
+                    items,
+                    googleLinked,
+                    current,
+                    dark,
+                    onSelect,
+                  ),
                   // العناصر الثابتة في كلا الوضعين
                   ..._drawerSection(
                     context,
@@ -3138,9 +2719,6 @@ class DrawerItems {
         if (s == AppScreen.syncOps) return false;
         // التقارير تتطلب صلاحية عرض التقارير.
         if (s == AppScreen.reports) return can('view_reports');
-        // (3.70) الأصناف: إدارة المخزون للمدير/الوكيل/المحاسب/الإدخال —
-        // تُحجب عن الكاشير (بلا صلاحية تعديل) فوراً ودون شبكة.
-        if (s == AppScreen.inventory) return can('edit_tx');
         // النسخ الاحتياطي محظور ومحجوب تماماً عن أجهزة الأعضاء داخل المجموعة
         if (s == AppScreen.backup) {
           if (workspaceMode == 'member') return false;
@@ -3149,8 +2727,6 @@ class DrawerItems {
         // سلة المهملات: الاسترجاع والحذف النهائي شأن من يملك حذف العمليات.
         if (s == AppScreen.trash) return can('delete_tx');
         // ══ بقية الأيقونات حسب صلاحية المستخدم حرفياً ══
-        // نقطة البيع لمن يضيف عمليات.
-        if (s == AppScreen.pos) return can('add_tx');
         // العملاء: للمدير أو المحاسب أو من يملك تعديل العمليات (محجوبة عن الكاشير).
         if (s == AppScreen.accounts) {
           return isAdmin || isAccountant || can('edit_tx');

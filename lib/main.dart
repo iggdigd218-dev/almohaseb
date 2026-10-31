@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -8,9 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'core/db_init.dart';
-import 'core/desktop.dart';
-import 'core/desktop_net.dart';
-import 'core/windows_firewall.dart';
 import 'core/media_paths.dart';
 import 'core/database.dart';
 import 'core/sfx.dart';
@@ -19,19 +15,11 @@ import 'data/providers.dart';
 import 'data/repository.dart';
 import 'data/sync/firebase_auth_service.dart';
 import 'data/sync/sync_engine.dart';
-import 'services/floating_pos_overlay.dart';
-import 'services/floating_pos_service.dart';
 import 'ui/splash.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initDbForPlatform();
-  // (دفعة 52) سطح المكتب: بروكسي تلقائي + مهلات + تشخيص أخطاء TLS دقيق
-  // لكل عملاء HTTP في التطبيق، وتسجيل قاعدة جدار حماية ويندوز بلا انتظار.
-  if (isDesktop) {
-    HttpOverrides.global = DesktopHttpOverrides();
-    unawaited(WindowsFirewall.ensureRegistered());
-  }
   await initializeDateFormatting('ar');
   await initializeDateFormatting('en');
   // جذر documents لمسارات الوسائط النسبية (chat_media/...).
@@ -118,29 +106,11 @@ Future<void> main() async {
 
   // الزر العائم للاستعلام والبيع السريع (أندرويد فقط): يربط مستمع الرسائل
   // بالمستودع ثم يعيد إظهار الفقاعة إن كان المستخدم قد فعّلها على الجهاز.
-  unawaited(_initFloatingPos(repo));
 }
 
 /// تهيئة الزر العائم — لا تُسقط الإقلاع إن فشلت (جهاز بلا صلاحية/غير مدعوم).
-Future<void> _initFloatingPos(Repo repo) async {
-  if (!FloatingPosService.supported) return;
-  try {
-    await FloatingPosService.instance.bind(repo);
-    await FloatingPosService.instance.restore();
-  } catch (e) {
-    debugPrint('floating pos init: $e');
-  }
-}
-
 /// نقطة دخول محرك النافذة العائمة (الفقاعة + بطاقة البيع السريع).
 ///
-/// يجب أن تبقى في مكتبة الجذر (main.dart) ليجدها `DartEntrypoint` الأصلي
-/// بالاسم "overlayMain". المحرك الذي يُشغّلها **لا تُسجَّل فيه إضافات
-/// فلاتر**، لذا الواجهة هنا خفيفة وصرفة: كل البيانات تمرّ عبر رسائل JSON
-/// إلى التطبيق الأم الذي يقرأ SQLite ويكتبها.
-@pragma('vm:entry-point')
-void overlayMain() => runQuickPosOverlay();
-
 class NexoraApp extends ConsumerWidget {
   const NexoraApp({super.key});
 
@@ -175,16 +145,6 @@ class NexoraApp extends ConsumerWidget {
           textDirection: TextDirection.rtl,
           child: child ?? const SizedBox.shrink(),
         );
-        // سطح المكتب/الشاشات الكبيرة: تكبير الخط الأساسي ~15% لراحة
-        // العين في الجداول المالية وبنود الفواتير وحقول الإدخال.
-        final mq = MediaQuery.maybeOf(context);
-        if (mq != null &&
-            (isDesktopPlatform || mq.size.width > kDesktopBreakpoint)) {
-          w = MediaQuery(
-            data: mq.copyWith(textScaler: const TextScaler.linear(1.15)),
-            child: w,
-          );
-        }
         return w;
       },
       home: const SplashScreen(),

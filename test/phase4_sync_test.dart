@@ -2,10 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexora_app/core/database.dart';
-import 'package:nexora_app/core/models.dart';
 import 'package:nexora_app/data/repository.dart';
-import 'package:nexora_app/data/sync/apply_remote.dart';
-import 'package:nexora_app/data/sync/conflict_resolver.dart';
 import 'package:nexora_app/data/sync/operation.dart';
 import 'package:nexora_app/data/sync/sync_queue.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -98,105 +95,5 @@ void main() {
       expect(syncedRow.first['last_error'], isEmpty);
     });
 
-    test('2. التعافي التلقائي وحل تعارض أسماء الأصناف ومطابقة مرآة السحابة',
-        () async {
-      // صنف محلي أُنشئ بدون شبكة
-      final localItemId = await repo.saveItem(Item(
-        name: 'سكر أبيض 50 كجم',
-        sku: 'SUGAR-50KG',
-        buyPrice: 15000,
-        sellPrice: 16500,
-        quantity: 20,
-        createdAt: now,
-        updatedAt: now,
-      ));
-      expect(localItemId, isPositive);
-
-      expect(await repo.items(), hasLength(1));
-
-      // وصول صنف من السحابة بنفس الاسم بمعرف سحابي مختلف (200)
-      const cloudItemId = 200;
-      final cloudOp = SyncOperation(
-        id: 'op-cloud-item-200',
-        deviceId: 'DEV-CLOUD-HOST',
-        workspaceId: repo.requireWorkspaceId,
-        userId: 1,
-        entityType: EntityKind.item,
-        entityId: '$cloudItemId',
-        opType: OpKind.create,
-        version: 1,
-        parentOpId: '',
-        payload: {
-          'id': cloudItemId,
-          'name': 'سكر أبيض 50 كجم',
-          'sku': 'SUGAR-50KG-CLOUD',
-          'buy_price': 15000,
-          'sell_price': 16500,
-          'quantity': 20,
-          'is_deleted': 0,
-          'created_at': nowIso,
-          'updated_at': nowIso,
-        },
-        deviceTime: nowIso,
-        timestamp: nowIso,
-      );
-
-      // تطبيق العملية السحابية
-      await db.transaction((txn) async {
-        await repo.applyRemoteOperation(txn, cloudOp, ConflictResolver());
-      });
-
-      // التحقق من تعافي النظام: لم يعد هناك تكرار متعارض، والبيانات مطابقة للسحابة
-      final items = await repo.items();
-      expect(items.any((it) => it.id == cloudItemId), isTrue);
-      // التأكد من عدم وجود أكثر من صنف نشط بنفس الاسم
-      final sameNames = items.where((it) => it.name == 'سكر أبيض 50 كجم').toList();
-      expect(sameNames.length, equals(1));
-    });
-
-    test('3. سياسة التطهير الصارمة (Zero-Orphan): الحذف السحابي يمسح أثر الصنف محلياً كمرآة',
-        () async {
-      final itemId = await repo.saveItem(Item(
-        name: 'أرز بسمتي فاخر',
-        sku: 'RICE-BASMATI',
-        buyPrice: 22000,
-        sellPrice: 24000,
-        quantity: 30,
-        createdAt: now,
-        updatedAt: now,
-      ));
-
-      expect(await repo.items(), hasLength(1));
-
-      // حذف الصنف سحابياً
-      final deleteOp = SyncOperation(
-        id: 'op-cloud-del-rice',
-        deviceId: 'DEV-CLOUD-HOST',
-        workspaceId: repo.requireWorkspaceId,
-        userId: 1,
-        entityType: EntityKind.item,
-        entityId: '$itemId',
-        opType: OpKind.delete_,
-        version: 2,
-        parentOpId: '',
-        payload: {
-          'id': itemId,
-          'name': 'أرز بسمتي فاخر',
-          'is_deleted': 1,
-          'deleted_at': nowIso,
-        },
-        deviceTime: nowIso,
-        timestamp: nowIso,
-      );
-
-      await db.transaction((txn) async {
-        await repo.applyRemoteOperation(txn, deleteOp, ConflictResolver());
-      });
-
-      // التحقق: شطب الأثر محلياً واختفاء الصنف تماماً
-      final activeItems = await repo.items();
-      expect(activeItems.isEmpty, isTrue);
-      expect(await repo.item(itemId), isNull);
-    });
   });
 }

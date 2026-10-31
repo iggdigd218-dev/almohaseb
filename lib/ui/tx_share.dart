@@ -16,8 +16,6 @@ import '../data/providers.dart';
 import '../data/repository.dart';
 import 'widgets.dart';
 
-String _quantity(double value) =>
-    value == value.roundToDouble() ? Fmt.money(value) : Fmt.money(value, 2);
 
 /// توليد صورة إيصال العملية وإرسالها عبر واتساب.
 ///
@@ -34,9 +32,6 @@ class TxShare {
   }) async {
     final settings = await repo.settings();
     final currencies = await repo.currencies();
-    final items = tx.id == null
-        ? const <InvoiceLine>[]
-        : await repo.transactionItems(tx.id!);
     final cur = currencies.firstWhere(
       (c) => c.code == tx.currency,
       orElse: () => kDefaultCurrencies.first,
@@ -57,7 +52,6 @@ class TxShare {
         currency: cur,
         balanceAfter: after,
         settings: settings,
-        items: items,
       ),
     );
 
@@ -80,14 +74,9 @@ class TxShare {
       (c) => c.code == tx.currency,
       orElse: () => kDefaultCurrencies.first,
     );
-    final items = tx.id == null
-        ? const <InvoiceLine>[]
-        : await repo.transactionItems(tx.id!);
-    // عنوان واضح حسب نوع العملية (فاتورة مبيعات، قبض، صرف، عليه، له…).
+    // عنوان واضح حسب نوع العملية (قبض، صرف، عليه، له…).
     String title;
-    if (tx.type == OpType.debit && items.isNotEmpty) {
-      title = '🧾 فاتورة مبيعات (آجل)';
-    } else if (tx.type == OpType.revenue || tx.type == OpType.inflow) {
+    if (tx.type == OpType.revenue || tx.type == OpType.inflow) {
       title = '🧾 فاتورة مبيعات / سند قبض';
     } else {
       title = '${tx.type.icon} ${tx.type.label}';
@@ -123,22 +112,6 @@ class TxShare {
       if (tx.reference.trim().isNotEmpty) 'رقم العملية: ${tx.reference.trim()}',
       if (tx.description.trim().isNotEmpty) 'البيان: ${tx.description.trim()}',
     ];
-    if (items.isNotEmpty) {
-      lines.add('━━━━━━━━━━━━━');
-      lines.add('🛒 أصناف الفاتورة:');
-      for (var i = 0; i < items.length; i++) {
-        final line = items[i];
-        lines.add(
-          '${i + 1}. ${line.name} × ${_quantity(line.quantity)} ${line.unit} = '
-          '${Fmt.money(line.total, cur.decimal)} ${cur.symbol}',
-        );
-      }
-      final total = items.fold<double>(0, (sum, line) => sum + line.total);
-      lines.add('━━━━━━━━━━━━━');
-      lines.add(
-        '💰 إجمالي الفاتورة: ${Fmt.money(total, cur.decimal)} ${cur.symbol}',
-      );
-    }
 
     // رصيد العميل الحالي بعد العملية (وضوح كامل للمطلوب).
     if (account != null && account.id != null) {
@@ -217,12 +190,8 @@ class TxShare {
       );
     }
 
-    late final List<InvoiceLine> itemLines;
     late final Map<String, String> currentSettings;
     try {
-      itemLines = tx.id == null
-          ? const <InvoiceLine>[]
-          : await repo.transactionItems(tx.id!);
       currentSettings = await repo.settings();
     } catch (e) {
       if (context.mounted) {
@@ -231,8 +200,7 @@ class TxShare {
       return TxShareOutcome.failed;
     }
     final hasLogo = (currentSettings['logo'] ?? '').trim().isNotEmpty;
-    final needsFreshReceipt =
-        tx.type == OpType.debit || itemLines.isNotEmpty || hasLogo;
+    final needsFreshReceipt = tx.type == OpType.debit || hasLogo;
 
     late final String text;
     try {
@@ -386,13 +354,9 @@ Future<void> showReceiptPreview(
   final acc = account ??
       (tx.accountId == null ? null : await repo.account(tx.accountId!));
   var path = MediaPaths.toAbsolute(tx.image);
-  final itemLines = tx.id == null
-      ? const <InvoiceLine>[]
-      : await repo.transactionItems(tx.id!);
   final currentSettings = await repo.settings();
   final hasLogo = (currentSettings['logo'] ?? '').trim().isNotEmpty;
-  final needsFreshReceipt =
-      tx.type == OpType.debit || itemLines.isNotEmpty || hasLogo;
+  final needsFreshReceipt = tx.type == OpType.debit || hasLogo;
   try {
     if (path.isEmpty || !File(path).existsSync() || needsFreshReceipt) {
       path = await TxShare.generate(repo: repo, tx: tx, account: acc);

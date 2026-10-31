@@ -17,7 +17,6 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:sqflite/sqflite.dart';
 
-import '../../core/desktop_net.dart';
 import '../repository.dart';
 import 'apply_remote.dart';
 import 'conflict_resolver.dart';
@@ -183,27 +182,6 @@ class CloudFirebaseTransport implements SyncTransport {
       where: 'id = ?',
       whereArgs: [op.deviceId],
     );
-
-    // تسجيل شواهد القبور في السحابة عند حذف صنف لضمان عدم إحيائه على الأجهزة المنضمة
-    if (op.entityType == EntityKind.item && op.opType == OpKind.delete_) {
-      try {
-        final tombUri = Uri.parse(
-            '$_root/deleted_items/${Uri.encodeComponent(op.entityId)}.json');
-        final targetTombUri =
-            auth == null ? tombUri : tombUri.replace(query: auth);
-        final tombBody = jsonEncode({
-          'id': op.entityId,
-          'is_deleted': 1,
-          'deleted_at': op.deviceTime.isNotEmpty
-              ? op.deviceTime
-              : DateTime.now().toIso8601String(),
-          'server_ts': {'.sv': 'timestamp'},
-        });
-        await http
-            .put(targetTombUri, body: tombBody, headers: _authHeaders)
-            .timeout(const Duration(seconds: 5));
-      } catch (_) {}
-    }
   }
 
   // ==================== المصافحة النشطة للسجل (دفعة 53) ====================
@@ -572,45 +550,6 @@ class CloudFirebaseTransport implements SyncTransport {
           conflictAlgorithm: ConflictAlgorithm.replace);
     }
 
-    // جلب شواهد القبور للأصناف الممسوحة (Tombstones / deleted_items) عند السحب الأولي فقط
-    if (startAtMs == 0) {
-      try {
-        final tombUri = Uri.parse('$_root/deleted_items.json');
-        final tok = await _idToken();
-        final targetTombUri =
-            tok == null ? tombUri : tombUri.replace(queryParameters: {'auth': tok});
-        final tombRes =
-            await http.get(targetTombUri).timeout(const Duration(seconds: 8));
-        if (tombRes.statusCode == 200 &&
-            tombRes.body.trim().isNotEmpty &&
-            tombRes.body.trim() != 'null') {
-          final tombData = jsonDecode(tombRes.body);
-          if (tombData is Map) {
-            await db.transaction((txn) async {
-              for (final entry in tombData.entries) {
-                final val = entry.value;
-                if (val is! Map) continue;
-                final rawId = val['id'] ?? entry.key;
-                final itemId = int.tryParse('$rawId') ?? rawId;
-                final delAt =
-                    '${val['deleted_at'] ?? DateTime.now().toIso8601String()}';
-                await txn.update(
-                  'items',
-                  {
-                    'is_deleted': 1,
-                    'is_active': 0,
-                    'deleted_at': delAt,
-                  },
-                  where: 'id = ?',
-                  whereArgs: [itemId],
-                );
-              }
-            });
-          }
-        }
-      } catch (_) {}
-    }
-
     await repo.setSetting('lastCloudSync', DateTime.now().toLocal().toString());
     return applied;
   }
@@ -633,11 +572,6 @@ class CloudFirebaseTransport implements SyncTransport {
     if (_listening) return;
     _listening = true;
     _sseRetrySeconds = 2;
-    // (دفعة 52) اعتماد مضيف الواجهة الخلفية كموثوق لدى طبقة تشخيص TLS
-    // (يُقبل رغم فشل التحقق في شبكات تفتيش TLS — الباقي يُرفض دائماً).
-    try {
-      DesktopNet.trustedHost = Uri.parse(backendUrl).host;
-    } catch (_) {}
     unawaited(_sseLoop());
     // (دفعة 54) قناة ثانية خفيفة على شاهدة الطرد الخاصة بنا —
   }
@@ -653,14 +587,6 @@ class CloudFirebaseTransport implements SyncTransport {
   Future<void> _sseLoop() async {
     while (_listening) {
       try {
-        // (دفعة 52) فحص وصول سريع قبل فتح القناة: استعلام DNS للمضيف —
-        // يكشف انقطاع الإنترنت/حجب جدار الحماية فوراً برسالة دقيقة
-        // بدل تعليق ثم فشل صامت.
-        final host = Uri.parse(backendUrl).host;
-        final pre = await DesktopNet.preflight(host);
-        if (pre != null) throw SocketException('preflight: $pre');
-        // ملاحظة: HttpClient هنا يرث DesktopHttpOverrides العالمية على
-        // سطح المكتب (بروكسي بيئة + مهلات + تشخيص شهادات TLS).
         final client = HttpClient()
           ..connectionTimeout = const Duration(seconds: 15);
         _sseClient = client;
@@ -681,7 +607,6 @@ class CloudFirebaseTransport implements SyncTransport {
           throw StateError('sse-http-${resp.statusCode}');
         }
         _sseRetrySeconds = 2; // الاتصال نجح — صفّر التراجع.
-        DesktopNet.clearError(); // الشبكة سليمة — امسح أي خطأ معروض.
         String? eventName;
         var skippedInitial = false;
         await for (final line in resp
@@ -706,11 +631,8 @@ class CloudFirebaseTransport implements SyncTransport {
             }
           }
         }
-      } catch (e) {
-        // انقطاع شبكة/خادم — سنعيد المحاولة بعد المهلة، مع تسجيل
-        // الخطأ الدقيق (SocketException/HandshakeException/مهلة...)
-        // ليُعرض في واجهة المزامنة بدل الفشل الصامت.
-        DesktopNet.recordError(e);
+      } catch (_) {
+        // انقطاع شبكة/خادم — سنعيد المحاولة بعد المهلة.
       } finally {
         try {
           _sseClient?.close(force: true);

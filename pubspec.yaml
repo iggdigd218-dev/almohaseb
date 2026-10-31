@@ -33,7 +33,6 @@ dependencies:
   mobile_scanner: ^5.2.3
   qr_flutter: ^4.1.0
   flutter_contacts: ^1.1.9+2
-  flutter_overlay_window: ^0.5.0
   shared_preferences: '>=2.2.0 <3.0.0'
   audioplayers: ^6.1.0
 

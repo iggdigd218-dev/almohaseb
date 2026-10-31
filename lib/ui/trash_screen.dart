@@ -15,7 +15,6 @@ class TrashScreen extends ConsumerWidget {
     'accounts': ('الحسابات', Icons.people_alt_outlined, AppColors.teal),
     'transactions': ('العمليات', Icons.receipt_long_outlined, AppColors.info),
     'vouchers': ('السندات', Icons.receipt_outlined, AppColors.violet),
-    'items': ('المنتجات', Icons.inventory_2_outlined, AppColors.accent),
   };
 
   @override

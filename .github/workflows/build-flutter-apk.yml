@@ -103,22 +103,13 @@ jobs:
           # تُبقى للعملاء القدامى (≤ 3.75.0+151) الذين يقرأون downloads.android.
           flutter build apk --release --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
           cp build/app/outputs/flutter-apk/app-release.apk nexora-universal.apk
-
-          # (3.75.0+152) حزم مُقسّمة حسب المعالج: كل حزمة نحو نصف حجم الشاملة،
-          # وversion.json يوجّه كل جهاز إلى حزمة معالجه (androidVariants).
-          flutter build apk --release --split-per-abi --obfuscate \
-            --split-debug-info=build/app/symbols \
-            --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
-          cp build/app/outputs/apk/release/app-arm64-v8a-release.apk nexora-arm64.apk
-          cp build/app/outputs/apk/release/app-armeabi-v7a-release.apk nexora-armv7.apk
-          cp build/app/outputs/apk/release/app-x86_64-release.apk nexora-x64.apk
-          ls -lh nexora-universal.apk nexora-arm64.apk nexora-armv7.apk nexora-x64.apk
+          ls -lh nexora-universal.apk
 
       - name: Verify APK (zipalign + apksigner)
         run: |
           # (3.70 — المرحلة 7) التحقق من سلامة المحاذاة والتوقيع قبل النشر.
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          for f in nexora-universal.apk nexora-arm64.apk nexora-armv7.apk nexora-x64.apk; do
+          for f in nexora-universal.apk; do
             echo "— $f"
             "$BT/zipalign" -c -v 4 "$f" | tail -1
             "$BT/apksigner" verify --print-certs "$f" | head -3
@@ -141,13 +132,7 @@ jobs:
             "minSupported": "3.13.0",
             "releaseUrl": "https://github.com/${{ github.repository }}/releases/tag/latest",
             "downloads": {
-              "android": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-universal.apk",
-              "androidVariants": {
-                "arm64": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-arm64.apk",
-                "armv7": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-armv7.apk",
-                "x64": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-x64.apk"
-              },
-              "windows": "https://github.com/${{ github.repository }}/releases/download/latest/NexoraSetup.exe"
+              "android": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-universal.apk"
             },
             "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "notes": "$NOTES"
@@ -171,9 +156,6 @@ jobs:
           name: nexora-flutter-universal
           path: |
             nexora-universal.apk
-            nexora-arm64.apk
-            nexora-armv7.apk
-            nexora-x64.apk
             version.json
           retention-days: 30
 
@@ -206,7 +188,7 @@ jobs:
         run: |
           find dist -type f -exec mv -f {} . \;
           rm -rf dist
-          ls -lh nexora-universal.apk nexora-arm64.apk nexora-armv7.apk nexora-x64.apk version.json
+          ls -lh nexora-universal.apk version.json
 
       - name: Build upload list (existing files only)
         id: filelist
@@ -217,7 +199,7 @@ jobs:
           # للحذف بلا تعويض إن فشل تنزيله — وبهذا فُقدت nexora-windows.zip ثم
           # أُفرغ الإصدار كاملاً (0 أصول). لا تنزيل، لا مساس بغير أصولنا.
           files=""
-          for f in nexora-universal.apk nexora-arm64.apk nexora-armv7.apk nexora-x64.apk version.json; do
+          for f in nexora-universal.apk version.json; do
             if [ -s "$f" ]; then files="${files}${f}"$'\n'; fi
           done
           {
@@ -238,17 +220,8 @@ jobs:
             **هذا هو الإصدار الرسمي الأحدث من التطبيق.**
 
             ### 📱 للأندرويد
-            - **الأسهل والأصغر:** حمّل الحزمة المطابقة لمعالج جهازك:
-              - `nexora-arm64.apk` — معظم الهواتف الحديثة (**نحو 19 MB**).
-              - `nexora-armv7.apk` — الهواتف الأقدم 32-بت.
-              - `nexora-x64.apk` — أجهزة 64-بت نادرة/محاكيات.
-            - أو `nexora-universal.apk` الشاملة: تعمل على **كل** الأجهزة (32 و64 بت)
-              لكنها أكبر (نحو 45 MB) — لا خطأ «الحزمة غير صالحة» بعد اليوم.
-            - التحديث داخل التطبيق (3.75.0+152 فأحدث) ينزّل حزمة معالجك تلقائياً.
-
-            ### 🖥️ لويندوز
-            - **الأسهل:** حمّل `NexoraSetup.exe` وثبّته كأي برنامج.
-            - أو النسخة المحمولة `nexora-windows.zip`: فك الضغط ثم شغّل `Run.bat`.
+            - `nexora-universal.apk` — حزمة واحدة شاملة تعمل على **كل** الأجهزة
+              (32 و64 بت) — لا خطأ «الحزمة غير صالحة» بعد اليوم.
 
             > يتم تحديث هذه الصفحة تلقائيًا بعد كل بناء ناجح.
           prerelease: false
@@ -269,7 +242,7 @@ jobs:
           # مسار رفع أصول الإصدار لدى softprops تحديداً. gh الرسمي أنجح،
           # ومع حلقة إعادة محاولة لا يبقى مجال لضياع أصل.
           files=()
-          for f in nexora-universal.apk nexora-arm64.apk nexora-armv7.apk nexora-x64.apk version.json; do
+          for f in nexora-universal.apk version.json; do
             [ -s "$f" ] && files+=("$f")
           done
           if [ ${#files[@]} -eq 0 ]; then

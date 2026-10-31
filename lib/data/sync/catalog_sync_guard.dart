@@ -1,7 +1,7 @@
-// (2026-09-28) حارس تطابق الكتالوج (حسابات، أصناف، أقسام) عبر كافة الأجهزة.
+// (2026-09-28) حارس تطابق الكتالوج (الحسابات) عبر كافة الأجهزة.
 //
-// يضمن التحقق الدوري الصارم من تطابق الحسابات والأصناف والأقسام بين جميع الأجهزة
-// المرتبطة بمساحة العمل، وإظهار تحذير صريح وبارز في مؤشر المزامنة عند أي تفاوت.
+// يضمن التحقق الدوري الصارم من تطابق الحسابات بين جميع الأجهزة المرتبطة
+// بمساحة العمل، وإظهار تحذير صريح وبارز في مؤشر المزامنة عند أي تفاوت.
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -14,66 +14,41 @@ import 'conflict_resolver.dart';
 import 'firebase_auth_service.dart';
 import 'sync_diagnostics.dart';
 
-/// بصمة ملخصة دقيقة للكتالوج (حسابات، أصناف، أقسام، فئات).
+/// بصمة ملخصة دقيقة للكتالوج (الحسابات).
 class CatalogDigest {
   final int accountsCount;
-  final int itemsCount;
-  final int sectionsCount;
-  final int categoriesCount;
   final String hash;
   final DateTime updatedAt;
 
   const CatalogDigest({
     required this.accountsCount,
-    required this.itemsCount,
-    required this.sectionsCount,
-    required this.categoriesCount,
     required this.hash,
     required this.updatedAt,
   });
 
   Map<String, dynamic> toMap() => {
         'accounts': accountsCount,
-        'items': itemsCount,
-        'sections': sectionsCount,
-        'categories': categoriesCount,
         'hash': hash,
         'updated_at': updatedAt.toIso8601String(),
       };
 
   factory CatalogDigest.fromMap(Map<dynamic, dynamic> m) => CatalogDigest(
         accountsCount: ((m['accounts'] ?? 0) as num).toInt(),
-        itemsCount: ((m['items'] ?? 0) as num).toInt(),
-        sectionsCount: ((m['sections'] ?? 0) as num).toInt(),
-        categoriesCount: ((m['categories'] ?? 0) as num).toInt(),
         hash: '${m['hash'] ?? ''}',
         updatedAt: DateTime.tryParse('${m['updated_at'] ?? ''}') ??
             DateTime.now(),
       );
 
   bool matches(CatalogDigest other) =>
-      accountsCount == other.accountsCount &&
-      itemsCount == other.itemsCount &&
-      sectionsCount == other.sectionsCount &&
-      categoriesCount == other.categoriesCount &&
-      hash == other.hash;
+      accountsCount == other.accountsCount && hash == other.hash;
 
   List<String> diff(CatalogDigest other) {
     final d = <String>[];
-    if (itemsCount != other.itemsCount) {
-      d.add('الأصناف (محلي: $itemsCount | طرف آخر: ${other.itemsCount})');
-    }
     if (accountsCount != other.accountsCount) {
       d.add('الحسابات (محلي: $accountsCount | طرف آخر: ${other.accountsCount})');
     }
-    if (sectionsCount != other.sectionsCount) {
-      d.add('الأقسام (محلي: $sectionsCount | طرف آخر: ${other.sectionsCount})');
-    }
-    if (categoriesCount != other.categoriesCount) {
-      d.add('الفئات (محلي: $categoriesCount | طرف آخر: ${other.categoriesCount})');
-    }
     if (d.isEmpty && hash != other.hash) {
-      d.add('تفاوت في بيانات الكتالوج');
+      d.add('تفاوت في بيانات الحسابات');
     }
     return d;
   }
@@ -94,43 +69,9 @@ class CatalogSyncGuard {
       orderBy: 'id ASC',
     );
 
-    // 2. الأصناف النشطة غير المحذوفة
-    final itemRows = await db.query(
-      'items',
-      columns: ['id', 'name', 'sku'],
-      where:
-          "(is_deleted = 0 OR is_deleted IS NULL) AND (deleted_at IS NULL OR TRIM(deleted_at) = '' OR TRIM(deleted_at) = 'null')",
-      orderBy: 'id ASC',
-    );
-
-    // 3. الأقسام النشطة
-    final secRows = await db.query(
-      'sections',
-      columns: ['id', 'name'],
-      where: "(deleted_at IS NULL OR TRIM(deleted_at) = '')",
-      orderBy: 'id ASC',
-    );
-
-    // 4. الفئات النشطة
-    final catRows = await db.query(
-      'item_categories',
-      columns: ['id', 'name'],
-      where: "(deleted_at IS NULL OR TRIM(deleted_at) = '')",
-      orderBy: 'id ASC',
-    );
-
     final sb = StringBuffer();
     for (final r in accRows) {
       sb.write('A:${r['id']}:${r['name']};');
-    }
-    for (final r in itemRows) {
-      sb.write('I:${r['id']}:${r['name']}:${r['sku']};');
-    }
-    for (final r in secRows) {
-      sb.write('S:${r['id']}:${r['name']};');
-    }
-    for (final r in catRows) {
-      sb.write('C:${r['id']}:${r['name']};');
     }
 
     final bytes = utf8.encode(sb.toString());
@@ -138,9 +79,6 @@ class CatalogSyncGuard {
 
     return CatalogDigest(
       accountsCount: accRows.length,
-      itemsCount: itemRows.length,
-      sectionsCount: secRows.length,
-      categoriesCount: catRows.length,
       hash: digest,
       updatedAt: DateTime.now(),
     );

@@ -81,24 +81,20 @@ void main() {
   test('QA-BLOCKER-02 incremental transaction sync carries its invoice lines',
       () async {
     final id = await repoA.saveAccount(account('عميل الفاتورة'));
-    final txId = await repoA.saveTx(
+    await repoA.saveTx(
         Tx(
             accountId: id,
             type: OpType.debit,
             amount: 10,
             date: now,
             createdAt: now,
-            updatedAt: now),
-        items: [
-          const InvoiceLine(name: 'صنف اختباري', quantity: 2, unitPrice: 5),
-        ]);
+            updatedAt: now));
     final ops = await a.query('operations', orderBy: 'timestamp, rowid');
     for (final row in ops) {
       await b.transaction((txn) => repoB.applyRemoteOperation(
           txn, SyncOperation.fromMap(row), ConflictResolver()));
     }
     expect(await repoB.transactions(), hasLength(1));
-    expect(await repoB.transactionItems(txId), hasLength(1));
   });
 
   test(

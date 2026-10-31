@@ -8,7 +8,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nexora_app/core/database.dart';
 import 'package:nexora_app/core/models.dart';
-import 'package:nexora_app/data/pos_cart.dart';
 import 'package:nexora_app/data/providers.dart';
 import 'package:nexora_app/data/repository.dart';
 import 'package:nexora_app/data/sync/sync_engine.dart';
@@ -212,43 +211,6 @@ void main() {
       await seedStuckOp(age: const Duration(seconds: 30), attempts: 2);
       await engine.debugCheckDangerState();
       expect(dangerLog.whereType<String>(), isEmpty);
-    });
-  });
-
-  group('تعليق الفواتير heldInvoicesProvider (F12)', () {
-    test('تعليق ثم استئناف يعيد نفس المسودة', () {
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      final item = Item(
-        name: 'صنف تجريبي',
-        sku: 'X1',
-        unit: 'حبة',
-        buyPrice: 500,
-        sellPrice: 800,
-        quantity: 10,
-        createdAt: DateTime(2026, 9, 10),
-        updatedAt: DateTime(2026, 9, 10),
-        id: 7,
-      );
-      final ctl = container.read(posDraftProvider.notifier);
-      ctl.addItem(item, allowNegative: false);
-      ctl.addItem(item, allowNegative: false);
-      final draft = container.read(posDraftProvider);
-      expect(draft.itemCount, 2);
-
-      // علّق: خزّن المسودة وأفرغ.
-      container.read(heldInvoicesProvider.notifier).state = [draft];
-      ctl.clear();
-      expect(container.read(posDraftProvider).cart, isEmpty);
-
-      // استأنف: استعادة كاملة.
-      final held = container.read(heldInvoicesProvider);
-      expect(held, hasLength(1));
-      ctl.restore(held.first);
-      final restored = container.read(posDraftProvider);
-      expect(restored.itemCount, 2);
-      expect(restored.cart[7]?.unitPrice, 800);
-      expect(restored.netTotal, 1600);
     });
   });
 
