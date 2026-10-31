@@ -48,9 +48,9 @@ void main() {
         deviceTime: DateTime.now().toIso8601String(),
       );
 
-  test('FK-01 فاتورة قبل حسابها: لا 787 والسحب لا يتوقف', () async {
+  test('FK-01 عملية قبل حسابها: لا 787 والسحب لا يتوقف', () async {
     final db = await repo.database;
-    // لا يوجد حساب 77 محلياً — الفاتورة تصل أولاً (ترتيب عشوائي حقيقي).
+    // لا يوجد حساب 77 محلياً — العملية تصل أولاً (ترتيب عشوائي حقيقي).
     final txOp = op(
       kind: EntityKind.tx,
       type: OpKind.create,
@@ -59,24 +59,12 @@ void main() {
         'id': 900,
         'workspace_id': 'WS-QA',
         'account_id': 77,
-        'type': 'sale',
+        'type': 'debit',
         'amount': 1500,
         'currency': 'YER',
         'date': DateTime.now().toIso8601String(),
         'status': 'done',
         'sync_state': 'synced',
-        'items': [
-          {
-            'id': 1,
-            'workspace_id': 'WS-QA',
-            'item_id': 555, // صنف غير موجود أيضاً
-            'name': 'صنف وارد',
-            'unit': 'حبة',
-            'quantity': 2,
-            'unit_price': 750,
-            'total': 1500,
-          }
-        ],
       },
     );
     final ok = await db.transaction(
@@ -86,17 +74,10 @@ void main() {
     final rows = await db.query('transactions', where: 'id = ?', whereArgs: [
       int.tryParse('900') ?? '900'
     ]);
-    expect(rows.length, 1, reason: 'الفاتورة أُدرجت');
+    expect(rows.length, 1, reason: 'العملية أُدرجت');
     final stubs = await db.query('accounts', where: 'id = ?', whereArgs: [77]);
     expect(stubs.length, 1, reason: 'سجل مؤقت للحساب المفقود');
     expect(stubs.first['name'], contains('مؤقت'));
-    final items = await db.query('items', where: 'id = ?', whereArgs: [555]);
-    expect(items.length, 1, reason: 'سجل مؤقت للصنف المفقود');
-    final lines =
-        await db.query('transaction_items', where: 'tx_id = ?', whereArgs: [
-      int.tryParse('900') ?? '900'
-    ]);
-    expect(lines.length, 1, reason: 'بنود الفاتورة أُدرجت');
   });
 
   test('FK-02 الحساب الأصلي يستبدل السجل المؤقت لاحقاً', () async {

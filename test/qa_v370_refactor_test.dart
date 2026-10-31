@@ -375,7 +375,7 @@ void main() {
         reason: 'الخدمة القديمة المتجاوزة للطابور يجب أن تكون مجتثة');
     // جداول البيانات التجارية بلا أعمدة أجهزة (الملكية store/workspace
     // + user_email فقط) — operations.device_id يبقى وسم مصدر بروتوكولي.
-    for (final t in ['transactions', 'accounts', 'vouchers', 'items']) {
+    for (final t in ['transactions', 'accounts', 'vouchers']) {
       // يُقرأ المخطط نصياً من المصدر (القاعدة هنا فيزية بلا أعمدة أجهزة).
       final cols = db.rawQuery('PRAGMA table_info($t)');
       expect(cols, completion(isNotEmpty));

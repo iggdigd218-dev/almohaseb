@@ -73,47 +73,4 @@ void main() {
             'مسار onUpgrade لن يصلها أبداً.');
   });
 
-  test('MIG-03 أعمدة الفئات الأساسية موجودة في التعريف وفي الترميم', () {
-    // التعريف (onCreate).
-    final create = RegExp(
-      r'CREATE TABLE IF NOT EXISTS item_categories \((.*?)\)\)',
-      dotAll: true,
-    ).firstMatch(src);
-    expect(create, isNotNull);
-    final createBody = create!.group(1)!;
-    for (final col in ['parent_id', 'section_id', 'deleted_at']) {
-      expect(createBody.contains(col), isTrue,
-          reason: 'عمود $col غائب عن تعريف item_categories');
-    }
-    expect(createBody.contains('ON DELETE SET NULL'), isTrue,
-        reason: 'parent_id يجب أن يفك الربط (SET NULL) لا أن يمحو الأبناء '
-            '(CASCADE) — حذف متتالٍ بلا عمليات مزامنة يخالف بقية الأجهزة.');
-
-    // الترميم الذاتي (onOpen).
-    final heal = _functionBody(src, 'ensureItemCategoryColumns(Database db');
-    expect(heal, isNotEmpty);
-    for (final col in [
-      'parent_id',
-      'section_id',
-      'deleted_at',
-      'deleted_by',
-      'restore_op_id',
-    ]) {
-      expect(heal.contains("'$col'"), isTrue,
-          reason: 'عمود $col غير مُرمَّم ذاتياً في ensureItemCategoryColumns');
-    }
-  });
-
-  test('MIG-04 الفهارس الحيوية منشأة في مسار الترميم', () {
-    final heal = _functionBody(src, 'ensureItemCategoryColumns(Database db');
-    for (final idx in [
-      'idx_item_cat_ws',
-      'idx_items_qty',
-      'idx_items_price',
-      'idx_item_cat_parent',
-      'idx_cat_section',
-    ]) {
-      expect(heal.contains(idx), isTrue, reason: 'الفهرس $idx غير منشأ');
-    }
-  });
 }

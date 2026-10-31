@@ -59,24 +59,10 @@ void main() {
     await tmp.delete(recursive: true);
   });
 
-  group('التحقق الصارم من تطابق الحسابات والأصناف والأقسام بين كافة الأجهزة', () {
-    test('1. تطابق تام عندما تحتوي الأجهزة على نفس الحسابات والأصناف والأقسام',
-        () async {
-      // إدراج نفس القسم والفئة والحساب والصنف على الجهازين
+  group('التحقق الصارم من تطابق الحسابات بين كافة الأجهزة', () {
+    test('1. تطابق تام عندما تحتوي الأجهزة على نفس الحسابات', () async {
+      // إدراج نفس الحسابين على الجهازين
       for (final db in [dbA, dbB]) {
-        await db.insert('sections', {
-          'id': 1,
-          'name': 'المواد الغذائية',
-          'created_at': nowIso,
-          'updated_at': nowIso,
-        });
-        await db.insert('item_categories', {
-          'id': 1,
-          'section_id': 1,
-          'name': 'البقوليات',
-          'created_at': nowIso,
-          'updated_at': nowIso,
-        });
         await db.insert('accounts', {
           'id': 100,
           'name': 'عميل النور',
@@ -84,15 +70,10 @@ void main() {
           'created_at': nowIso,
           'updated_at': nowIso,
         });
-        await db.insert('items', {
-          'id': 200,
-          'name': 'فاصوليا حمراء',
-          'sku': 'BEANS-RED',
-          'category_id': 1,
-          'section_id': 1,
-          'buy_price': 300,
-          'sell_price': 450,
-          'quantity': 20,
+        await db.insert('accounts', {
+          'id': 101,
+          'name': 'مؤسسة الأمانة',
+          'kind': 'supplier',
           'created_at': nowIso,
           'updated_at': nowIso,
         });
@@ -107,37 +88,28 @@ void main() {
       expect(diag.stable, isTrue);
     });
 
-    test('2. ظهور تحذير صريح عند وجود تفاوت في الأصناف بين الأجهزة', () async {
-      // الجهاز A يملك صنفين
-      await dbA.insert('items', {
+    test('2. ظهور تحذير صريح عند وجود تفاوت في الحسابات بين الأجهزة', () async {
+      // الجهاز A يملك حسابين
+      await dbA.insert('accounts', {
         'id': 201,
-        'name': 'أرز تايلاندي',
-        'sku': 'RICE-THAI',
-        'buy_price': 1000,
-        'sell_price': 1200,
-        'quantity': 10,
+        'name': 'عميل الصفوة',
+        'kind': 'customer',
         'created_at': nowIso,
         'updated_at': nowIso,
       });
-      await dbA.insert('items', {
+      await dbA.insert('accounts', {
         'id': 202,
-        'name': 'زيت نباتي',
-        'sku': 'OIL-VEG',
-        'buy_price': 2000,
-        'sell_price': 2400,
-        'quantity': 5,
+        'name': 'مورد السلام',
+        'kind': 'supplier',
         'created_at': nowIso,
         'updated_at': nowIso,
       });
 
-      // الجهاز B يملك صنفاً واحداً فقط (تفاوت في البيانات)
-      await dbB.insert('items', {
+      // الجهاز B يملك حساباً واحداً فقط (تفاوت في البيانات)
+      await dbB.insert('accounts', {
         'id': 201,
-        'name': 'أرز تايلاندي',
-        'sku': 'RICE-THAI',
-        'buy_price': 1000,
-        'sell_price': 1200,
-        'quantity': 10,
+        'name': 'عميل الصفوة',
+        'kind': 'customer',
         'created_at': nowIso,
         'updated_at': nowIso,
       });
@@ -148,43 +120,34 @@ void main() {
 
       final diag = SyncDiagnostics.instance.snapshot;
       expect(diag.catalogMismatch, isTrue);
-      expect(diag.catalogMismatchDetails, contains('الأصناف'));
+      expect(diag.catalogMismatchDetails, contains('الحسابات'));
       expect(diag.downloadFaulted, isTrue,
           reason: 'عدم التطابق يعتبر خللاً تنبيهياً في الاستقبال');
       expect(diag.stable, isFalse);
     });
 
     test('3. إزالة التحذير فور اكتمال مزامنة وتوحيد بيانات الكتالوج', () async {
-      // الجهاز A يملك صنفين
-      await dbA.insert('items', {
+      // الجهاز A يملك حسابين
+      await dbA.insert('accounts', {
         'id': 201,
-        'name': 'أرز تايلاندي',
-        'sku': 'RICE-THAI',
-        'buy_price': 1000,
-        'sell_price': 1200,
-        'quantity': 10,
+        'name': 'عميل الصفوة',
+        'kind': 'customer',
         'created_at': nowIso,
         'updated_at': nowIso,
       });
-      await dbA.insert('items', {
+      await dbA.insert('accounts', {
         'id': 202,
-        'name': 'زيت نباتي',
-        'sku': 'OIL-VEG',
-        'buy_price': 2000,
-        'sell_price': 2400,
-        'quantity': 5,
+        'name': 'مورد السلام',
+        'kind': 'supplier',
         'created_at': nowIso,
         'updated_at': nowIso,
       });
 
-      // الجهاز B يملك في البداية صنفاً واحداً فقط
-      await dbB.insert('items', {
+      // الجهاز B يملك في البداية حساباً واحداً فقط
+      await dbB.insert('accounts', {
         'id': 201,
-        'name': 'أرز تايلاندي',
-        'sku': 'RICE-THAI',
-        'buy_price': 1000,
-        'sell_price': 1200,
-        'quantity': 10,
+        'name': 'عميل الصفوة',
+        'kind': 'customer',
         'created_at': nowIso,
         'updated_at': nowIso,
       });
@@ -192,14 +155,11 @@ void main() {
       var isMatch = await CatalogSyncGuard.verifyDirect(repoA, repoB);
       expect(isMatch, isFalse);
 
-      // الآن تجري المزامنة ويستلم الجهاز B الصنف الثاني
-      await dbB.insert('items', {
+      // الآن تجري المزامنة ويستلم الجهاز B الحساب الثاني
+      await dbB.insert('accounts', {
         'id': 202,
-        'name': 'زيت نباتي',
-        'sku': 'OIL-VEG',
-        'buy_price': 2000,
-        'sell_price': 2400,
-        'quantity': 5,
+        'name': 'مورد السلام',
+        'kind': 'supplier',
         'created_at': nowIso,
         'updated_at': nowIso,
       });

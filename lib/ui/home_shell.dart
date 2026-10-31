@@ -2446,6 +2446,7 @@ class _Drawer extends ConsumerWidget {
                     'الدفاتر والمحاسبة',
                     const [
                       AppScreen.accounts,
+                      AppScreen.transactions,
                       AppScreen.vouchers,
                       AppScreen.currencies,
                       AppScreen.reports,

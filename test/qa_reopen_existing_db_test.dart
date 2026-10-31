@@ -104,7 +104,6 @@ void main() {
         containsAll(<String>[
           'workspaces',
           'accounts',
-          'items',
           'transactions',
           'settings',
           'currencies',

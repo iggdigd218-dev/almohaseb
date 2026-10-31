@@ -182,9 +182,9 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       expect(find.byType(TxForm), findsNothing);
-      // (تحديث الواجهة 2026-09-19) شاشة العمليات تُفتح من الشريط الجانبي
-      // ببلاطة «سجل الفواتير اليومية» — بعد الحفظ من الرئيسية.
-      final txTile = find.text('سجل الفواتير اليومية');
+      // شاشة العمليات تُفتح من الشريط الجانبي ببلاطة «العمليات» —
+      // بعد الحفظ من الرئيسية.
+      final txTile = find.text('العمليات');
       await _waitFor(tester, txTile);
       await tester.ensureVisible(txTile);
       // (إصلاح CI 2026-09-22) pumpAndSettle لا يستقر على آلات CI البطيئة
@@ -214,9 +214,9 @@ void main() {
         expect(rows.single.accountId, accountId);
         expect(await repo.balanceOf((await repo.account(accountId))!), 1500);
       });
-      // عرض 1000 > عتبة سطح المكتب (900): الشريط السفلي استُبدل بشريط
-      // جانبي (Rail) — ننقر عنوان «دفتر الحسابات والديون» فيه.
-      await tester.tap(find.text('دفتر الحسابات والديون'));
+      // (تنظيف 2026-10-31) تخطيط سطح المكتب حُذف — الشريط السفلي ثابت
+      // على كل العروض. ننقر «العملاء» لعرض رصيد الحساب في القائمة.
+      await tester.tap(find.text('العملاء'));
       await _drain(tester);
       expect(find.textContaining('1,500'), findsWidgets);
       expect(tester.takeException(), isNull);
