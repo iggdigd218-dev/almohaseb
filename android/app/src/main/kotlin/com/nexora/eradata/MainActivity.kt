@@ -19,16 +19,8 @@ class MainActivity : FlutterFragmentActivity() {
     private val updateChannel = "nexora/updates"
     private val sfxChannel = "nexora/sfx"
 
-    /** أوامر الزر العائم القادمة من بلاطة الإعدادات السريعة (الستارة). */
-    private val overlayChannel = "nexora/overlay"
     private val waPackages = listOf("com.whatsapp", "com.whatsapp.w4b")
     private var mediaPlayer: android.media.MediaPlayer? = null
-
-    /** قناة فلاتر النشطة — تُستخدم لتبليغ فلاتر بأمر الستارة فوراً. */
-    private var overlayMethod: MethodChannel? = null
-
-    /** أمر ستارة معلّق لم يستلمه فلاتر بعد (إقلاع بارد). */
-    private var pendingTileAction: Map<String, Any?>? = null
 
     /** آخر نقرة إشعار خارجي لم تُستهلك بعد: {entityType, entityId}. */
     private var pendingNotifyTap: Map<String, String>? = null
@@ -53,42 +45,17 @@ class MainActivity : FlutterFragmentActivity() {
     companion object {
         private const val PERMISSION_REQ_CODE = 7801
 
-        /** نية تشغيل الزر العائم من بلاطة الإعدادات السريعة (الستارة). */
-        const val ACTION_QUICK_POS = "com.nexora.eradata.QUICK_POS"
     }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
         captureNotifyTap(intent)
-        captureTileAction(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         captureNotifyTap(intent)
-        captureTileAction(intent)
-    }
-
-    /**
-     * يلتقط أمر الستارة: إن كان فلاتر حيّاً نُبلّغه فوراً عبر القناة،
-     * ونحفظه معلقاً في كل الأحوال ليأخذه فلاتر عند الإقلاع البارد
-     * (الاستدعاء عامل آمن — `show` في فلاتر عملية عاطلة عن التكرار).
-     */
-    private fun captureTileAction(intent: Intent?) {
-        if (intent?.action != ACTION_QUICK_POS) return
-        val args = mapOf<String, Any?>(
-            "permission" to intent.getBooleanExtra(
-                QuickPosTileService.EXTRA_NEED_PERMISSION, false
-            )
-        )
-        pendingTileAction = args
-        try {
-            overlayMethod?.invokeMethod("tile", args)
-        } catch (_: Exception) { }
-        // لا نُعالج النية نفسها مرتين عند استئناف النشاط.
-        intent.action = null
-        intent.removeExtra(QuickPosTileService.EXTRA_NEED_PERMISSION)
     }
 
     /** يلتقط بيانات الكيان من Intent نقرة الإشعار الخارجي (إن وُجدت). */
@@ -106,20 +73,6 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-
-        // قناة الزر العائم: أوامر بلاطة الستارة + تسليم الأمر المعلّق عند الإقلاع.
-        val overlay = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, overlayChannel)
-        overlay.setMethodCallHandler { call, result ->
-            when (call.method) {
-                // فلاتر يسأل عن أمر ستارة معلّق (إقلاع بارد).
-                "takeTile" -> {
-                    result.success(pendingTileAction)
-                    pendingTileAction = null
-                }
-                else -> result.notImplemented()
-            }
-        }
-        overlayMethod = overlay
 
         // قناة الأصوات المخصصة/الاهتزاز الطويل/الإشعارات الخارجية بصوت مميز.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, sfxChannel)
