@@ -1070,9 +1070,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
     final add = can('add_tx');
     if (!add) return null;
 
-    // (2026-09-22) زر الإضافة السريعة (+) يظهر في الشاشة الرئيسية فقط —
-    // بقية الشاشات بلا زر عائم إطلاقاً.
-    if (_screen != AppScreen.dashboard) return null;
+    // زر الإضافة السريعة (+) يظهر في الشاشة الأولى (العملاء أو الرئيسية)
+    if (_screen != AppScreen.dashboard && _screen != AppScreen.accounts) return null;
 
     // (قانون 2026-09-19) الزر العائم «إجراء سريع» كما كان: يفتح ورقة
     // الخيارات (عملية، سند، حساب) بدل نموذج مباشر.
@@ -2257,14 +2256,13 @@ class DrawerItems {
         }
         // سلة المهملات: الاسترجاع والحذف النهائي شأن من يملك حذف العمليات.
         if (s == AppScreen.trash) return can('delete_tx');
-        // ══ بقية الأيقونات حسب صلاحية المستخدم حرفياً ══
-        // العملاء: للمدير أو المحاسب أو من يملك تعديل العمليات.
+        // العملاء: للمدير أو المحاسب أو من يملك تعديل العمليات (محجوبة عن الكاشير).
         if (s == AppScreen.accounts) {
-          return true;
+          return isAdmin || isAccountant || can('edit_tx');
         }
         // العمليات: شاشة عمل — للمدير أو المحاسب أو من يملك تعديل العمليات.
         if (s == AppScreen.transactions) {
-          return true;
+          return isAdmin || isAccountant || can('edit_tx');
         }
         // السندات: للمدير أو المحاسب أو من ينشئ عمليات ويملك اعتماد السندات.
         if (s == AppScreen.vouchers) {
