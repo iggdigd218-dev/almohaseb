@@ -126,8 +126,8 @@ void main() {
       debugDefaultBackendUrlOverride = '';
       await tester.runAsync(() async {
         await initializeDateFormatting('ar');
-        await (FontLoader('Tajawal')
-              ..addFont(rootBundle.load('assets/fonts/Tajawal-Regular.ttf')))
+        await (FontLoader('AppNaskh')
+              ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Regular.ttf')))
             .load();
         await freshRepo('gate1');
         // عضو (ليس المالك) بصلاحية عرض التقارير فقط.
@@ -187,8 +187,8 @@ void main() {
       debugDefaultBackendUrlOverride = '';
       await tester.runAsync(() async {
         await initializeDateFormatting('ar');
-        await (FontLoader('Tajawal')
-              ..addFont(rootBundle.load('assets/fonts/Tajawal-Regular.ttf')))
+        await (FontLoader('AppNaskh')
+              ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Regular.ttf')))
             .load();
         await freshRepo('gate2');
         await db.update('devices', {'is_owner': 1});

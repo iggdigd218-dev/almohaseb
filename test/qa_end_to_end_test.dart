@@ -98,8 +98,8 @@ void main() {
     await tester.runAsync(() async {
       await initializeDateFormatting('ar');
       await initializeDateFormatting('en');
-      await (FontLoader('Tajawal')
-            ..addFont(rootBundle.load('assets/fonts/Tajawal-Regular.ttf')))
+      await (FontLoader('AppNaskh')
+            ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Regular.ttf')))
           .load();
       tmp = await Directory.systemTemp.createTemp('nexora_e2e_');
       db = await databaseFactory.openDatabase('${tmp.path}/e2e.db',

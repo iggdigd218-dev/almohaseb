@@ -41,9 +41,9 @@ void main() {
     await initializeDateFormatting('ar');
     await initializeDateFormatting('en');
     Sfx.setMuted(true);
-    await (FontLoader('Tajawal')
-          ..addFont(rootBundle.load('assets/fonts/Tajawal-Regular.ttf'))
-          ..addFont(rootBundle.load('assets/fonts/Tajawal-Bold.ttf')))
+    await (FontLoader('AppNaskh')
+          ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Regular.ttf'))
+          ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Bold.ttf')))
         .load();
   });
   final screens = <String, Widget>{
