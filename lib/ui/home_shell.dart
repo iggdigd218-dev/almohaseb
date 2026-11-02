@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -18,7 +17,6 @@ import '../data/update_installer.dart';
 import '../data/sync/cloud_join.dart';
 import '../data/update_service.dart';
 import 'update_section.dart';
-import 'profile_dialog.dart';
 import 'account_form.dart';
 import 'accounts_screen.dart';
 import 'backup_screen.dart';
@@ -34,7 +32,6 @@ import 'trash_screen.dart';
 import 'transactions_screen.dart';
 import 'tx_form.dart';
 import 'vouchers_screen.dart';
-import 'widgets/sync_arrows_indicator.dart';
 import 'widgets/golden_bell_icon.dart';
 import 'sync_ops_screen.dart';
 import '../data/sync/sync_service.dart';
@@ -47,7 +44,6 @@ import '../core/keep_alive_service.dart';
 import '../data/sync/device_id.dart';
 import '../data/sync/sync_engine.dart';
 import '../data/sync/sync_activity.dart';
-import '../data/sync/subscription_guard.dart';
 import '../data/repository.dart';
 import '../data/sync/workspace_service.dart';
 import '../data/sync/chat_hooks.dart';
@@ -644,105 +640,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
   }
 
   /// 🔒 دورة حياة الفترة التجريبية على الشاشة الرئيسية:
-  ///  - نافذة ترحيب راقية مرة واحدة فقط عند أول تفعيل (trialWelcomed).
-  ///  - عند رصد الانتهاء لأول مرة: بطاقة «انتهت الفترة» مع خيارات
-  ///    التجديد والتواصل (trialExpiredShown يمنع التكرار المزعج).
-  Future<void> _watchTrialLifecycle() async {
-    try {
-      // مهلة قصيرة حتى تكتمل تهيئة السحابة والمزودات.
-      await Future<void>.delayed(const Duration(seconds: 3));
-      if (!mounted) return;
-      final repo = ref.read(repoProvider);
-      // (2026-09-22 — جوجل فقط) حُذف الاسترداد الصامت ببصمة العتاد:
-      // بعد مسح بيانات التطبيق لا يُسترجع أي شيء إلا بتسجيل الدخول
-      // بحساب جوجل (AccountWorkspace.linkAccountOnly يجلب المساحة
-      // والبيانات تلقائياً فور الدخول). لا استرجاع مجهول بعد اليوم.
-      final st = await repo.settings();
-      final url = effectiveBackendUrl(st['cloudBackendUrl']);
-      if (url.isEmpty) return; // لا سحابة = لا تجربة بعد.
-      final db = await repo.database;
-      // (3.71.0 — ربط حتمي) المساحة الصريحة/الأحدث — لا اختيار عشوائياً.
-      final ws = await ensureWorkspace(db, repo: repo);
-      // (الفهرس السحابي) تثبيت ربط بصمة الجهاز بمساحته ودوره الحاليين.
-      try {
-        await DeviceRegistry.upsertBinding(repo, backendUrl: url);
-      } catch (_) {}
-      // (المرحلة 2) عضوية المالك في /members/{auth.uid} — تُثبَّت عند كل
-      // إقلاع (لا تُعاد كتابتها إن وُجدت) فتعمل قواعد الأمان بـ auth.uid
-      // للمساحات المنفردة والمجموعات على حد سواء.
-      try {
-        if (await repo.isWorkspaceOwner()) {
-          await CloudJoin.ensureOwnerMembership(
-            repo,
-            backendUrl: url,
-            workspaceId: ws,
-          );
-        }
-      } catch (_) {}
-      // (الاسترداد السيادي) تسجيل منشئ المساحة بأثر رجعي عند الإقلاع:
-      // للمجموعات القائمة قبل الميزة — المالك الحالي يُسجَّل منشئاً إن
-      // كانت العقدة السحابية الدائمة غائبة (تُكتب مرة واحدة ولا تتغير).
-      try {
-        if (await repo.isWorkspaceOwner() &&
-            await repo.workspaceMode() != 'standalone') {
-          await CloudJoin.registerCreatorIfAbsent(
-            repo,
-            backendUrl: url,
-            workspaceId: ws,
-            deviceId: repo.requireDeviceId,
-          );
-        } else {
-          // عضو: كاش سجل المنشئ محلياً (يلزم للتحقق من creator_recovery
-          // ولإظهار خيار الاسترداد على جهاز المنشئ الذي فقد الملكية).
-          final creator = await CloudJoin.fetchCreatorDeviceId(
-            backendUrl: url,
-            workspaceId: ws,
-          );
-          if (creator.isNotEmpty) {
-            await repo.setSetting('creatorDeviceId', creator);
-          }
-        }
-      } catch (_) {}
-      // (ترحيل الاشتراك) تهيئة كسولة عند الإقلاع: المساحات القديمة
-      // المسجلة قبل نظام التجربة بلا عقدة subscription — الفحص القسري
-      // ينشئها تلقائياً بختم خادم (created_at = لحظة هذا الفتح،
-      // expires_at = +24h) مرة واحدة فقط، ثم لا تُعاد تهيئتها أبداً.
-      final sub = await SubscriptionGuard.check(
-        repo,
-        backendUrl: url,
-        workspaceId: ws,
-        force: true,
-      );
-      if (!mounted || sub.status == 'none') return;
-      // (أ) الترحيب — مرة واحدة فقط.
-      if (sub.status == 'trial' &&
-          !sub.expired &&
-          (st['trialWelcomed'] ?? '') != '1') {
-        await repo.setSetting('trialWelcomed', '1');
-        if (mounted) await showTrialWelcomeDialog(context);
-      }
-      // (ب) الانتهاء — مرة واحدة لكل انتهاء، برسالة بحسب الدور والخطة:
-      // المدير يرى بطاقة الشراء/التجديد؛ جهاز الموظف في مؤسسة يرى تنبيه
-      // «راجع إدارة النظام» (القسم 3 — لا يُطالَب الموظف بالدفع).
-      if (sub.expired && (st['trialExpiredShown'] ?? '') != '1') {
-        await repo.setSetting('trialExpiredShown', '1');
-        final owner = await repo.isWorkspaceOwner();
-        if (!mounted) return;
-        if (owner) {
-          await showTrialExpiredSheet(context);
-        } else {
-          ChatHooks.onMemberNotice?.call(
-            '☁️ المزامنة السحابية متوقفة',
-            'المزامنة السحابية متوقفة؛ يرجى مراجعة إدارة النظام '
-                'لتجديد الباقة. عملك المحلي مستمر بأمان.',
-          );
-        }
-      }
-    } catch (_) {
-      // شبكة غائبة — الفحص الدوري في المحرك يغطي.
-    }
-  }
-
   /// (دفعة 58 — متطلب 20) يشغّل قناة SSE عالمية على /joinRequests لجهاز
   /// المدير: أي طلب انضمام يفتح حوار الموافقة فوق الشاشة الحالية أياً
   /// كانت. تُعاد المحاولة تلقائياً داخل JoinRequestWatcher عند الانقطاع.
@@ -1728,7 +1625,7 @@ class _BottomItem extends StatelessWidget {
                     : (isDark
                         ? const Color(0xFF94A3B8)
                         : const Color(0xFF64748B)),
-                fontFamily: 'Tajawal',
+                fontFamily: 'AppNaskh',
               ),
             ),
           ],
@@ -1907,7 +1804,7 @@ class _MarkedOperationFab extends StatelessWidget {
                   color: Colors.white,
                   fontSize: 10.5,
                   fontWeight: FontWeight.w800,
-                  fontFamily: 'Tajawal',
+                  fontFamily: 'AppNaskh',
                   height: 1.0,
                 ),
               ),
@@ -1924,57 +1821,6 @@ class _Drawer extends ConsumerWidget {
   final AppScreen current;
   final void Function(AppScreen) onSelect;
   const _Drawer({required this.current, required this.onSelect});
-
-  /// المستخدم يحدد اسم جهازه بنفسه — يظهر أعلى القائمة الجانبية والرئيسية.
-  Future<void> _renameSelf(
-    BuildContext context,
-    WidgetRef ref,
-    String currentName,
-  ) async {
-    Sfx.click();
-    final ctl = TextEditingController(
-      text: currentName == 'مدير الحسابات' ? '' : currentName,
-    );
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('اسمك / اسم هذا الجهاز'),
-        content: TextField(
-          controller: ctl,
-          autofocus: true,
-          maxLength: 30,
-          decoration: const InputDecoration(
-            hintText: 'مثال: أحمد — فرع الجملة',
-            helperText: 'يظهر أعلى الشاشة الرئيسية ولدى بقية أجهزة المجموعة',
-            helperMaxLines: 2,
-          ),
-          onSubmitted: (v) => Navigator.pop(ctx, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('إلغاء'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctl.text),
-            child: const Text('حفظ'),
-          ),
-        ],
-      ),
-    );
-    if (name == null || name.trim().isEmpty) return;
-    try {
-      await ref.read(repoProvider).renameSelfDevice(name);
-      // بثّ الاسم الجديد فوراً لكل الأقران (LAN + سحابة) — توحيد الهوية.
-      try {
-        await ref.read(syncEngineProvider).broadcastRosterChange();
-      } catch (_) {}
-      bump(ref);
-      Sfx.pop();
-    } catch (e) {
-      if (context.mounted) showSnack(context, 'تعذّر الحفظ: $e', error: true);
-    }
-  }
 
   /// (3.70.0) قسم في الدرج: عنوان صغير بارز + بلاطات الشاشات المسموحة
   /// (تصفية الصلاحيات/الوضع من _DrawerItems + بوابة Google للمجموعة).
@@ -2021,96 +1867,6 @@ class _Drawer extends ConsumerWidget {
           },
         ),
     ];
-  }
-
-  /// (2026-09-22) أيقونة المؤسسة: ملك للمؤسسة — المدير وحده يغيّرها أو
-  /// يحذفها، والأعضاء يرونها بلا أي تحكم. تُخزَّن base64 في الإعدادات
-  /// وتُصعَّد كعملية إعدادات متزامنة فتصل كل أجهزة المجموعة.
-  Future<void> _manageOrgIcon(
-    BuildContext context,
-    WidgetRef ref,
-    bool isOwner,
-  ) async {
-    if (!isOwner) {
-      Sfx.tap();
-      showSnack(context, 'أيقونة المؤسسة يحددها المدير — للعرض فقط');
-      return;
-    }
-    Sfx.click();
-    final repo = ref.read(repoProvider);
-    var hasIcon = false;
-    try {
-      hasIcon = ((await repo.settings())['org.icon.b64'] ?? '').isNotEmpty;
-    } catch (_) {}
-    if (!context.mounted) return;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.image_outlined),
-              title: const Text('تغيير أيقونة المؤسسة'),
-              subtitle: const Text('تظهر لكل أجهزة المجموعة'),
-              onTap: () => Navigator.pop(ctx, 'change'),
-            ),
-            if (hasIcon)
-              ListTile(
-                leading: Icon(Icons.delete_outline,
-                    color: AppColors.dangerOf(ctx)),
-                title: const Text('حذف أيقونة المؤسسة'),
-                onTap: () => Navigator.pop(ctx, 'delete'),
-              ),
-            ListTile(
-              leading: const Icon(Icons.close_rounded),
-              title: const Text('إلغاء'),
-              onTap: () => Navigator.pop(ctx),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (action == null || !context.mounted) return;
-    try {
-      if (action == 'delete') {
-        await repo.setSyncedSetting('org.icon.b64', '');
-        ref.invalidate(drawerPhotoProvider);
-        bump(ref);
-        Sfx.pop();
-        if (context.mounted) showSnack(context, 'حُذفت أيقونة المؤسسة');
-        return;
-      }
-      final picked = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 256,
-        maxHeight: 256,
-        imageQuality: 80,
-      );
-      if (picked == null) return;
-      final bytes = await picked.readAsBytes();
-      final b64 = base64Encode(bytes);
-      // حد عملي: العملية تمر عبر السحابة — صورة صغيرة تكفي للأيقونة.
-      if (b64.length > 400000) {
-        if (context.mounted) {
-          showSnack(context, 'الصورة أكبر من اللازم — اختر صورة أصغر',
-              error: true);
-        }
-        return;
-      }
-      await repo.setSyncedSetting('org.icon.b64', b64);
-      ref.invalidate(drawerPhotoProvider);
-      bump(ref);
-      Sfx.pop();
-      if (context.mounted) {
-        showSnack(context, '✅ حُدّثت أيقونة المؤسسة لكل المجموعة');
-      }
-    } catch (e) {
-      if (context.mounted) {
-        showSnack(context, 'تعذّر تحديث الأيقونة: $e', error: true);
-      }
-    }
   }
 
   /// لون مميز لكل قسم (كما في التصميم المرجعي).

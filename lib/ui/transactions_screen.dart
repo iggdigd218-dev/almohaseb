@@ -702,24 +702,6 @@ class _TxCard extends ConsumerWidget {
     );
   }
 
-  Widget _statusPill(BuildContext context, String status) {
-    final (label, color, icon) = switch (status) {
-      'done' => ('ناجحة', Colors.green.shade600, Icons.check_circle_outline),
-      'pending' => (
-          'قيد التنفيذ',
-          Colors.orange.shade700,
-          Icons.hourglass_empty,
-        ),
-      'failed' || 'cancelled' => (
-          'فاشلة',
-          Colors.red.shade600,
-          Icons.cancel_outlined
-        ),
-      _ => ('ناجحة', Colors.green.shade600, Icons.check_circle_outline),
-    };
-    return _Badge(label: label, color: color, icon: icon);
-  }
-
   /// شارة صغيرة بعدد الأجهزة التي استلمت العملية؛ ✅ عند وصولها للجميع.
   Widget _deliveryBadge(BuildContext context, WidgetRef ref) {
     final badges = ref.watch(txDeliveryBadgesProvider).valueOrNull;
@@ -743,25 +725,6 @@ class _TxCard extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  Widget _syncPill(BuildContext context, String sync) {
-    final (label, color, icon) = switch (sync) {
-      'synced' => (
-          'تمت المزامنة',
-          Colors.green.shade600,
-          Icons.cloud_done_outlined,
-        ),
-      'syncing' => ('جاري المزامنة', Colors.orange.shade700, Icons.sync),
-      'failed' => ('فشلت المزامنة', Colors.red.shade600, Icons.error_outline),
-      'pending' => (
-          'بانتظار المزامنة',
-          Colors.amber.shade800,
-          Icons.cloud_upload_outlined,
-        ),
-      _ => ('غير متزامنة', Colors.grey.shade600, Icons.cloud_off_outlined),
-    };
-    return _Badge(label: label, color: color, icon: icon);
   }
 
   Future<void> _menu(BuildContext context, WidgetRef ref) async {

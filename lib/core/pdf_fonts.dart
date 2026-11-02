@@ -16,11 +16,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-/// مسار الخط العربي العادي المدمج (Cairo — رخصة OFL-1.1).
-const String kPdfFontRegularAsset = 'assets/fonts/Cairo-Regular.ttf';
+/// مسار الخط العربي العادي المدمج (Noto Naskh Arabic Regular).
+const String kPdfFontRegularAsset = 'assets/fonts/NotoNaskhArabic-Regular.ttf';
 
-/// مسار الخط العربي العريض المدمج (Cairo Bold).
-const String kPdfFontBoldAsset = 'assets/fonts/Cairo-Bold.ttf';
+/// مسار الخط العربي العريض المدمج (Noto Naskh Arabic Bold).
+const String kPdfFontBoldAsset = 'assets/fonts/NotoNaskhArabic-Bold.ttf';
 
 /// حزمة خطوط جاهزة للاستخدام في بناء أي مستند PDF.
 class PdfArabicFonts {

@@ -13,7 +13,6 @@ import '../core/theme.dart';
 import '../data/google_drive_service.dart';
 import '../data/sync/google_auth_service.dart';
 import '../data/providers.dart';
-import 'profile_dialog.dart';
 import 'widgets.dart';
 
 /// النسخ الاحتياطي والاستعادة وسلة المهملات — نقل شاشة `backup.js`.
@@ -389,32 +388,6 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
       if (mounted) {
         showSnack(context, 'تعذّرت الاستعادة من Google: $e', error: true);
       }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  /// يفتح نافذة الحساب الموحدة (المدخل الوحيد لتسجيل الدخول بـ Google في التطبيق).
-  Future<void> _openAccountSection() async {
-    await showAccountProfileDialog(context, ref);
-    if (mounted) await _loadCloudState();
-  }
-
-  Future<void> _shareToDriveDirectly() async {
-    setState(() => _busy = true);
-    try {
-      final file = await _createBackupFile();
-      await Share.shareXFiles([
-        XFile(file.path),
-      ], subject: 'نسخة احتياطية سحابية — Google Drive');
-      if (mounted) {
-        showSnack(
-          context,
-          'تم تجهيز النسخة لمشاركتها وحفظها في Google Drive ☁️',
-        );
-      }
-    } catch (e) {
-      if (mounted) showSnack(context, 'تعذّر تصدير النسخة: ', error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

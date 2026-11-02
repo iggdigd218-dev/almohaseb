@@ -344,7 +344,7 @@ class _CurrencyCardState extends State<_CurrencyCard> {
                                 color: fg,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 14.5,
-                                fontFamily: 'Tajawal',
+                                fontFamily: 'AppNaskh',
                               ),
                             ),
                           ),
