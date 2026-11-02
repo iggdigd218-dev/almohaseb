@@ -74,8 +74,11 @@ void main() {
       await AppDatabase.createSchema(db);
       repo = Repo(databaseProvider: () async => db);
       await repo.initSyncInfra();
+      // (تصحيح 2026-11-03) بيانات الشاشة: عميل ومورد — التصنيف صار
+      // نوع الحساب لا رصيده ولا عملته. تُنشأ قبل قراءة المزودات
+      // حتى تلتقطها القوائم في أول تحميل.
       final now = DateTime(2026, 9, 6);
-      final accountId = await repo.saveAccount(Account(
+      await repo.saveAccount(Account(
         name: 'عميل الاختبار',
         kind: AccountKind.customer,
         openingBalance: -150,
@@ -83,14 +86,14 @@ void main() {
         createdAt: now,
         updatedAt: now,
       ));
-      // دفعة (credit = -1) على افتتاحية -150 → الرصيد -650 أي «عليكم».
-      await repo.saveTx(Tx(
-          accountId: accountId,
-          type: OpType.credit,
-          amount: 500,
-          date: now,
-          createdAt: now,
-          updatedAt: now));
+      await repo.saveAccount(Account(
+        name: 'مورد الاختبار',
+        kind: AccountKind.supplier,
+        openingBalance: 400,
+        notifyChannel: 'none',
+        createdAt: now,
+        updatedAt: now,
+      ));
       engine = SyncEngine(repo: repo, dbProvider: () async => db);
       container = ProviderContainer(overrides: [
         repoProvider.overrideWithValue(repo),
@@ -200,11 +203,15 @@ void main() {
       }
       // شريط البحث الخاص بشاشة العملاء ظاهر — أي أننا داخلها مباشرة.
       expect(find.text('بحث بالاسم أو الهاتف أو الملاحظات…'), findsOneWidget);
-      // لا وجود لبطاقات الملخص العلوية القديمة.
+      // (تصحيح 2026-11-03) التصنيف صار **نوع الحساب**: عملاء/موردين/عام.
+      expect(find.text('عملاء'), findsWidgets);
+      expect(find.text('موردين'), findsOneWidget);
+      expect(find.text('حساب عام'), findsOneWidget);
+      // ولا وجود لأي تصنيف عملة أو فرز أرصدة (لكم/عليكم) في الشاشة.
+      expect(find.text('كل العملات'), findsNothing);
+      expect(find.text('عليكم'), findsNothing);
+      expect(find.text('لكم'), findsNothing);
       expect(find.text('اسحب البطاقات للتبديل بين العملات'), findsNothing);
-      // البطاقة النحيفة السفلية: ملخص عليكم/لكم فوق الشريط السفلي.
-      expect(find.text('عليكم'), findsWidgets);
-      expect(find.text('لكم'), findsWidgets);
       final error = tester.takeException();
       expect(error, isNull);
     } finally {
@@ -249,6 +256,11 @@ void main() {
             of: find.byType(Drawer),
             matching: find.text(text),
           );
+      // (تصحيح 2026-11-03) القسم الرئيسي أولاً — الدرج متكامل.
+      expect(inDrawer('الحسابات'), findsOneWidget);
+      expect(inDrawer('العمليات'), findsOneWidget);
+      expect(inDrawer('التقارير'), findsOneWidget);
+      expect(inDrawer('الإعدادات'), findsOneWidget);
       // العناصر الثانوية كلها ظاهرة (لا بوابات صلاحيات).
       expect(inDrawer('السندات'), findsOneWidget);
       expect(inDrawer('العملات'), findsOneWidget);
@@ -267,7 +279,7 @@ void main() {
     }
   });
 
-  testWidgets('QA-ACCOUNTS-01 سحب قائمة العملاء يمينًا/يسارًا يبدّل التصنيف',
+  testWidgets('QA-ACCOUNTS-01 تصنيف نوع الحساب (عملاء/موردين) بلا فلاتر عملة',
       (tester) async {
     final (tmp, db, repo, engine, container) = await bootstrap(tester);
     tester.view.devicePixelRatio = 1;
@@ -288,31 +300,37 @@ void main() {
             () => Future<void>.delayed(const Duration(milliseconds: 60)));
         await tester.pump(const Duration(milliseconds: 100));
       }
-      // «الكل» نشط افتراضيًا وعميل الاختبار ظاهر (رصيده عليه 650).
+      // «الكل» افتراضيًا: الحسابان معًا.
       expect(find.text('عميل الاختبار'), findsOneWidget);
-      // في RTL (PageView باتجاه left): سحب الإصبع لليمين يقدّم الصفحة
-      // التالية ← «عليكم». timedDrag يرسل الحركة على خطوات زمنية كما
-      // يفعل الإصبع الحقيقي — drag بنقرة واحدة لا يكسب ساحة الإيماءات.
-      await tester.timedDrag(find.text('عميل الاختبار'),
-          const Offset(400, 0), const Duration(milliseconds: 300));
-      for (var i = 0; i < 8; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('مورد الاختبار'), findsOneWidget);
+      // لا فلاتر عملة في الرأس ولا فرز أرصدة.
+      expect(find.text('كل العملات'), findsNothing);
+      expect(find.text('مسدد'), findsNothing);
+      // (استقرار CI) كل نقرة شريحة تعيد استعلام الحسابات — نُعطي
+      // زمنًا حقيقيًا لsqflite كي يكتمل ثم مضخات لتفريغ النتائج.
+      Future<void> settle() async {
+        for (var i = 0; i < 8; i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 60)));
+          await tester.pump(const Duration(milliseconds: 100));
+        }
       }
-      // عميل عليه دين → يبقى ظاهرًا في «عليكم».
-      expect(find.text('عميل الاختبار'), findsOneWidget);
-      // سحب آخر → «لكم» — لا عملاء لنا → القائمة فارغة.
-      await tester.timedDrag(find.byType(PageView).first,
-          const Offset(400, 0), const Duration(milliseconds: 300));
-      for (var i = 0; i < 8; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
+
+      // «موردين»: المورد فقط.
+      await tester.tap(find.text('موردين'));
+      await settle();
+      expect(find.text('مورد الاختبار'), findsOneWidget);
       expect(find.text('عميل الاختبار'), findsNothing);
-      // النقر على شريحة «الكل» يعيد الجميع.
-      await tester.tap(find.text('الكل'));
-      for (var i = 0; i < 8; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
+      // «عملاء»: العميل فقط.
+      await tester.tap(find.text('عملاء').first);
+      await settle();
       expect(find.text('عميل الاختبار'), findsOneWidget);
+      expect(find.text('مورد الاختبار'), findsNothing);
+      // العودة إلى «الكل»: الجميع.
+      await tester.tap(find.text('الكل'));
+      await settle();
+      expect(find.text('عميل الاختبار'), findsOneWidget);
+      expect(find.text('مورد الاختبار'), findsOneWidget);
       final error = tester.takeException();
       expect(error, isNull);
     } finally {

@@ -1697,6 +1697,21 @@ class _Drawer extends ConsumerWidget {
                   vertical: 8,
                 ),
                 children: [
+                  // (تصحيح 2026-11-03) القسم الرئيسي أولاً — دفتر متكامل:
+                  // كل الوجهات في الدرج لا التبويبات السفلية وحدها.
+                  ..._drawerSection(
+                    context,
+                    'الرئيسية',
+                    const [
+                      AppScreen.accounts,
+                      AppScreen.transactions,
+                      AppScreen.reports,
+                      AppScreen.settings,
+                    ],
+                    current,
+                    dark,
+                    onSelect,
+                  ),
                   ..._drawerSection(
                     context,
                     'الدفاتر والمحاسبة',

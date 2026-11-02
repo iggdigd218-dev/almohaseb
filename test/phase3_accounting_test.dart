@@ -94,60 +94,8 @@ void main() {
     });
 
 
-    test('3. قيود الكاشير: حظر حذف الفواتير بدون إذن/صلاحية المشرف', () async {
-      // إضافة فاتورة من قبل النظام
-      final txId = await repo.saveTx(Tx(
-        type: OpType.revenue,
-        amount: 800,
-        currency: 'YER',
-        date: now,
-        description: 'فاتورة للمعاينة',
-        createdAt: now,
-        updatedAt: now,
-      ));
-
-      // تبديل المستخدم الحالي إلى كاشير وتصفير is_me للمستخدمين السابقين
-      await db.update('users', {'is_me': 0});
-      final cashierPerms = defaultPerms(UserRole.cashier);
-      final cashierPermStr = cashierPerms.entries
-          .where((e) => e.value)
-          .map((e) => e.key)
-          .join(',');
-
-      await db.insert('users', {
-        'id': 2,
-        'name': 'كاشير الورديات',
-        'role': 'cashier',
-        'permissions': cashierPermStr,
-        'is_me': 1,
-        'active': 1,
-        'created_at': nowIso,
-        'updated_at': nowIso,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-
-      await db.insert('sync_meta', {
-        'key': 'workspaceMode',
-        'value': 'member',
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-
-      // جهاز عضو
-      await db.update('devices', {'user_id': 2, 'is_owner': 0},
-          where: 'id = ?', whereArgs: ['DEV-PHASE3']);
-
-      // محاولة حذف الفاتورة من قبل الكاشير يجب أن تُحظر برمجيًا
-      expect(
-        () async => await repo.deleteTx(txId),
-        throwsA(isA<StateError>().having(
-          (e) => e.message,
-          'message',
-          contains('ليس لديك صلاحية'),
-        )),
-      );
-
-      // الفاتورة ما زالت موجودة وسليمة
-      final tx = await repo.transactionById(txId);
-      expect(tx, isNotNull);
-      expect(tx!.amount, equals(800));
-    });
+// (دفتر الحسابات الخالص 2026-11-02) حُذف اختبار «3. قيود الكاشير:
+    // حظر حذف الفواتير بدون إذن/صلاحية المشرف» — بوابات الصلاحيات (RBAC)
+    // اجتُثت بأمر المالك: المالك يملك كل شيء وdeleteTx لم يعد يرفض StateError.
   });
 }
