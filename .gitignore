@@ -37,3 +37,9 @@ node_modules/
 dist/
 *.db
 bun.lock
+index.html
+package.json
+server.ts
+src/
+tsconfig.json
+vite.config.ts

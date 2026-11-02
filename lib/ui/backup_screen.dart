@@ -212,17 +212,22 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
     }
   }
 
-  Future<GoogleAccountInfo?> _ensureGoogleAccount() async {
-    // (SSO) لا تسجيل تفاعلي من شاشة النسخ إطلاقاً: صلاحية Drive مُنحت
-    // ضمن التسجيل الموحّد في قسم «حساب المؤسسة»، فالجلسة تُستعاد بصمت.
+  Future<GoogleAccountInfo?> _ensureGoogleAccount({bool promptSignIn = false}) async {
     var account = _googleAccount ?? await _drive.restoreSession();
+    if (account == null && promptSignIn) {
+      try {
+        account = await _drive.signIn();
+      } catch (e) {
+        if (mounted) showSnack(context, '$e', error: true);
+        return null;
+      }
+    }
     if (account != null) {
       GoogleDriveBackupInfo? backup;
       String? cloudError;
       try {
         backup = await _drive.latestBackup();
       } catch (e) {
-        // نجاح الربط لا يعتمد على وجود نسخة سابقة، لكن نعرض فشل فحصها.
         cloudError = '$e';
       }
       if (mounted) {
@@ -239,12 +244,10 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
   Future<void> _uploadToGoogle() async {
     setState(() => _busy = true);
     try {
-      final account = await _ensureGoogleAccount();
+      final account = await _ensureGoogleAccount(promptSignIn: true);
       if (account == null) {
         if (mounted) {
-          showSnack(context,
-              'سجّل الدخول من «الإعدادات ← حساب المؤسسة (Google)» أولاً',
-              error: true);
+          showSnack(context, 'يرجى تسجيل الدخول بحساب Google أولاً', error: true);
         }
         return;
       }
@@ -255,7 +258,7 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
           _cloudBackup = backup;
           _cloudError = null;
         });
-        showSnack(context, 'تم تحديث نسخة Google Drive ✅');
+        showSnack(context, 'تم حفظ النسخة الاحتياطية في Google Drive بنجاح ✅');
       }
     } catch (e) {
       if (mounted) showSnack(context, 'تعذّر رفع النسخة: $e', error: true);
@@ -265,36 +268,122 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
   }
 
   Future<void> _restoreFromGoogle() async {
-    final ok = await confirmDialog(
-      context,
-      title: '⚠️ استعادة من Google Drive',
-      message:
-          'سيتم تنزيل آخر نسخة من الحساب المرتبط واستبدال بيانات هذا الجهاز. '
-          'العملية ذرّية ولن تُطبّق إذا كان الملف غير صالح.\n\nهل تريد المتابعة؟',
-      confirmText: 'تنزيل واستعادة',
-      danger: true,
-    );
-    if (!ok) return;
-
     setState(() => _busy = true);
     try {
-      final account = await _ensureGoogleAccount();
+      final account = await _ensureGoogleAccount(promptSignIn: true);
       if (account == null) {
         if (mounted) {
-          showSnack(context,
-              'سجّل الدخول من «الإعدادات ← حساب المؤسسة (Google)» أولاً',
-              error: true);
+          showSnack(context, 'يرجى تسجيل الدخول بحساب Google أولاً', error: true);
         }
         return;
       }
+      final backups = await _drive.listBackups();
+      if (!mounted) return;
+      if (backups.isEmpty) {
+        showSnack(context, 'لا توجد نسخ احتياطية في حساب Google Drive');
+        return;
+      }
+
+      // عرض نافذة النسخ الاحتياطية المتاحة مرتبة تنازلياً حسب الوقت
+      final selected = await showModalBottomSheet<GoogleDriveBackupInfo>(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.cloud_download_outlined, color: AppColors.primary2),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'النسخ الاحتياطية المتاحة على Google Drive',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: backups.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1, indent: 60),
+                  itemBuilder: (ctx, i) {
+                    final b = backups[i];
+                    final dateStr = b.modifiedTime != null
+                        ? Fmt.dateTime(b.modifiedTime!)
+                        : 'تاريخ غير محدد';
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: i == 0
+                            ? Colors.green.shade50
+                            : Theme.of(ctx).colorScheme.surfaceContainerHighest,
+                        child: Icon(
+                          i == 0 ? Icons.star_rounded : Icons.history,
+                          color: i == 0 ? Colors.green.shade700 : Theme.of(ctx).hintColor,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(
+                        dateStr,
+                        style: TextStyle(
+                          fontWeight: i == 0 ? FontWeight.bold : FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '${b.name}${b.sizeLabel.isNotEmpty ? ' · ${b.sizeLabel}' : ''}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      trailing: const Icon(Icons.restore_outlined),
+                      onTap: () => Navigator.pop(ctx, b),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (selected == null || !mounted) return;
+
+      final ok = await confirmDialog(
+        context,
+        title: 'تأكيد الاستعادة',
+        message: 'سيتم استعادة النسخة بتاريخ:\n'
+            '${selected.modifiedTime != null ? Fmt.dateTime(selected.modifiedTime!) : selected.name}\n\n'
+            'هل تريد المتابعة واستبدال البيانات المحلية؟',
+        confirmText: 'استعادة الآن',
+        danger: true,
+      );
+      if (!ok || !mounted) return;
+
+      setState(() => _busy = true);
       final dir = await getTemporaryDirectory();
       final file = File(
         '${dir.path}/nexora-drive-${DateTime.now().millisecondsSinceEpoch}.nexora',
       );
-      await _drive.downloadLatestTo(file);
+      if (selected.id.isNotEmpty) {
+        await _drive.downloadBackupById(selected.id, file);
+      } else {
+        await _drive.downloadLatestTo(file);
+      }
       final n = await _importJson(await file.readAsString());
       if (mounted) {
-        showSnack(context, 'تم تنزيل النسخة واستعادتها ✅ ($n سجلًا)');
+        showSnack(context, 'تمت استعادة النسخة بنجاح ✅ ($n سجلًا)');
       }
     } catch (e) {
       if (mounted) {
@@ -390,22 +479,13 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
           ],
         ),
         const SizedBox(height: 20),
-        const SectionTitle('النسخ الاحتياطي'),
+        const SectionTitle('النسخ الاحتياطي المحلي'),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'تُحفظ النسخة كملف واحد يحتوي كل الحسابات والعمليات والسندات '
-                  'والأصناف والإعدادات، ويمكنك حفظه في هاتفك أو إرساله لنفسك.',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    height: 1.6,
-                    color: AppColors.text2Of(context),
-                  ),
-                ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
@@ -418,13 +498,13 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
                     ),
                   ),
                   subtitle: const Text(
-                    'يجعل الملف أكبر لكنه ينقل الإيصالات والشعار معه إلى أي هاتف',
+                    'تضمين صور السندات والإيصالات والشعار داخل ملف النسخة',
                     style: TextStyle(fontSize: 11.5),
                   ),
                   value: _withImages,
                   onChanged: (v) => setState(() => _withImages = v),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
@@ -446,19 +526,6 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
                     ],
                   ],
                 ),
-                if (!restoreAllowed)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      'الاستعادة داخل المجموعة متاحة لجهاز المدير فقط — '
-                      'وعند استعادته نسخة تُزامن بياناتها تلقائياً إلى جهازك.',
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        height: 1.5,
-                        color: AppColors.text3Of(context),
-                      ),
-                    ),
-                  ),
                 if (_busy) ...[
                   const SizedBox(height: 12),
                   const LinearProgressIndicator(),
@@ -468,8 +535,6 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
           ),
         ),
         if (cloudAllowed) ...[
-        // (المعمارية الصامتة) كرت النسخ السحابي اليدوي (Firebase) أُزيل —
-        // النسخ السحابي صامت وتلقائي على الرابط المضمّن ومساحة العمل الحالية.
         const SizedBox(height: 20),
         const SectionTitle('النسخ السحابي عبر Google Drive'),
         Card(
@@ -478,17 +543,6 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'تُحفظ نسخة واحدة خاصة بالتطبيق داخل appDataFolder، ولا يطلب '
-                  'التطبيق صلاحية قراءة ملفات Drive العادية. لا يتم حفظ access token '
-                  'داخل Nexora؛ تُحفظ هوية الحساب فقط ويُطلب OAuth عند الحاجة.',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    height: 1.6,
-                    color: AppColors.text2Of(context),
-                  ),
-                ),
-                const SizedBox(height: 10),
                 if (_cloudLoading)
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -499,23 +553,20 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
                     ),
                     title: Text('جارٍ التحقق من حساب Google…'),
                   )
-                else if (_accountEmail == null) ...[
+                else if (_googleAccount == null && _accountEmail == null) ...[
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.manage_accounts_outlined),
-                    title: Text('تسجيل الدخول بـ Google من مكانه الموحّد'),
-                    subtitle: Text(
-                      'مدخل التسجيل بـ Google واحد فقط في التطبيق: '
-                      'الإعدادات ← «حساب المؤسسة (Google)». سجّل الدخول هناك '
-                      'ليُربط حسابك بمساحة عملك، ثم عد لرفع النسخ واستعادتها.',
-                    ),
+                    leading: Icon(Icons.cloud_queue_outlined, size: 28),
+                    title: Text('ربط حساب Google Drive'),
+                    subtitle: Text('لحفظ واستعادة النسخ الاحتياطية سحابياً بأمان'),
                   ),
+                  const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: _busy ? null : _openAccountSection,
-                      icon: const Icon(Icons.manage_accounts_outlined),
-                      label: const Text('الانتقال إلى قسم الحساب'),
+                      onPressed: _busy ? null : () => _ensureGoogleAccount(promptSignIn: true),
+                      icon: const Icon(Icons.login),
+                      label: const Text('تسجيل الدخول بحساب Google'),
                     ),
                   ),
                 ] else ...[
@@ -523,15 +574,19 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
                       child: Text(
-                        (_accountEmail!.isEmpty ? 'G' : _accountEmail![0])
+                        ((_googleAccount?.email ?? _accountEmail ?? 'G').isEmpty
+                                ? 'G'
+                                : (_googleAccount?.email ?? _accountEmail!)[0])
                             .toUpperCase(),
                       ),
                     ),
-                    title: const Text(
-                      'حساب المؤسسة',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+                    title: Text(
+                      _googleAccount?.displayName?.isNotEmpty == true
+                          ? _googleAccount!.displayName!
+                          : 'حساب Google',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
-                    subtitle: Text(_accountEmail!),
+                    subtitle: Text(_googleAccount?.email ?? _accountEmail ?? ''),
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -542,25 +597,22 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
                     ),
                     title: Text(
                       _cloudBackup == null
-                          ? 'لا توجد نسخة على Google Drive'
+                          ? 'جاهز لحفظ النسخة الاحتياطية'
                           : 'آخر نسخة: ${Fmt.dateTime(_cloudBackup!.modifiedTime ?? DateTime.now())}',
                       style: const TextStyle(fontSize: 12.5),
                     ),
                     subtitle: _cloudBackup?.sizeLabel.isNotEmpty == true
                         ? Text(_cloudBackup!.sizeLabel)
-                        : Text(
-                            _googleAccount == null
-                                ? 'سيُطلب منح صلاحية Drive عند أول رفع.'
-                                : 'ستُنشأ النسخة عند أول رفع.',
-                          ),
+                        : null,
                   ),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
                       Expanded(
                         child: FilledButton.icon(
                           onPressed: _busy ? null : () async { if (await ensureFeatureUnlocked(context, ref, featureKey: 'cloud_backup', featureName: 'النسخ السحابي عبر Google Drive', description: 'نسخة احتياطية خاصة داخل Google Drive تُحدَّث بضغطة واحدة.')) await _uploadToGoogle(); },
                           icon: const Icon(Icons.cloud_upload_outlined),
-                          label: const Text('رفع / تحديث'),
+                          label: const Text('حفظ نسخة الآن'),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -568,7 +620,7 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _busy ? null : () async { if (await ensureFeatureUnlocked(context, ref, featureKey: 'restore', featureName: 'الاستعادة من Google Drive', description: 'استرجع نسختك المحفوظة في Google Drive متى احتجتها.')) await _restoreFromGoogle(); },
                           icon: const Icon(Icons.cloud_download_outlined),
-                          label: const Text('استعادة'),
+                          label: const Text('استعادة من Drive'),
                         ),
                       ),
                     ],
@@ -584,15 +636,6 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
                     ),
                   ),
                 ],
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _shareToDriveDirectly,
-                    icon: const Icon(Icons.drive_folder_upload_outlined),
-                    label: const Text('رفع / حفظ في تطبيق Google Drive 📤'),
-                  ),
-                ),
                 if (_busy) ...[
                   const SizedBox(height: 10),
                   const LinearProgressIndicator(),
@@ -601,52 +644,7 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
             ),
           ),
         ),
-        ], // نهاية أقسام السحابة (مخفية عن أجهزة الأعضاء)
-        const SizedBox(height: 20),
-        const SectionTitle('استخدام البيانات على أكثر من هاتف'),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.phonelink, color: AppColors.primaryOf(context)),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'نقل الحساب بين الأجهزة',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14.5,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'التطبيق يعمل بلا إنترنت وكل البيانات محفوظة داخل جهازك، '
-                  'ولا يوجد خادم يزامن الأجهزة لحظيًا. للعمل على هاتف ثانٍ:\n\n'
-                  '١) أنشئ نسخة احتياطية هنا مع تضمين الصور.\n'
-                  '٢) أرسل الملف إلى الهاتف الآخر (واتساب أو درايف أو كابل).\n'
-                  '٣) في الهاتف الآخر: النسخ الاحتياطي ← استعادة، واختر الملف.\n\n'
-                  'ملاحظة مهمة: الاستعادة تستبدل بيانات الجهاز الثاني بالكامل، '
-                  'لذا استخدم جهازًا واحدًا للإدخال في الوقت نفسه وانقل النسخة '
-                  'بعد انتهاء العمل، وإلا ضاعت إدخالات الجهاز الآخر. '
-                  'المزامنة اللحظية بين جهازين تحتاج خادمًا واشتراكًا، وهي غير '
-                  'مفعّلة في هذا الإصدار.',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    height: 1.75,
-                    color: AppColors.text2Of(context),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+        ],
         const SizedBox(height: 20),
         SectionTitle(
           'سلة المهملات',

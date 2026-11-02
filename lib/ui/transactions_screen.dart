@@ -657,13 +657,15 @@ class _TxCard extends ConsumerWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 5,
-                      runSpacing: 4,
+                    const SizedBox(height: 3),
+                    Row(
                       children: [
-                        _statusPill(context, tx.status),
-                        _syncPill(context, tx.syncState),
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          size: 13,
+                          color: Color(0xFF10B981),
+                        ),
+                        const SizedBox(width: 4),
                         _deliveryBadge(context, ref),
                       ],
                     ),

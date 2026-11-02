@@ -40,7 +40,7 @@ android {
     // ضغط المكتبات الأصلية داخل APK لتقليل الحجم.
     packagingOptions {
         jniLibs {
-            useLegacyPackaging = true
+            useLegacyPackaging = false
         }
     }
 

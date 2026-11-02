@@ -25,25 +25,30 @@ Future<Object?> openTxForm(
   int? presetAccountId,
   bool isCopy = false,
   OpType? presetType,
-}) =>
-    showModalBottomSheet<Object>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      isDismissible: false,
-      enableDrag: false,
-      builder: (ctx) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(ctx).height * 0.85,
-        ),
-        child: TxForm(
-          existing: existing,
-          presetAccountId: presetAccountId,
-          isCopy: isCopy,
-          presetType: presetType,
-        ),
+}) async {
+  final res = await showModalBottomSheet<Object>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    isDismissible: false,
+    enableDrag: false,
+    builder: (ctx) => ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(ctx).height * 0.85,
       ),
-    );
+      child: TxForm(
+        existing: existing,
+        presetAccountId: presetAccountId,
+        isCopy: isCopy,
+        presetType: presetType,
+      ),
+    ),
+  );
+  if (res is Tx && context.mounted) {
+    await showTxSuccessSheet(context, ref, tx: res);
+  }
+  return res;
+}
 
 class TxForm extends ConsumerStatefulWidget {
   final Tx? existing;
@@ -276,30 +281,16 @@ class _TxFormState extends ConsumerState<TxForm> {
       } catch (_) {
         // The save is committed; failure of a follow-up read is not a save failure.
       }
-      var share = TxShareOutcome.skipped;
-      if (!_isTransfer && _account != null && mounted) {
-        try {
-          share = await TxShare.sendNow(context, ref,
-                  tx: saved, account: _account!, silentIfNoPhone: true)
-              .timeout(const Duration(seconds: 15));
-        } catch (_) {
-          share = TxShareOutcome.failed;
-        }
-      }
       if (!mounted) return;
       bump(ref);
-      final message = StringBuffer(keepId != null
-          ? 'تم تعديل العملية وتحديث الرصيد ✅'
-          : 'تم حفظ العملية وتحديث الرصيد ✅');
-      if (share == TxShareOutcome.opened) {
-        message.write(' — تم فتح تطبيق المشاركة');
-      }
-      if (share == TxShareOutcome.failed) {
-        message.write(' — تعذّر فتح المشاركة؛ الحفظ المحلي ناجح');
-      }
-      showSnack(context, message.toString(),
-          error: share == TxShareOutcome.failed, silent: true);
-      Navigator.pop(context, true);
+      showSnack(
+        context,
+        keepId != null
+            ? 'تم تعديل العملية وتحديث الرصيد ✅'
+            : 'تم حفظ العملية وتحديث الرصيد ✅',
+        silent: true,
+      );
+      Navigator.pop(context, saved);
       // إنشاء عملية جديدة: اهتزاز طويل (1.5 ث) + صوت مميز؛ التعديل: نجاح عادي.
       if (widget.existing == null || widget.isCopy) {
         Sfx.opCreated();

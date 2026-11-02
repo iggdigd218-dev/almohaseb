@@ -140,6 +140,18 @@ class CloudFirebaseTransport implements SyncTransport {
     final bodyMap = Map<String, Object?>.from(
         jsonDecode(op.toJson()) as Map)
       ..['server_ts'] = {'.sv': 'timestamp'};
+
+    // منع مزامنة الصور عبر المزامنة السحابية (Firebase) — تقتصر الصور حصراً على النسخ المحلية وGoogle Drive.
+    if (bodyMap['payload'] is Map) {
+      final p = Map<String, Object?>.from(bodyMap['payload'] as Map);
+      p['image'] = '';
+      p['attachment'] = '';
+      p['attachment_hash'] = '';
+      p.remove('images');
+      p['logo'] = '';
+      bodyMap['payload'] = p;
+    }
+
     final body = jsonEncode(bodyMap);
     final token = await _idToken();
     final auth =

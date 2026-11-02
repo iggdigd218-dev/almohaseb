@@ -341,6 +341,160 @@ class TxShare {
     final w = a.whatsapp.trim();
     return w.isNotEmpty ? w : a.phone.trim();
   }
+
+  /// يفتح محادثة العميل في واتساب مباشرة مع صورة السند والنص.
+  static Future<bool> sendWhatsAppDirect(
+    BuildContext context,
+    WidgetRef ref, {
+    required Tx tx,
+    Account? account,
+  }) async {
+    final repo = ref.read(repoProvider);
+    final acc = account ??
+        (tx.accountId == null ? null : await repo.account(tx.accountId!));
+    final phone = _phoneOf(acc, 'whatsapp');
+
+    if (phone.isEmpty) {
+      if (context.mounted) {
+        showSnack(context, 'لا يوجد رقم هاتف/واتساب مسجل لهذا الحساب', error: true);
+      }
+      return false;
+    }
+
+    if (context.mounted) {
+      showSnack(context, 'جارٍ تجهيز الإيصال وفتح محادثة واتساب…');
+    }
+
+    String path;
+    try {
+      if (tx.image.isNotEmpty && MediaPaths.exists(tx.image)) {
+        path = MediaPaths.toAbsolute(tx.image);
+      } else {
+        path = await generate(repo: repo, tx: tx, account: acc);
+      }
+    } catch (_) {
+      path = '';
+    }
+
+    late final String text;
+    try {
+      text = await caption(repo: repo, tx: tx, account: acc);
+    } catch (_) {
+      text = 'سند عملية — ${tx.type.label}: ${tx.amount}';
+    }
+
+    final installed = await WhatsApp.installed();
+    String? pkg;
+    if (installed.contains('com.whatsapp.w4b')) {
+      pkg = 'com.whatsapp.w4b';
+    }
+
+    final res = await WhatsApp.send(
+      phone: phone,
+      text: text,
+      imagePath: path.isNotEmpty && File(path).existsSync() ? path : null,
+      package: pkg,
+    );
+
+    bump(ref);
+    if (context.mounted) {
+      showSnack(context, WhatsApp.messageFor(res), error: res != WaResult.ok);
+    }
+    return res == WaResult.ok;
+  }
+
+  /// يفتح تطبيق الرسائل النصية على رقم العميل مع النص.
+  static Future<bool> sendSmsDirect(
+    BuildContext context,
+    WidgetRef ref, {
+    required Tx tx,
+    Account? account,
+  }) async {
+    final repo = ref.read(repoProvider);
+    final acc = account ??
+        (tx.accountId == null ? null : await repo.account(tx.accountId!));
+    final phone = _phoneOf(acc, 'sms');
+
+    if (phone.isEmpty) {
+      if (context.mounted) {
+        showSnack(context, 'لا يوجد رقم هاتف مسجل لهذا الحساب', error: true);
+      }
+      return false;
+    }
+
+    late final String text;
+    try {
+      text = await caption(repo: repo, tx: tx, account: acc);
+    } catch (_) {
+      text = 'سند عملية — ${tx.type.label}: ${tx.amount}';
+    }
+
+    final ok = await SmsSender.send(phone: phone, body: text);
+    bump(ref);
+    if (context.mounted) {
+      showSnack(
+        context,
+        ok ? 'تم فتح تطبيق الرسائل النصية' : 'تعذّر فتح تطبيق الرسائل',
+        error: !ok,
+      );
+    }
+    return ok;
+  }
+
+  /// يفتح نافذة مشاركة النظام الرسمية (Native System Share Dialog).
+  static Future<bool> shareSystem(
+    BuildContext context,
+    WidgetRef ref, {
+    required Tx tx,
+    Account? account,
+  }) async {
+    final repo = ref.read(repoProvider);
+    final acc = account ??
+        (tx.accountId == null ? null : await repo.account(tx.accountId!));
+
+    if (context.mounted) {
+      showSnack(context, 'جارٍ فتح نافذة مشاركة النظام…');
+    }
+
+    String path;
+    try {
+      if (tx.image.isNotEmpty && MediaPaths.exists(tx.image)) {
+        path = MediaPaths.toAbsolute(tx.image);
+      } else {
+        path = await generate(repo: repo, tx: tx, account: acc);
+      }
+    } catch (_) {
+      path = '';
+    }
+
+    late final String text;
+    try {
+      text = await caption(repo: repo, tx: tx, account: acc);
+    } catch (_) {
+      text = 'سند عملية — ${tx.type.label}: ${tx.amount}';
+    }
+
+    try {
+      if (path.isNotEmpty && File(path).existsSync()) {
+        await Share.shareXFiles(
+          [XFile(path)],
+          text: text,
+          subject: 'سند العملية — ${tx.type.label}',
+        );
+      } else {
+        await Share.share(
+          text,
+          subject: 'سند العملية — ${tx.type.label}',
+        );
+      }
+      return true;
+    } catch (e) {
+      if (context.mounted) {
+        showSnack(context, 'تعذّر فتح مشاركة النظام: $e', error: true);
+      }
+      return false;
+    }
+  }
 }
 
 /// معاينة صورة الإيصال مع أزرار الإرسال وإعادة التوليد.
@@ -459,6 +613,181 @@ Future<void> showReceiptPreview(
             ),
           ),
         ],
+      ),
+    ),
+  );
+}
+
+/// شاشة نجاح العملية المنبثقة مع خيارات المشاركة الفورية المباشرة وإمكانية الإغلاق.
+Future<void> showTxSuccessSheet(
+  BuildContext context,
+  WidgetRef ref, {
+  required Tx tx,
+  Account? account,
+}) async {
+  final repo = ref.read(repoProvider);
+  final acc = account ??
+      (tx.accountId == null ? null : await repo.account(tx.accountId!));
+  final currencies = await repo.currencies();
+  final cur = currencies.firstWhere(
+    (c) => c.code == tx.currency,
+    orElse: () => kDefaultCurrencies.first,
+  );
+
+  if (!context.mounted) return;
+
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.check_circle_rounded,
+                size: 44,
+                color: Colors.green.shade600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'تم حفظ العملية بنجاح',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${tx.type.label} · ${Fmt.money(tx.amount, cur.decimal)} ${cur.symbol}',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primaryOf(ctx),
+              ),
+            ),
+            if (acc != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'العميل: ${acc.name}',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(ctx).hintColor,
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            const Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                'مشاركة السند مع العميل:',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF25D366),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      TxShare.sendWhatsAppDirect(
+                        context,
+                        ref,
+                        tx: tx,
+                        account: acc,
+                      );
+                    },
+                    icon: const Icon(Icons.chat, size: 20),
+                    label: const Text('واتساب'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0288D1),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      TxShare.sendSmsDirect(
+                        context,
+                        ref,
+                        tx: tx,
+                        account: acc,
+                      );
+                    },
+                    icon: const Icon(Icons.sms_outlined, size: 20),
+                    label: const Text('رسالة SMS'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      TxShare.shareSystem(
+                        context,
+                        ref,
+                        tx: tx,
+                        account: acc,
+                      );
+                    },
+                    icon: const Icon(Icons.share_outlined, size: 20),
+                    label: const Text('مشاركة عامة (النظام)'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('إغلاق'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     ),
   );

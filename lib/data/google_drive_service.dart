@@ -21,13 +21,15 @@ class GoogleAccountInfo {
   });
 }
 
-/// بيانات آخر نسخة محفوظة في Drive.
+/// بيانات نسخة محفوظة في Drive.
 class GoogleDriveBackupInfo {
+  final String id;
   final String name;
   final DateTime? modifiedTime;
   final int? sizeBytes;
 
   const GoogleDriveBackupInfo({
+    this.id = '',
     required this.name,
     this.modifiedTime,
     this.sizeBytes,
@@ -71,6 +73,7 @@ class _DriveFile {
   });
 
   GoogleDriveBackupInfo toPublicInfo() => GoogleDriveBackupInfo(
+        id: id,
         name: name,
         modifiedTime: modifiedTime,
         sizeBytes: sizeBytes,
@@ -209,6 +212,97 @@ class GoogleDriveService {
       if (!await parent.exists()) await parent.create(recursive: true);
       await target.writeAsBytes(response.bodyBytes, flush: true);
       return file.toPublicInfo();
+    });
+  }
+
+  /// جلب قائمة بكافة النسخ الاحتياطية الموجودة في Google Drive مرتبة حسب الأحدث.
+  Future<List<GoogleDriveBackupInfo>> listBackups() async {
+    return _withDrive((client, headers) async {
+      final list = <_DriveFile>[];
+      final seenIds = <String>{};
+
+      // 1. البحث في appDataFolder
+      try {
+        final response = await client.get(
+          _fileUri('/files', {
+            'spaces': 'appDataFolder',
+            'q': "trashed = false and (name contains 'nexora' or name contains 'backup')",
+            'orderBy': 'modifiedTime desc',
+            'pageSize': '30',
+            'fields': 'files($_fileFields)',
+          }),
+          headers: headers,
+        );
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map && decoded['files'] is List) {
+            for (final f in decoded['files']) {
+              if (f is Map) {
+                final df = _driveFileFromJson(f);
+                if (seenIds.add(df.id)) list.add(df);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 2. البحث في المساحة العادية للـ Drive
+      try {
+        final response = await client.get(
+          _fileUri('/files', {
+            'q': "trashed = false and (name contains 'nexora' or name contains 'backup')",
+            'orderBy': 'modifiedTime desc',
+            'pageSize': '30',
+            'fields': 'files($_fileFields)',
+          }),
+          headers: headers,
+        );
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map && decoded['files'] is List) {
+            for (final f in decoded['files']) {
+              if (f is Map) {
+                final df = _driveFileFromJson(f);
+                if (seenIds.add(df.id)) list.add(df);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
+      // ترتيب النسخ: الأحدث بالاعلى
+      list.sort((a, b) {
+        final ta = a.modifiedTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final tb = b.modifiedTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return tb.compareTo(ta);
+      });
+
+      return list.map((f) => f.toPublicInfo()).toList();
+    });
+  }
+
+  /// تنزيل نسخة محددة بمعرف الملف مباشرة.
+  Future<GoogleDriveBackupInfo> downloadBackupById(String fileId, io.File target) async {
+    return _withDrive((client, headers) async {
+      final response = await client.get(
+        _fileUri('/files/${Uri.encodeComponent(fileId)}', {'alt': 'media'}),
+        headers: headers,
+      );
+      _ensureSuccess(response, 'تنزيل النسخة');
+      final parent = target.parent;
+      if (!await parent.exists()) await parent.create(recursive: true);
+      await target.writeAsBytes(response.bodyBytes, flush: true);
+
+      // جلب بيانات الملف
+      final metaResp = await client.get(
+        _fileUri('/files/${Uri.encodeComponent(fileId)}', {'fields': _fileFields}),
+        headers: headers,
+      );
+      if (metaResp.statusCode >= 200 && metaResp.statusCode < 300) {
+        final df = _parseFileResponse(metaResp, 'بيانات النسخة');
+        return df.toPublicInfo();
+      }
+      return GoogleDriveBackupInfo(id: fileId, name: backupFileName);
     });
   }
 

@@ -9,6 +9,7 @@ import '../core/theme.dart';
 import '../data/providers.dart';
 import 'account_form.dart';
 import 'tx_form.dart';
+import 'tx_share.dart';
 import '../data/sync/subscription_guard.dart'
     show Feature, kWatermarkText;
 import 'trial_ui.dart' show featureNeedsStamp;
@@ -331,6 +332,7 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                         // فصل صارم للعملات في الكشف.
                         _TxTile(
                           tx: txs[i],
+                          account: a,
                           accountId: accountId,
                           currency: defOf(txs[i].currency),
                         ),
@@ -466,23 +468,107 @@ class _InfoRow extends StatelessWidget {
       );
 }
 
-class _TxTile extends StatelessWidget {
+class _TxTile extends ConsumerWidget {
   final Tx tx;
+  final Account? account;
   final int accountId;
   final CurrencyDef currency;
   const _TxTile({
     required this.tx,
+    this.account,
     required this.accountId,
     required this.currency,
   });
 
+  Future<void> _menu(BuildContext context, WidgetRef ref) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('تعديل العملية'),
+              onTap: () => Navigator.pop(context, 'edit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_all_outlined),
+              title: const Text('تكرار العملية'),
+              onTap: () => Navigator.pop(context, 'copy'),
+            ),
+            ListTile(
+              leading: Icon(Icons.send, color: AppColors.primaryOf(context)),
+              title: const Text('إرسال واتساب'),
+              subtitle: const Text('يفتح محادثة العميل بالصورة والنص'),
+              onTap: () => Navigator.pop(context, 'send'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('صورة الإيصال'),
+              subtitle: const Text('معاينة ومشاركة الإيصال'),
+              onTap: () => Navigator.pop(context, 'image'),
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.delete_outline,
+                color: AppColors.dangerOf(context),
+              ),
+              title: Text(
+                'حذف العملية',
+                style: TextStyle(color: AppColors.dangerOf(context)),
+              ),
+              onTap: () => Navigator.pop(context, 'delete'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !context.mounted) return;
+
+    switch (action) {
+      case 'edit':
+        await openTxForm(context, ref, existing: tx);
+        bump(ref);
+      case 'copy':
+        await openTxForm(context, ref, existing: tx, isCopy: true);
+        bump(ref);
+      case 'send':
+        await TxShare.sendNow(context, ref, tx: tx);
+      case 'image':
+        await showReceiptPreview(context, ref, tx: tx, account: account);
+      case 'delete':
+        final ok = await confirmDialog(
+          context,
+          title: 'حذف عملية',
+          message:
+              'سيُحذف السجل ويُحدَّث رصيد الحساب تلقائيًا. هل تريد المتابعة؟',
+          danger: true,
+        );
+        if (ok == true) {
+          await ref.read(repoProvider).deleteTx(tx.id!);
+          bump(ref);
+          if (context.mounted) {
+            showSnack(context, 'تم حذف العملية وتحديث الرصيد');
+          }
+        }
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final effect = tx.effectOn(accountId) ?? 0;
     final color = effect > 0 ? AppColors.green : AppColors.red;
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
+      onTap: () async {
+        await openTxForm(context, ref, existing: tx);
+        bump(ref);
+      },
+      onLongPress: () => _menu(context, ref),
       leading: Container(
         width: 36,
         height: 36,
@@ -497,7 +583,7 @@ class _TxTile extends StatelessWidget {
         tx.type.label,
         style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
       ),
-      // (دفعة 58 — متطلب 10) وقت التنفيذ HH:MM بجانب التاريخ.
+      // وقت التنفيذ HH:MM بجانب التاريخ
       subtitle: Text(
         '${Fmt.date(tx.date)} · ${Fmt.clock(tx.createdAt)}'
         '${tx.description.isEmpty ? '' : ' · ${tx.description}'}',
@@ -505,14 +591,25 @@ class _TxTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontSize: 11.5),
       ),
-      trailing: Text(
-        '${effect > 0 ? '+' : '−'}${Fmt.money(effect.abs(), currency.decimal)} ${currency.symbol}',
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 13.5,
-          fontWeight: FontWeight.w800,
-          color: color,
-        ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${effect > 0 ? '+' : '−'}${Fmt.money(effect.abs(), currency.decimal)} ${currency.symbol}',
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.more_vert, size: 20),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () => _menu(context, ref),
+          ),
+        ],
       ),
     );
   }

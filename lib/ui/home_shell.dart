@@ -92,7 +92,7 @@ class HomeShell extends ConsumerStatefulWidget {
 
 class _HomeShellState extends ConsumerState<HomeShell>
     with WidgetsBindingObserver {
-  AppScreen _screen = AppScreen.dashboard;
+  AppScreen _screen = AppScreen.accounts;
 
   // (3.70.0) لوحة التحكم مثبّتة كأول شاشة دائمة على كل المنصات —
   // عند الإقلاع وبعد تجاوز شاشة القفل.
@@ -204,8 +204,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     });
     // (دفعة 58) المستمع العالمي لطلبات الانضمام — للمدير فقط.
     _startGlobalJoinWatcher();
-    // 🔒 الفترة التجريبية: ترحيب أول مرة + رصد الانتهاء.
-    _watchTrialLifecycle();
+    // 🔒 إشعارات الفترة التجريبية محذوفة بناءً على طلب المستخدم.
     // (إصلاح تسليم الإدارة) أي دفعة عمليات مطبقة (ومنها نقل الملكية أو
     // تغيير دور) تعيد بناء كل المزودات المشتقة من refreshProvider —
     // الشريط الجانبي والإعدادات يعكسان الصلاحيات الجديدة لحظياً.
@@ -1225,14 +1224,14 @@ class _HomeShellState extends ConsumerState<HomeShell>
     );
   }
 
-  final List<AppScreen> _screenHistory = [AppScreen.dashboard];
+  final List<AppScreen> _screenHistory = [AppScreen.accounts];
   bool _isExitDialogOpen = false;
 
   /// زر رجوع النظام:
   /// 1. إغلاق القائمة الجانبية (Drawer) أولاً إن كانت مفتوحة.
   /// 2. إغلاق أي حوار أو مسار منبثق إن وُجد.
-  /// 3. الرجوع للشاشة السابقة إن كان المستخدم في شاشة فرعية.
-  /// 4. على الصفحة الرئيسية: إظهار مربع حوار تأكيد الخروج (نعم / لا) مباشرة وسلساً.
+  /// 3. الرجوع للشاشة السابقة إن كان المستخدم في شاشة فرعية (العودة إلى العملاء).
+  /// 4. على شاشة العملاء: إظهار مربع حوار تأكيد الخروج (نعم / لا) مباشرة وسلساً.
   void _handleRootPop(bool didPop) {
     if (didPop) return;
 
@@ -1254,17 +1253,16 @@ class _HomeShellState extends ConsumerState<HomeShell>
       return;
     }
 
-    // 3) أي شاشة فرعية داخل القشرة تعود مباشرة إلى الرئيسية بضغطة واحدة فقط
-    // دون المرور على سجل كل النوافذ والأيقونات التي زارها المستخدم.
-    if (_screen != AppScreen.dashboard) {
+    // 3) أي شاشة فرعية داخل القشرة تعود مباشرة إلى العملاء بضغطة واحدة فقط
+    if (_screen != AppScreen.accounts) {
       _screenHistory
         ..clear()
-        ..add(AppScreen.dashboard);
-      setState(() => _screen = AppScreen.dashboard);
+        ..add(AppScreen.accounts);
+      setState(() => _screen = AppScreen.accounts);
       return;
     }
 
-    // 4) الصفحة الرئيسية: عرض حوار تأكيد الخروج مباشرة
+    // 4) شاشة العملاء: عرض حوار تأكيد الخروج مباشرة
     _showExitConfirmationDialog();
   }
 
@@ -1437,7 +1435,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
             },
           ),
           actions: [
-            const SyncArrowsIndicator(),
             Consumer(
               builder: (ctx, rref, _) {
                 final unreadLocal =
@@ -1565,13 +1562,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
         drawer: _Drawer(current: _screen, onSelect: _go),
         // سطح المكتب (>900dp): شريط جانبي قابل للطي على يمين الشاشة (RTL)
         // بدل الشريط السفلي؛ الهاتف يبقى على الشريط السفلي كما هو.
-        // 🔒 شريط الفترة التجريبية أعلى المحتوى (غير مزعج، يختفي ذاتياً).
-        body: Column(
-          children: [
-            const TrialCountdownBanner(),
-            Expanded(child: _body()),
-          ],
-        ),
+        body: _body(),
         floatingActionButton: _fab(),
         bottomNavigationBar: _MarkedBottomBar(
           currentScreen: _screen,
@@ -2145,21 +2136,7 @@ class _Drawer extends ConsumerWidget {
     final wsMode = ref.watch(workspaceModeProvider).valueOrNull ?? 'standalone';
     final isOwnerAsync = ref.watch(isOwnerProvider).valueOrNull;
     final isOwner = (wsMode == 'member') ? false : (isOwnerAsync ?? true);
-    final roleAsync = ref.watch(deviceRoleProvider);
-    final role = roleAsync.valueOrNull;
-
-    final rawRole = user?.role ?? role?.role;
-    // حماية سيادية: مالك المنشأة على جهازه هو دائماً وأبداً مدير النظام!
-    final effectiveRole = isOwner
-        ? UserRole.admin
-        : ((rawRole == UserRole.admin)
-            ? UserRole.cashier
-            : (rawRole ?? UserRole.cashier));
-    final isMasterAdmin = (wsMode == 'member')
-        ? false
-        : (isOwner || effectiveRole == UserRole.admin || effectiveRole == UserRole.agent);
-
-    // (3.70.0) «إدارة المجموعة» مشروطة بحساب Google موثّق (جدول google_auth).
+    // (3.70.0) التحقق من حساب Google.
     final googleLinked = ref.watch(googleLinkedProvider).valueOrNull ?? false;
     final items = _DrawerItems.of(
       user: user,
@@ -2168,269 +2145,68 @@ class _Drawer extends ConsumerWidget {
     );
     final dark = Theme.of(context).brightness == Brightness.dark;
 
-    final (roleLabel, roleColor, roleIcon) = switch (effectiveRole) {
-      UserRole.admin => ('مدير النظام', Colors.amber.shade300, Icons.security),
-      UserRole.agent => ('وكيل المدير', Colors.greenAccent.shade200, Icons.verified_user),
-      UserRole.accountant => ('محاسب', Colors.lightBlueAccent, Icons.calculate),
-      UserRole.cashier => ('كاشير', Colors.orangeAccent.shade200, Icons.point_of_sale),
-      UserRole.dataentry => ('إدخال وجرد', Colors.tealAccent, Icons.edit_note),
-      UserRole.viewer => ('عرض فقط', Colors.blueGrey.shade100, Icons.visibility_outlined),
-    };
-
     return Drawer(
       backgroundColor: AppColors.surfaceOf(context),
       child: SafeArea(
         child: Column(
           children: [
-            // ---------- ترويسة الملف الشخصي والمنشأة ----------
-            InkWell(
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(22),
-                bottomRight: Radius.circular(22),
-              ),
-              onTap: () => showAccountProfileDialog(context, ref),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF1E3A5F), AppColors.primary],
-                  ),
-                  borderRadius: BorderRadius.only(
-                    bottomLeft: Radius.circular(22),
-                    bottomRight: Radius.circular(22),
-                  ),
+            // ---------- ترويسة التطبيق الأنيقة والنظيفة ----------
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 18),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF1E3A5F), AppColors.primary],
                 ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(22),
+                  bottomRight: Radius.circular(22),
+                ),
+              ),
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      // (2026-09-22) أيقونة المؤسسة: المدير يغيّرها/يحذفها،
-                      // والعضو يراها فقط للقراءة بلا إمكانية للتعديل.
-                      Consumer(
-                        builder: (ctx, rref, _) {
-                          final photo =
-                              rref.watch(drawerPhotoProvider).valueOrNull ?? '';
-                          const fallback = Icon(
-                            Icons.person,
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.account_balance_wallet_rounded,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'مدير الحسابات',
+                          style: TextStyle(
                             color: Colors.white,
-                            size: 30,
-                          );
-                          final Widget face = photo.startsWith('http')
-                              ? Image.network(
-                                  photo,
-                                  width: 54,
-                                  height: 54,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => fallback,
-                                )
-                              : (photo.isNotEmpty
-                                  ? Image.file(
-                                      File(photo),
-                                      width: 54,
-                                      height: 54,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => fallback,
-                                    )
-                                  : fallback);
-                          final avatarContainer = Container(
-                            width: 54,
-                            height: 54,
-                            decoration: BoxDecoration(
-                              color: Colors.white24,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.white38,
-                                width: 2,
-                              ),
-                            ),
-                            child: ClipOval(child: face),
-                          );
-                          if (!isMasterAdmin) return avatarContainer;
-                          return InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: () => _manageOrgIcon(ctx, rref, isOwner),
-                            child: avatarContainer,
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // اسم المستخدم / الجهاز المحدد
-                            Consumer(
-                              builder: (ctx, rref, _) {
-                                final devName = rref
-                                    .watch(ownDeviceNameProvider)
-                                    .valueOrNull
-                                    ?.trim();
-                                final label = (user?.name != null && user!.name.isNotEmpty)
-                                    ? user.name
-                                    : ((devName != null && devName.isNotEmpty)
-                                        ? devName
-                                        : 'مدير الحسابات');
-                                return Row(
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        label,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 16,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    if (isMasterAdmin) ...[
-                                      const SizedBox(width: 6),
-                                      InkWell(
-                                        borderRadius: BorderRadius.circular(12),
-                                        onTap: () =>
-                                            _renameSelf(ctx, rref, label),
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(3),
-                                          child: Icon(
-                                            Icons.edit_outlined,
-                                            size: 15,
-                                            color: Colors.white70,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                );
-                              },
-                            ),
-                            const SizedBox(height: 4),
-                            // شارة الدور المنقولة حصرياً لرأس القائمة الجانبية بجوار الاسم
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: roleColor.withValues(alpha: .22),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: roleColor.withValues(alpha: .4)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(roleIcon, size: 12, color: roleColor),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    roleLabel,
-                                    style: TextStyle(
-                                      color: roleColor,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            // بيانات المنشأة — محمية وغير قابلة للتعديل لغير المدير العام
-                            Consumer(
-                              builder: (ctx, rref, _) {
-                                final st =
-                                    rref.watch(settingsProvider).valueOrNull ??
-                                        const <String, String>{};
-                                final email = googleLinked
-                                    ? (st['account.email'] ?? '').trim()
-                                    : '';
-                                final biz = (st['businessName'] ?? '').trim();
-                                if (email.isEmpty && biz.isEmpty) {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          wsMode == 'member'
-                                              ? Icons.groups_rounded
-                                              : Icons.cloud_sync_rounded,
-                                          size: 13,
-                                          color: Colors.white70,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Flexible(
-                                          child: Text(
-                                            wsMode == 'member'
-                                                ? 'جهاز عضو مرتبط بالمجموعة'
-                                                : 'اضغط لتسجيل الدخول بـ Google أو ربط الأعضاء',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 10.5,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }
-                                return Padding(
-                                  padding: const EdgeInsets.only(top: 6),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      if (biz.isNotEmpty)
-                                        Row(
-                                          children: [
-                                            Flexible(
-                                              child: Text(
-                                                biz,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                              ),
-                                            ),
-                                            if (isMasterAdmin) ...[
-                                              const SizedBox(width: 4),
-                                              InkWell(
-                                                onTap: () => showAccountProfileDialog(context, ref),
-                                                child: const Icon(Icons.edit_outlined, size: 13, color: Colors.white70),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      if (email.isNotEmpty)
-                                        Text(
-                                          email,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 10.5,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16.5,
+                          ),
                         ),
-                      ),
-                    ],
+                        SizedBox(height: 3),
+                        Text(
+                          'دفتر الحسابات والديون',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-            ),
             ),
 
             // ---------- عناصر القائمة حسب الوضع النشط ----------
@@ -2438,7 +2214,7 @@ class _Drawer extends ConsumerWidget {
               child: ListView(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
-                  vertical: 4,
+                  vertical: 8,
                 ),
                 children: [
                   ..._drawerSection(
@@ -2457,15 +2233,14 @@ class _Drawer extends ConsumerWidget {
                     dark,
                     onSelect,
                   ),
-                  // العناصر الثابتة في كلا الوضعين
+                  // عناصر النظام والمزامنة
                   ..._drawerSection(
                     context,
-                    'المنشأة والنظام',
+                    'النظام والمزامنة',
                     const [
-                      AppScreen.group,
+                      AppScreen.syncOps,
                       AppScreen.backup,
                       AppScreen.trash,
-                      AppScreen.activity,
                       AppScreen.settings,
                     ],
                     items,
@@ -2711,13 +2486,12 @@ class DrawerItems {
         final isAccountant = user?.role == UserRole.accountant;
         bool can(String p) => isAdmin || (user?.can(p) ?? false);
 
-        // إدارة المجموعة للمنشآت (وضع المضيف) فقط وتُحجب عن الحساب الفردي المستقل
-        if (s == AppScreen.group) {
-          if (standalone) return false;
-          return isAdmin && (isOwner || workspaceMode == 'host');
+        // إدارة المجموعة وسجل النشاط محذوفان نهائياً
+        if (s == AppScreen.group || s == AppScreen.activity) {
+          return false;
         }
-        // قسم العمليات والمزامنة يُفتح من أيقونة المزامنة أعلى الشاشة فقط.
-        if (s == AppScreen.syncOps) return false;
+        // قسم المزامنة متاح في القائمة (المدخل الموحد للتسجيل والمزامنة)
+        if (s == AppScreen.syncOps) return true;
         // التقارير تتطلب صلاحية عرض التقارير.
         if (s == AppScreen.reports) return can('view_reports');
         // النسخ الاحتياطي محظور ومحجوب تماماً عن أجهزة الأعضاء داخل المجموعة
@@ -2728,13 +2502,13 @@ class DrawerItems {
         // سلة المهملات: الاسترجاع والحذف النهائي شأن من يملك حذف العمليات.
         if (s == AppScreen.trash) return can('delete_tx');
         // ══ بقية الأيقونات حسب صلاحية المستخدم حرفياً ══
-        // العملاء: للمدير أو المحاسب أو من يملك تعديل العمليات (محجوبة عن الكاشير).
+        // العملاء: للمدير أو المحاسب أو من يملك تعديل العمليات.
         if (s == AppScreen.accounts) {
-          return isAdmin || isAccountant || can('edit_tx');
+          return true;
         }
         // العمليات: شاشة عمل — للمدير أو المحاسب أو من يملك تعديل العمليات.
         if (s == AppScreen.transactions) {
-          return isAdmin || isAccountant || can('edit_tx');
+          return true;
         }
         // السندات: للمدير أو المحاسب أو من ينشئ عمليات ويملك اعتماد السندات.
         if (s == AppScreen.vouchers) {
@@ -2742,10 +2516,6 @@ class DrawerItems {
         }
         // العملات: إعداد مالي للمدير أو المحاسب فقط.
         if (s == AppScreen.currencies) return isAdmin || isAccountant;
-        // سجل النشاط: اطلاع تدقيقي — تقارير أو حذف.
-        if (s == AppScreen.activity) {
-          return can('view_reports') || can('delete_tx');
-        }
         // الإعدادات: للمدير العام والوكيل فقط.
         if (s == AppScreen.settings) {
           return isAdmin;

@@ -469,721 +469,281 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ? storedType
                 : (wsMode == 'standalone' ? 'individual' : 'enterprise'));
         final isIndividual = accountType != 'enterprise';
-        // (3.70.0 — إعادة التصميم) تبويبات وبطاقات نقر مستقلة مصنّفة —
-        // بلا قوائم منسدلة متداخلة (ExpansionTile) إطلاقاً.
-        return DefaultTabController(
-          length: 4,
-          child: Stack(
-            children: [
-              Column(
-                children: [
-                  Material(
-                    color: AppColors.surfaceOf(context),
-                    child: SafeArea(
-                      bottom: false,
-                      child: TabBar(
-                        isScrollable: true,
-                        tabAlignment: TabAlignment.start,
-                        labelColor: AppColors.primaryOf(context),
-                        unselectedLabelColor: AppColors.text2Of(context),
-                        indicatorColor: AppColors.primaryOf(context),
-                        dividerColor: AppColors.borderOf(context),
-                        labelStyle: const TextStyle(
-                            fontWeight: FontWeight.w800, fontSize: 12.5),
-                        unselectedLabelStyle: const TextStyle(
-                            fontWeight: FontWeight.w600, fontSize: 12.5),
-                        tabs: const [
-                          Tab(
-                              icon: Icon(Icons.palette_outlined, size: 19),
-                              text: 'المظهر'),
-                          Tab(
-                              icon: Icon(Icons.receipt_long_outlined, size: 19),
-                              text: 'الفواتير والبيع'),
-                          Tab(
-                              icon: Icon(Icons.security_outlined, size: 19),
-                              text: 'الأمان'),
-                          Tab(
-                              icon: Icon(Icons.hub_outlined, size: 19),
-                              text: 'النظام والمزامنة'),
-                        ],
+        // إعدادات منسدلة عمودية أنيقة (أيقونات منسدلة) بدون تبويبات جانبية
+        return Stack(
+          children: [
+            ListView(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 90),
+              children: [
+                // 1. المظهر والأصوات
+                _Collapsible(
+                  title: 'المظهر والأصوات',
+                  icon: Icons.palette_outlined,
+                  color: const Color(0xFF8B5CF6),
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.palette_outlined),
+                      title: const Text('المظهر والأصوات'),
+                      subtitle: const Text('حجم الخط، الوضع الليلي، الأصوات والاهتزاز'),
+                      trailing: const Icon(Icons.chevron_left),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const AppearanceScreen()),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        // [بطاقة المظهر]
-                        _tabPage([
-                          Card(
-                            child: ListTile(
-                              leading: const Icon(Icons.palette_outlined),
-                              title: const Text('المظهر والأصوات'),
-                              subtitle: const Text(
-                                  'حجم الخط، الأصوات والاهتزاز والتنبيهات'),
-                              trailing: const Icon(Icons.chevron_left),
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (_) => const AppearanceScreen()),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 18),
-                        ]),
-                        // [بطاقة الفواتير ونقطة البيع]
-                        _tabPage([
-                          _Collapsible(
-                            title: 'العملة والترقيم',
-                            icon: Icons.currency_exchange,
-                            color: AppColors.primary2,
-                            children: [
-                              ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Icons.currency_exchange),
-                                title: const Text('العملة الافتراضية'),
-                                subtitle: Text(st['defaultCurrency'] ?? 'YER'),
-                                trailing: const Icon(Icons.chevron_left),
-                                onTap: () async {
-                                  final v = await showModalBottomSheet<String>(
-                                    context: context,
-                                    builder: (_) => SafeArea(
-                                      child: ListView(
-                                        shrinkWrap: true,
-                                        children: [
-                                          for (final c in currencies)
-                                            ListTile(
-                                              title: Text(
-                                                  '${c.symbol}  ${c.name}'),
-                                              onTap: () => Navigator.pop(
-                                                  context, c.code),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                  if (v != null) {
-                                    await ref
-                                        .read(repoProvider)
-                                        .setSetting('defaultCurrency', v);
-                                    bump(ref);
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 18),
-                          _Collapsible(
-                            title: 'المبيعات والسندات',
-                            icon: Icons.receipt_long_outlined,
-                            color: const Color(0xFF0EA5E9),
-                            initiallyExpanded: true,
-                            children: [
-                              ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Icons.swap_horiz),
-                                title: const Text('نوع العملية الافتراضي'),
-                                subtitle: const Text(
-                                  'يُختار تلقائياً عند فتح شاشة إضافة عملية',
-                                ),
-                                trailing: DropdownButton<String>(
-                                  value: st['defaultOp'] ?? 'inflow',
-                                  underline: const SizedBox.shrink(),
-                                  items: const [
-                                    DropdownMenuItem(
-                                      value: 'inflow',
-                                      child: Text('قبض (مبيعة/دفعة)'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'debit',
-                                      child: Text('عليه (دين آجل)'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'outflow',
-                                      child: Text('صرف'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'credit',
-                                      child: Text('له (دائن)'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'revenue',
-                                      child: Text('إيراد'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'expense',
-                                      child: Text('مصروف'),
-                                    ),
-                                  ],
-                                  onChanged: (v) async {
-                                    if (v == null) return;
-                                    await ref
-                                        .read(repoProvider)
-                                        .setSetting('defaultOp', v);
-                                    bump(ref);
-                                  },
-                                ),
-                              ),
-                              const Divider(height: 1),
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                secondary:
-                                    const Icon(Icons.inventory_2_outlined),
-                                title: const Text('تنبيه انخفاض المخزون'),
-                                subtitle: const Text(
-                                  'تحذير عند بيع صنف وصل لحد إعادة الطلب',
-                                ),
-                                value: (st['warnLowStock'] ?? '1') == '1',
-                                onChanged: (v) async {
-                                  await ref.read(repoProvider).setSetting(
-                                      'warnLowStock', v ? '1' : '0');
-                                  bump(ref);
-                                },
-                              ),
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                secondary:
-                                    const Icon(Icons.trending_down_rounded),
-                                title: const Text(
-                                    'السماح بالبيع عند نفاد الرصيد الدفتري'),
-                                subtitle: const Text(
-                                  'تفعيل: يسمح ببيع صنف نفد رصيده (حركة سالبة مع '
-                                  'تنبيه). تعطيل: نقطة البيع تمنع الإضافة عند النفاد.',
-                                ),
-                                value: (st['allowNegativeStock'] ?? '0') == '1',
-                                onChanged: (v) async {
-                                  await ref.read(repoProvider).setSetting(
-                                      'allowNegativeStock', v ? '1' : '0');
-                                  bump(ref);
-                                },
-                              ),
-                              // القفل التاريخي للتدقيق: منع غير المدير من تعديل/حذف
-                              // سجلات مالية أقدم من المدة المحددة (0 = معطل).
-                              ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Icons.lock_clock_outlined),
-                                title:
-                                    const Text('قفل السجلات المالية القديمة'),
-                                subtitle: Text(
-                                  (int.tryParse(st['auditLockDays'] ?? '0') ??
-                                              0) <=
-                                          0
-                                      ? 'معطل — كل السجلات قابلة للتعديل حسب الصلاحيات'
-                                      : 'السجلات الأقدم من ${st['auditLockDays']} يوماً '
-                                          'مقفلة ضد التعديل والحذف لغير المدير',
-                                ),
-                                trailing: const Icon(Icons.chevron_left),
-                                onTap: () async {
-                                  final v = await showQuickAmountPad(
-                                    context,
-                                    title: 'مدة القفل بالأيام (0 = تعطيل)',
-                                    initial: double.tryParse(
-                                        st['auditLockDays'] ?? '0'),
-                                    hint: 'مثال: 30',
-                                  );
-                                  if (v == null) return;
-                                  await ref.read(repoProvider).setSetting(
-                                      'auditLockDays',
-                                      '${v.toInt().clamp(0, 3650)}');
-                                  bump(ref);
-                                },
-                              ),
-                            ],
-                          ),
-                        ]),
-                        // [بطاقة الأمان والنسخ الاحتياطي وإعادة الضبط]
-                        _tabPage([
-                          _Collapsible(
-                            title: 'الأمان والخصوصية',
-                            icon: Icons.lock_outline,
-                            color: const Color(0xFFE11D48),
-                            children: [
-                                SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                secondary: const Icon(Icons.fingerprint),
-                                title: const Text('فتح التطبيق بالبصمة'),
-                                subtitle: Text(
-                                  _bioSupported
-                                      ? 'الوسائل المتاحة: $_bioLabel'
-                                      : 'غير متاحة — فعّل بصمة في إعدادات الجهاز',
-                                ),
-                                value: _bioSupported &&
-                                    (st['biometric'] ?? '0') == '1',
-                                onChanged: !_bioSupported
-                                    ? null
-                                    : (v) async {
-                                        if (v) {
-                                          final ok =
-                                              await Security.authenticate(
-                                            reason: 'أكّد بصمتك لتفعيل القفل',
-                                          );
-                                          if (!ok) {
-                                            if (context.mounted) {
-                                              showSnack(
-                                                  context, 'لم يتم التحقق');
-                                            }
-                                            return;
-                                          }
-                                        }
-                                        await ref.read(repoProvider).setSetting(
-                                            'biometric', v ? '1' : '0');
-                                        bump(ref);
-                                      },
-                              ),
-                              const Divider(height: 1),
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                secondary:
-                                    const Icon(Icons.lock_clock_outlined),
-                                title: const Text('القفل عند العودة للتطبيق'),
-                                subtitle:
-                                    const Text('يُطلب التحقق بعد كل تصغير'),
-                                value: (st['autoLock'] ?? '0') == '1',
-                                onChanged: (st['biometric'] ?? '0') != '1'
-                                    ? null
-                                    : (v) async {
-                                        await ref.read(repoProvider).setSetting(
-                                            'autoLock', v ? '1' : '0');
-                                        bump(ref);
-                                      },
-                              ),
-                            ],
-                          ),
-                          // (3.70 — المرحلة 3) النسخ الاحتياطي التلقائي المجدول:
-                          // [كل ساعتين / يومياً في وقت محدد] + لقطة محلية + Drive مجاني.
-                          if (canEditOrg || isIndividual) ...[
-                            const SizedBox(height: 18),
-                            const _AutoBackupSection(),
-                          ],
-                          if (!canEditOrg) ...[
-                            _Collapsible(
-                              title: 'نسخة احتياطية محلية',
-                              icon: Icons.save_outlined,
-                              color: AppColors.primary2,
-                              children: [
-                                ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(Icons.backup_outlined),
-                                  title: const Text(
-                                      'إنشاء نسخة احتياطية محلية الآن'),
-                                  subtitle: const Text(
-                                    'تُحفظ داخل مجلد التطبيق على هذا الجهاز فقط، '
-                                    'ولا يمكن استخدامها خارج مجموعتك.',
-                                    style:
-                                        TextStyle(fontSize: 11.5, height: 1.5),
-                                  ),
-                                  trailing: const Icon(Icons.chevron_left),
-                                  onTap: () => _createLocalBackup(context),
-                                ),
-                              ],
-                            ),
-                          ],
-                          const SizedBox(height: 18),
-                          // دمج وظائف الحذف والتعيين تحت اسم "إعادة الضبط والحذف"
-                          _Collapsible(
-                            title: 'إعادة الضبط والحذف',
-                            icon: Icons.warning_amber_rounded,
-                            color: const Color(0xFFDC2626),
-                            initiallyExpanded: false,
-                            children: [
-                              if (isIndividual && wsMode == 'standalone')
-                                const _DeleteAccountTile(),
-                              if (canEditOrg) ...[
-                                _GroupWipeTile(),
-                                const SizedBox(height: 8),
-                                const _DissolveGroupTile(),
-                              ],
-                              if (isDesktop) ...[
-                                const SizedBox(height: 8),
-                                const _FactoryResetTile(),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 18),
-                        ]),
-                        // [بطاقة إدارة النظام والمزامنة]
-                        _tabPage([
-                          // (استرداد طارئ — 1) «إرجاع الإدارة للمالك السابق»: بطاقة
-                          // بارزة أعلى الإعدادات على جهاز المالك الحالي (المستلم في
-                          // تسليم سابق) — مقصودة خارج أقسام الإدارة حتى تظهر حتى لو
-                          // تعطلت واجهات الإدارة على الأجهزة القديمة (أندرويد 7).
-                          if (ref.watch(handbackTargetProvider).valueOrNull
-                              case final String prevName) ...[
-                            Card(
-                              color: const Color(0xFFB45309)
-                                  .withValues(alpha: .08),
-                              child: ListTile(
-                                leading: const Icon(
-                                    Icons.assignment_return_outlined,
-                                    color: Color(0xFFB45309)),
-                                title: const Text(
-                                  'إرجاع إدارة مساحة العمل للمالك السابق',
-                                  style: TextStyle(fontWeight: FontWeight.w800),
-                                ),
-                                subtitle: Text(
-                                  'أنت المدير الحالي بعد تسليم سابق. بنقرة واحدة '
-                                  'تعود الإدارة إلى «$prevName» ويصله إشعار فوري.',
-                                  style: const TextStyle(
-                                      fontSize: 11.5, height: 1.5),
-                                ),
-                                trailing: const Icon(Icons.chevron_left),
-                                onTap: () =>
-                                    _handbackOwnership(context, prevName),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-                          // مسار الترقية من الوضع المستقل: تفعيل المزامنة وربط أجهزة —
-                          // يفتح معالج إنشاء المجموعة (يصبح هذا الجهاز مضيفاً) دون أي
-                          // فقدان للبيانات المحلية القائمة.
-                          // (قانون 2026-09-19) إنشاء المجموعات لحساب المؤسسة فقط —
-                          // إعدادات الفردي محصورة ولا يظهر له هذا المسار إطلاقاً.
-                          if (wsMode == 'standalone' && !isIndividual) ...[
-                            const SizedBox(height: 18),
-                            _Collapsible(
-                              title: 'المزامنة وربط الأجهزة',
-                              icon: Icons.hub_outlined,
-                              color: const Color(0xFF7C3AED),
-                              children: [
-                                Card(
-                                  child: ListTile(
-                                    leading: const Icon(Icons.sync_alt_rounded,
-                                        color: Color(0xFF7C3AED)),
-                                    title: const Text(
-                                        'تفعيل المزامنة وربط أجهزة أخرى'),
-                                    subtitle: const Text(
-                                      'حوّل هذا الجهاز إلى مضيف مجموعة واربط أجهزة '
-                                      'الكاشير والمحاسبين — كل بياناتك الحالية تبقى '
-                                      'كما هي وتُزامَن للأجهزة الجديدة.',
-                                      style: TextStyle(
-                                          fontSize: 11.5, height: 1.5),
-                                    ),
-                                    trailing: const Icon(Icons.chevron_left),
-                                    onTap: () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            const GroupManagementScreen(),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                          // (حساب Google) هوية المؤسسة الدائمة — للمدير/المستقل فقط.
-                          // (قانون 2026-09-19) إعدادات المؤسسة لا تظهر للفردي.
-                          if ((wsOwner || wsMode == 'standalone') &&
-                              !isIndividual) ...[
-                            const SizedBox(height: 18),
-                            const _Collapsible(
-                              title: 'حساب المؤسسة (Google)',
-                              icon: Icons.account_circle_outlined,
-                              color: Color(0xFF059669),
-                              children: [AccountSection()],
-                            ),
-                          ],
-                          // (الاشتراك) تفاصيل الاشتراك: للمدير فقط — حالة الترخيص
-                          // وتاريخ الانتهاء والوقت المتبقي وزر التجديد/الترقية.
-                          // (قانون 2026-09-19) إعدادات المؤسسة لا تظهر للفردي.
-                          if ((wsOwner || wsMode == 'standalone') &&
-                              !isIndividual) ...[
-                            const SizedBox(height: 18),
-                            const _Collapsible(
-                              title: 'تفاصيل الاشتراك',
-                              icon: Icons.workspace_premium_outlined,
-                              color: Color(0xFF7C3AED),
-                              children: [SubscriptionDetailsSection()],
-                            ),
-                          ],
-                          // (إدارة الموظفين) طلبات خروج الموظفين — للمدير والوكيل
-                          if (wsMode != 'standalone' &&
-                              (canEditOrg || userRole == UserRole.agent)) ...[
-                            const SizedBox(height: 18),
-                            _Collapsible(
-                              title: 'إدارة الموظفين',
-                              icon: Icons.badge_outlined,
-                              color: const Color(0xFF0284C7),
-                              children: [
-                                Card(
-                                  child: ListTile(
-                                    leading: const Icon(
-                                      Icons.fact_check_outlined,
-                                      color: Color(0xFF0284C7),
-                                    ),
-                                    title: const Text('طلبات خروج الموظفين'),
-                                    subtitle: const Text(
-                                      'مراجعة والموافقة على طلبات تسجيل خروج أو مغادرة أعضاء المجموعة.',
-                                      style: TextStyle(
-                                          fontSize: 11.5, height: 1.5),
-                                    ),
-                                    trailing: const Icon(Icons.chevron_left),
-                                    onTap: () =>
-                                        showLogoutRequestsSheet(ref),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                          // (الدعم والمساعدة) خدمة العملاء والدردشة المباشرة
-                          const SizedBox(height: 18),
-                          _Collapsible(
-                            title: 'الدعم والمساعدة',
-                            icon: Icons.support_agent_rounded,
-                            color: const Color(0xFF16A34A),
-                            children: [
-                              Card(
-                                color: AppColors.primarySoftOf(context),
-                                child: ListTile(
-                                  leading: Container(
-                                    width: 38,
-                                    height: 38,
-                                    decoration: BoxDecoration(
-                                      color: AppColors.primaryOf(context),
-                                      borderRadius: BorderRadius.circular(11),
-                                    ),
-                                    child: const Icon(
-                                      Icons.chat_bubble_outline_rounded,
-                                      color: Colors.white,
-                                      size: 20,
-                                    ),
-                                  ),
-                                  title: const Text(
-                                    'الدعم الفني والدردشة المباشرة',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  subtitle: const Text(
-                                    'محادثة مباشرة ومشفرة مع إدارة النظام داخل التطبيق (نص ورموز).',
-                                    style: TextStyle(
-                                        fontSize: 11.5, height: 1.5),
-                                  ),
-                                  trailing: const Icon(Icons.chevron_left_rounded),
-                                  onTap: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            const SupportChatScreen(),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Card(
-                                color: const Color(0xFFE7F7EE),
-                                child: ListTile(
-                                  leading: Container(
-                                    width: 38,
-                                    height: 38,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF25D366),
-                                      borderRadius: BorderRadius.circular(11),
-                                    ),
-                                    child: const Icon(
-                                      Icons.support_agent_rounded,
-                                      color: Colors.white,
-                                      size: 22,
-                                    ),
-                                  ),
-                                  title: const Text(
-                                    'خدمة العملاء (واتساب)',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14,
-                                      color: Color(0xFF128C4B),
-                                    ),
-                                  ),
-                                  subtitle: const Text(
-                                    'تواصل مباشر مع فريق الدعم الفني لأي مساعدة أو استفسار.',
-                                    style: TextStyle(
-                                        fontSize: 11.5,
-                                        height: 1.5,
-                                        color: Color(0xFF128C4B)),
-                                  ),
-                                  trailing: const Icon(
-                                    Icons.open_in_new_rounded,
-                                    color: Color(0xFF128C4B),
-                                  ),
-                                  onTap: () async {
-                                    final uri = Uri.parse(
-                                      'https://wa.me/967774190040?text=${Uri.encodeComponent('السلام عليكم، أحتاج الدعم الفني لتطبيق مدير الحسابات.')}',
-                                    );
-                                    final ok = await canLaunchUrl(uri);
-                                    if (ok) {
-                                      await launchUrl(
-                                        uri,
-                                        mode: LaunchMode.externalApplication,
-                                      );
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                          // (قانون 2026-09-19) شريط «الترقية إلى مؤسسة» أُزيل:
-                          // إعدادات الفردي محصورة — لا مسارات مؤسسة فيها.
-                          // (دفعة 65) الحساب الفردي: خيار «الانضمام إلى مؤسسة قائمة»
-                          // يبقى متاحاً ومستقلاً لمن يرغب بالعمل تحت إدارة متجر آخر.
-                          if (isIndividual && !hasEmailLinked && wsMode != 'member') ...[
-                            const SizedBox(height: 18),
-                            _Collapsible(
-                              title: 'الانضمام إلى مؤسسة قائمة',
-                              icon: Icons.group_add_outlined,
-                              color: const Color(0xFF7C3AED),
-                              children: [
-                                Card(
-                                  child: ListTile(
-                                    leading: const Icon(
-                                        Icons.group_add_outlined,
-                                        color: Color(0xFF7C3AED)),
-                                    title: const Text(
-                                        'الانضمام إلى مجموعة عبر السحابة'),
-                                    subtitle: const Text(
-                                      'امسح رمز QR أو أدخل رمز الدعوة — يُفعَّل بعد '
-                                      'موافقة المدير.',
-                                      style: TextStyle(
-                                          fontSize: 11.5, height: 1.5),
-                                    ),
-                                    trailing: const Icon(Icons.chevron_left),
-                                    onTap: () =>
-                                        startJoinApprovalFlow(context, ref),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                          if (!canEditOrg) ...[
-                            // (دفعة 58 — متطلب 11) «طلب مغادرة المجموعة»: يرسل طلباً
-                            // للمدير عبر السحابة، وبعد موافقته يُفَكّ ارتباط هذا الجهاز
-                            // نظيفاً ويعود مستقلاً.
-                            const SizedBox(height: 18),
-                            _Collapsible(
-                              title: 'مغادرة المجموعة',
-                              icon: Icons.logout,
-                              color: const Color(0xFFEA580C),
-                              children: [
-                                ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(Icons.logout,
-                                      color: Color(0xFFEA580C)),
-                                  title: const Text('طلب مغادرة المجموعة'),
-                                  subtitle: const Text(
-                                    'يُرسل طلبك إلى المدير، وبعد موافقته يُفصل جهازك '
-                                    'عن المجموعة وتُحذف بياناتها من جهازك ويعود مستقلاً.',
-                                    style:
-                                        TextStyle(fontSize: 11.5, height: 1.5),
-                                  ),
-                                  trailing: const Icon(Icons.chevron_left),
-                                  onTap: () => _requestLeaveGroup(context),
-                                ),
-                              ],
-                            ),
-                            // (استرداد طارئ — 2) الاسترداد السيادي للمنشئ: هذا
-                            // الجهاز أنشأ المساحة لكنه ليس المالك حالياً — خيار
-                            // أمان دائم لاسترداد الملكية دون تدخل يدوي في Firebase.
-                            if (ref
-                                    .watch(creatorRecoveryProvider)
-                                    .valueOrNull ==
-                                true) ...[
-                              const SizedBox(height: 18),
-                              _Collapsible(
-                                title: 'استرداد ملكية مساحة العمل',
-                                icon: Icons.workspace_premium_outlined,
-                                color: const Color(0xFF7C3AED),
-                                children: [
-                                  ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: const Icon(Icons.workspace_premium,
-                                        color: Color(0xFF7C3AED)),
-                                    title:
-                                        const Text('استرداد ملكية مساحة العمل'),
-                                    subtitle: const Text(
-                                      'أنت منشئ هذه المساحة. إن فقدت الإدارة لأي '
-                                      'سبب يمكنك استردادها فوراً — يُحدَّث السجل '
-                                      'السحابي وتُبثّ الاستعادة لكل الأجهزة.',
-                                      style: TextStyle(
-                                          fontSize: 11.5, height: 1.5),
-                                    ),
-                                    trailing: const Icon(Icons.chevron_left),
-                                    onTap: () => _creatorRecover(context),
-                                  ),
-                                ],
-                              ),
-                            ],
-                            // (صمام أمان) استرجاع الإدارة: يظهر للمدير السابق فقط
-                            // خلال 24 ساعة من التسليم — ينقذ الموقف إذا تعثر تفعيل
-                            // الإدارة على الجهاز المستلم (جهاز قديم/أندرويد 7).
-                            if (ref
-                                    .watch(reclaimOwnershipProvider)
-                                    .valueOrNull ==
-                                true) ...[
-                              const SizedBox(height: 18),
-                              _Collapsible(
-                                title: 'استرجاع الإدارة (صمام الأمان)',
-                                icon: Icons.settings_backup_restore_rounded,
-                                color: const Color(0xFFB45309),
-                                children: [
-                                  ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: const Icon(
-                                        Icons.admin_panel_settings_outlined,
-                                        color: Color(0xFFB45309)),
-                                    title: const Text('استرجاع إدارة المجموعة'),
-                                    subtitle: const Text(
-                                      'سلّمت الإدارة مؤخراً ولم تُفعَّل على الجهاز '
-                                      'الجديد؟ يمكنك استعادتها من هنا خلال 24 ساعة '
-                                      'من التسليم — تُبثّ الاستعادة لكل الأجهزة.',
-                                      style: TextStyle(
-                                          fontSize: 11.5, height: 1.5),
-                                    ),
-                                    trailing: const Icon(Icons.chevron_left),
-                                    onTap: () => _reclaimOwnership(context),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ],
-                          const UpdateSection(),
-                          const SizedBox(height: 18),
-                          Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    'مدير الحسابات',
-                                    style:
-                                        Theme.of(context).textTheme.titleMedium,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '$appVersionLabel — تطبيق أصلي بالكامل',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.text3Of(context),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'موجب (+) = مستحق لنا «عليه»  ·  سالب (−) = مستحق منا «له»',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      height: 1.6,
-                                      color: AppColors.text3Of(context),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ]),
+                  ],
+                ),
 
+                // 2. العملة والترقيم
+                _Collapsible(
+                  title: 'العملة والترقيم',
+                  icon: Icons.currency_exchange,
+                  color: AppColors.primary2,
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.currency_exchange),
+                      title: const Text('العملة الافتراضية'),
+                      subtitle: Text(st['defaultCurrency'] ?? 'YER'),
+                      trailing: const Icon(Icons.chevron_left),
+                      onTap: () async {
+                        final v = await showModalBottomSheet<String>(
+                          context: context,
+                          builder: (_) => SafeArea(
+                            child: ListView(
+                              shrinkWrap: true,
+                              children: [
+                                for (final c in currencies)
+                                  ListTile(
+                                    title: Text('${c.symbol}  ${c.name}'),
+                                    onTap: () => Navigator.pop(context, c.code),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                        if (v != null) {
+                          await ref.read(repoProvider).setSetting('defaultCurrency', v);
+                          bump(ref);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+
+                // 3. خيارات العمليات والسندات
+                _Collapsible(
+                  title: 'خيارات العمليات والسندات',
+                  icon: Icons.receipt_long_outlined,
+                  color: const Color(0xFF0EA5E9),
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.swap_horiz),
+                      title: const Text('نوع العملية الافتراضي'),
+                      subtitle: const Text('يُختار تلقائياً عند فتح شاشة إضافة عملية'),
+                      trailing: DropdownButton<String>(
+                        value: st['defaultOp'] ?? 'inflow',
+                        underline: const SizedBox.shrink(),
+                        items: const [
+                          DropdownMenuItem(value: 'inflow', child: Text('قبض (دفعة)')),
+                          DropdownMenuItem(value: 'debit', child: Text('عليه (دين آجل)')),
+                          DropdownMenuItem(value: 'outflow', child: Text('صرف')),
+                          DropdownMenuItem(value: 'credit', child: Text('له (دائن)')),
+                          DropdownMenuItem(value: 'revenue', child: Text('إيراد')),
+                          DropdownMenuItem(value: 'expense', child: Text('مصروف')),
+                        ],
+                        onChanged: (v) async {
+                          if (v == null) return;
+                          await ref.read(repoProvider).setSetting('defaultOp', v);
+                          bump(ref);
+                        },
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.lock_clock_outlined),
+                      title: const Text('قفل السجلات المالية القديمة'),
+                      subtitle: Text(
+                        (int.tryParse(st['auditLockDays'] ?? '0') ?? 0) <= 0
+                            ? 'معطل — كل السجلات قابلة للتعديل حسب الصلاحيات'
+                            : 'السجلات الأقدم من ${st['auditLockDays']} يوماً مقفلة ضد التعديل والحذف',
+                      ),
+                      trailing: const Icon(Icons.chevron_left),
+                      onTap: () async {
+                        final v = await showQuickAmountPad(
+                          context,
+                          title: 'مدة القفل بالأيام (0 = تعطيل)',
+                          initial: double.tryParse(st['auditLockDays'] ?? '0'),
+                          hint: 'مثال: 30',
+                        );
+                        if (v == null) return;
+                        await ref.read(repoProvider).setSetting('auditLockDays', '${v.toInt().clamp(0, 3650)}');
+                        bump(ref);
+                      },
+                    ),
+                  ],
+                ),
+
+                // 4. الأمان والخصوصية
+                _Collapsible(
+                  title: 'الأمان والخصوصية',
+                  icon: Icons.lock_outline,
+                  color: const Color(0xFFE11D48),
+                  children: [
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(Icons.fingerprint),
+                      title: const Text('فتح التطبيق بالبصمة'),
+                      subtitle: Text(
+                        _bioSupported
+                            ? 'الوسائل المتاحة: $_bioLabel'
+                            : 'غير متاحة — فعّل بصمة في إعدادات الجهاز',
+                      ),
+                      value: _bioSupported && (st['biometric'] ?? '0') == '1',
+                      onChanged: !_bioSupported
+                          ? null
+                          : (v) async {
+                              if (v) {
+                                final ok = await Security.authenticate(reason: 'أكّد بصمتك لتفعيل القفل');
+                                if (!ok) {
+                                  if (context.mounted) showSnack(context, 'لم يتم التحقق');
+                                  return;
+                                }
+                              }
+                              await ref.read(repoProvider).setSetting('biometric', v ? '1' : '0');
+                              bump(ref);
+                            },
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(Icons.lock_clock_outlined),
+                      title: const Text('القفل عند العودة للتطبيق'),
+                      subtitle: const Text('يُطلب التحقق بعد كل تصغير'),
+                      value: (st['autoLock'] ?? '0') == '1',
+                      onChanged: (st['biometric'] ?? '0') != '1'
+                          ? null
+                          : (v) async {
+                              await ref.read(repoProvider).setSetting('autoLock', v ? '1' : '0');
+                              bump(ref);
+                            },
+                    ),
+                  ],
+                ),
+
+                // 5. النسخ الاحتياطي التلقائي أو المحلي
+                if (canEditOrg || isIndividual) ...[
+                  const _AutoBackupSection(),
+                ],
+                if (!canEditOrg) ...[
+                  _Collapsible(
+                    title: 'نسخة احتياطية محلية',
+                    icon: Icons.save_outlined,
+                    color: AppColors.primary2,
+                    children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.backup_outlined),
+                        title: const Text('إنشاء نسخة احتياطية محلية الآن'),
+                        subtitle: const Text(
+                          'تُحفظ داخل مجلد التطبيق على هذا الجهاز فقط',
+                          style: TextStyle(fontSize: 11.5),
+                        ),
+                        trailing: const Icon(Icons.chevron_left),
+                        onTap: () => _createLocalBackup(context),
+                      ),
+                    ],
+                  ),
+                ],
+
+                // 6. تفاصيل الاشتراك
+                if (wsOwner || wsMode == 'standalone') ...[
+                  const _Collapsible(
+                    title: 'تفاصيل الاشتراك',
+                    icon: Icons.workspace_premium_outlined,
+                    color: Color(0xFF7C3AED),
+                    children: [SubscriptionDetailsSection()],
+                  ),
+                ],
+
+                // 7. الدعم والمساعدة
+                _Collapsible(
+                  title: 'الدعم والمساعدة',
+                  icon: Icons.support_agent_rounded,
+                  color: const Color(0xFF16A34A),
+                  children: [
+                    Card(
+                      color: AppColors.primarySoftOf(context),
+                      child: ListTile(
+                        leading: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryOf(context),
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 20),
+                        ),
+                        title: const Text('الدعم الفني والدردشة المباشرة', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                        subtitle: const Text('محادثة مباشرة ومشفرة مع إدارة النظام داخل التطبيق.', style: TextStyle(fontSize: 11.5)),
+                        trailing: const Icon(Icons.chevron_left_rounded),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const SupportChatScreen()),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Card(
+                      color: const Color(0xFFE7F7EE),
+                      child: ListTile(
+                        leading: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF25D366),
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: const Icon(Icons.support_agent_rounded, color: Colors.white, size: 22),
+                        ),
+                        title: const Text(
+                          'خدمة العملاء (واتساب)',
+                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF128C4B)),
+                        ),
+                        subtitle: const Text(
+                          'تواصل مباشر مع فريق الدعم الفني لأي مساعدة أو استفسار.',
+                          style: TextStyle(fontSize: 11.5, color: Color(0xFF128C4B)),
+                        ),
+                        trailing: const Icon(Icons.open_in_new_rounded, color: Color(0xFF128C4B)),
+                        onTap: () async {
+                          final uri = Uri.parse('https://wa.me/967774190040?text=${Uri.encodeComponent('السلام عليكم، أحتاج الدعم الفني لتطبيق مدير الحسابات.')}');
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+                const UpdateSection(),
+                const SizedBox(height: 18),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Text('مدير الحسابات', style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 4),
+                        Text('$appVersionLabel — تطبيق أصلي بالكامل', style: TextStyle(fontSize: 12, color: AppColors.text3Of(context))),
                       ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
               // شريط حفظ عائم يظهر فور أي تعديل غير محفوظ.
               if (_dirty)
                 Positioned(
@@ -1266,7 +826,7 @@ class _Collapsible extends StatelessWidget {
   final IconData icon;
   final Color? color;
   final List<Widget> children;
-  final bool initiallyExpanded; // لم تعد ذات أثر — البطاقات مفتوحة دائماً
+  final bool initiallyExpanded;
   const _Collapsible({
     required this.title,
     required this.icon,
@@ -1275,24 +835,16 @@ class _Collapsible extends StatelessWidget {
     this.initiallyExpanded = false,
   });
 
-  /// وصف سطر واحد لكل بطاقة — تصنيف واضح بلا حشو.
+  /// وصف سطر واحد لكل بطاقة.
   static const Map<String, String> _subs = {
-    'بيانات المؤسسة': 'اسم النشاط وبيانات المنشأة والعنوان',
-    'العملة والترقيم': 'العملة الافتراضية لكل العمليات والفواتير',
-    'المبيعات والسندات': 'خيارات الفواتير والبيع والسندات والتنبيهات',
+    'المظهر والأصوات': 'حجم الخط، الوضع الليلي، والأصوات والاهتزاز',
+    'العملة والترقيم': 'العملة الافتراضية لكل العمليات والسندات',
+    'المبيعات والسندات': 'نوع العملية الافتراضي وقفل السجلات المالية',
     'الأمان والخصوصية': 'قفل الشاشة والبصمة وحماية التطبيق',
-    'إعادة الضبط والحذف': 'حذف الحساب أو تهيئة المجموعة وإعادة الضبط',
-    'المزامنة وربط الأجهزة': 'حوّل الجهاز إلى مضيف مجموعة واربط الأجهزة',
-    'حساب المؤسسة (Google)': 'الهوية الدائمة للمنشأة وربط حساب Google',
     'تفاصيل الاشتراك': 'حالة الترخيص والمقاعد وتاريخ الانتهاء',
-    'الانضمام إلى مؤسسة قائمة': 'انضم عبر QR أو رمز دعوة بموافقة المدير',
-    'إدارة الموظفين': 'مراجعة طلبات خروج ومغادرة أعضاء المجموعة',
-    'الدعم والمساعدة': 'التواصل المباشر مع الدعم الفني وخدمة العملاء',
-    'نسخة احتياطية محلية': 'نسخة داخل مجلد التطبيق على هذا الجهاز فقط',
-    'مغادرة المجموعة': 'طلب مغادرة بموافقة المدير وفك ارتباط نظيف',
-    'استرداد ملكية مساحة العمل': 'استرجاع ملكية منشأتك فوراً وبثّها للأجهزة',
-    'استرجاع الإدارة (صمام الأمان)': 'استعادة الإدارة خلال 24 ساعة من التسليم',
     'النسخ الاحتياطي التلقائي': 'جدولة النسخ (كل ساعتين/يومياً) ووجهة Drive',
+    'نسخة احتياطية محلية': 'نسخة داخل مجلد التطبيق على هذا الجهاز فقط',
+    'الدعم والمساعدة': 'التواصل المباشر مع الدعم الفني وخدمة العملاء',
   };
 
   @override
@@ -1303,60 +855,47 @@ class _Collapsible extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: AppColors.surfaceOf(context),
-        // (2026-09-24) هوية حديثة: ظل ناعم خفيف بدل الحدود السميكة.
         borderRadius: BorderRadius.circular(AppRadius.card),
         boxShadow: AppShadows.card(Theme.of(context).colorScheme),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 2),
-            child: Row(
-              children: [
-                // أيقونة دائرية ملوّنة داخل الكرت المجمّع.
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: c.withValues(alpha: .12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, color: c, size: 22),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w800, fontSize: 15),
-                      ),
-                      if (sub != null)
-                        Text(
-                          sub,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            height: 1.4,
-                            color: AppColors.text3Of(context),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: initiallyExpanded,
+          shape: const Border(),
+          collapsedShape: const Border(),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          leading: Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: c.withValues(alpha: .12),
+              shape: BoxShape.circle,
             ),
+            child: Icon(icon, color: c, size: 22),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 6, 14, 14),
-            child: Column(
-              // (2026-09-24) كل سطر يحمل أيقونة دائرية ملوّنة متناسقة.
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
+          ),
+          subtitle: sub != null
+              ? Text(
+                  sub,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    height: 1.4,
+                    color: AppColors.text3Of(context),
+                  ),
+                )
+              : null,
+          trailing: Icon(Icons.keyboard_arrow_down_rounded, color: c, size: 24),
+          children: [
+            Column(
               children: [for (final w in children) _decorate(w, c)],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
