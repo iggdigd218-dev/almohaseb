@@ -21,7 +21,6 @@ import '../data/sync/cloud_join.dart';
 import '../data/sync/firebase_auth_service.dart';
 import '../data/sync/google_auth_service.dart';
 import 'account_section.dart' show provisionCloudAfterSignIn;
-import 'group_management_screen.dart';
 import 'home_shell.dart';
 import 'lock_gate.dart';
 
@@ -112,17 +111,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// الانتقال إلى الشاشة الرئيسية (وإلى معالج المجموعة عند الاختيار الشبكي).
   Future<void> _finishAndNavigate() async {
     if (!mounted) return;
-    final nav = Navigator.of(context);
-    final goNetwork = _choice == 'network';
-    nav.pushReplacement(
+    Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const LockGate(child: HomeShell())),
     );
-    if (goNetwork) {
-      // معالج المجموعة الموجود (إنشاء عبر QR/سحابة أو انضمام بالمسح).
-      nav.push(
-        MaterialPageRoute(builder: (_) => const GroupManagementScreen()),
-      );
-    }
   }
 
   /// المتابعة بدون حساب Google — عمل محلي كامل (المحلية أولاً).
@@ -502,10 +493,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         icon: Icons.devices_rounded,
         bigIcon: Icons.hub_rounded,
         color: const Color(0xFF0EA5E9),
-        title: 'ربط شبكي / متجر متعدد الأجهزة',
-        badge: 'مزامنة وتعاون',
-        description: 'اربط أكثر من جهاز على نفس الحسابات: مدير وكاشير '
-            'ومدخل بيانات — مزامنة فورية تلقائية بين الجميع.',
+        title: 'مزامنة بين أجهزتي',
+        badge: 'حساب Google',
+        description: 'اربط حساب Google فتتزامن دفاترك بين أجهزتك '
+            'وتُحفظ نسخة احتياطية على السحابة وDrive.',
         onTap: () => _openModeWindow('network'),
       );
 

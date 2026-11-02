@@ -8,10 +8,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../core/app_version.dart';
 import '../core/security.dart';
-import '../core/sfx.dart';
 import '../core/theme.dart';
 import '../data/providers.dart';
-import '../data/repository.dart';
 import '../data/sync/auto_backup.dart';
 import 'trial_ui.dart' show SubscriptionDetailsSection;
 import 'update_section.dart';

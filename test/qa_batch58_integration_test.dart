@@ -231,6 +231,6 @@ void main() {
     // الاستعلامات الأساسية سليمة (لا أعمدة مفقودة).
     await repoA.transactions();
     await repoA.accounts();
-    await repoA.users();
+    await repoA.database; // (استعلام مباشر) جدول users لا يعدّ كائنات بعد الآن
   });
 }

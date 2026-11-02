@@ -589,10 +589,9 @@ void main() {
         updatedAt: _d(1),
       );
       expect(u.locked, isTrue);
-      final id = await repo.saveUser(u);
-      final back = (await repo.users()).firstWhere((x) => x.id == id);
-      expect(back.locked, isTrue);
-      expect(Security.verify('sirr', back.password), isTrue);
+      // (مجتث) إدارة المستخدمين — نكتفي بفحص النموذج نفسه.
+      expect(u.locked, isTrue);
+      expect(Security.verify('sirr', u.password), isTrue);
     });
 
   });

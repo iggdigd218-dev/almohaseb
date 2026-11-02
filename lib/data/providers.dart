@@ -9,7 +9,6 @@ import '../core/accounting.dart';
 import '../core/format.dart';
 import '../core/media_paths.dart';
 import '../core/models.dart';
-import '../core/rbac.dart';
 import 'repository.dart';
 import 'sync/device_id.dart';
 import 'sync/google_auth_service.dart';
@@ -281,16 +280,6 @@ final unreadCountProvider = FutureProvider<int>((ref) async {
       .timeout(const Duration(seconds: 8), onTimeout: () => 0);
 });
 
-/// عدد رسائل الدردشة غير المقروءة (شارة أيقونة الدردشة) —
-/// المكان الرسمي الوحيد لعدّ رسائل الدردشة (لا تدخل جدول الإشعارات).
-final unreadChatProvider = FutureProvider<int>((ref) async {
-  ref.watch(refreshProvider);
-  return ref
-      .read(repoProvider)
-      .unreadChatMessages()
-      .timeout(const Duration(seconds: 8), onTimeout: () => 0);
-});
-
 /// سجل النشاط.
 final activityProvider = FutureProvider<List<Map<String, Object?>>>((
   ref,
@@ -487,14 +476,6 @@ final vouchersProvider = FutureProvider<List<Voucher>>((ref) async {
 
 // ==================== المستخدمون ====================
 
-final usersProvider = FutureProvider<List<AppUser>>((ref) async {
-  ref.watch(refreshProvider);
-  return ref
-      .watch(repoProvider)
-      .users()
-      .timeout(const Duration(seconds: 8), onTimeout: () => []);
-});
-
 final currentUserProvider = FutureProvider<AppUser?>((ref) async {
   ref.watch(refreshProvider);
   return ref
@@ -635,41 +616,6 @@ final countsProvider = FutureProvider<Map<String, int>>((ref) async {
       .timeout(const Duration(seconds: 8), onTimeout: () => <String, int>{});
 });
 
-// ==================== الدردشة ====================
-
-final conversationsProvider = FutureProvider<List<Map<String, Object?>>>((
-  ref,
-) async {
-  ref.watch(refreshProvider);
-  return ref
-      .watch(repoProvider)
-      .conversations()
-      .timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => <Map<String, Object?>>[],
-      );
-});
-
-final messagesProvider = FutureProvider.family<List<ChatMessage>, int>((
-  ref,
-  convId,
-) async {
-  ref.watch(refreshProvider);
-  return ref
-      .watch(repoProvider)
-      .messages(convId)
-      .timeout(const Duration(seconds: 8), onTimeout: () => const []);
-});
-
-/// قائمة الأجهزة المرتبطة (تحتاج صلاحية manage_users).
-final devicesProvider = FutureProvider<List<Map<String, Object?>>>((ref) async {
-  ref.watch(refreshProvider);
-  return ref
-      .read(repoProvider)
-      .devices()
-      .timeout(const Duration(seconds: 8), onTimeout: () => []);
-});
-
 /// وضع المساحة الحالي: standalone/host/member.
 final workspaceModeProvider = FutureProvider<String>((ref) async {
   ref.watch(refreshProvider);
@@ -747,81 +693,6 @@ final drawerPhotoProvider = FutureProvider<String?>((ref) async {
   }
 });
 
-/// (صمام أمان) هل يحق لهذا الجهاز استرجاع الإدارة بعد تسليم متعثر؟
-/// متاح للمدير السابق فقط خلال 24 ساعة من التسليم.
-final reclaimOwnershipProvider = FutureProvider<bool>((ref) async {
-  ref.watch(refreshProvider);
-  return ref
-      .read(repoProvider)
-      .reclaimOwnershipAvailable()
-      .timeout(const Duration(seconds: 8), onTimeout: () => false);
-});
-
-/// (استرداد طارئ) هل هذا الجهاز هو منشئ المساحة المسجل سحابياً وليس
-/// المالك الحالي؟ — يُظهر خيار «استرداد ملكية مساحة العمل».
-final creatorRecoveryProvider = FutureProvider<bool>((ref) async {
-  ref.watch(refreshProvider);
-  return ref
-      .read(repoProvider)
-      .creatorRecoveryAvailable()
-      .timeout(const Duration(seconds: 12), onTimeout: () => false);
-});
-
-/// (استرداد طارئ) اسم المدير السابق إن كان يمكن إرجاع الإدارة إليه من
-/// هذا الجهاز (نحن المالك الحالي بعد تسليم سابق) — null يخفي الخيار.
-final handbackTargetProvider = FutureProvider<String?>((ref) async {
-  ref.watch(refreshProvider);
-  try {
-    final repo = ref.read(repoProvider);
-    if (!await repo.isWorkspaceOwner()) return null;
-    if (await repo.workspaceMode() == 'standalone') return null;
-    final db = await repo.database;
-    // المدير السابق المعروف من آخر نقل ملكية وصلنا.
-    final mem = await db.query(
-      'sync_meta',
-      where: "key = 'prevOwnerDeviceId'",
-      limit: 1,
-    );
-    String prev = mem.isNotEmpty ? '${mem.first['value']}' : '';
-    if (prev.isEmpty) {
-      final ops = await db.query(
-        'operations',
-        where: "entity_id = 'ownershipTransfer'",
-        orderBy: 'timestamp DESC',
-        limit: 5,
-      );
-      for (final o in ops) {
-        try {
-          final v = jsonDecode(
-            '${(jsonDecode('${o['payload']}') as Map)['value']}',
-          );
-          final cand = '${v['previous_owner_device_id'] ?? ''}';
-          if (cand.isNotEmpty) {
-            prev = cand;
-            break;
-          }
-        } catch (_) {}
-      }
-    }
-    if (prev.isEmpty) return null;
-    final rows = await db.query(
-      'devices',
-      where: 'id = ?',
-      whereArgs: [prev],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    // لا نعرض الخيار إن كان «السابق» هو جهازنا نفسه.
-    try {
-      if (prev == repo.requireDeviceId) return null;
-    } catch (_) {}
-    final name = '${rows.first['name'] ?? ''}'.trim();
-    return name.isEmpty ? 'المدير السابق' : name;
-  } catch (_) {
-    return null;
-  }
-});
-
 /// دور المستخدم/الجهاز الحالي (للعرض في الشارة أعلى الشاشة).
 final deviceRoleProvider = FutureProvider<AppUser?>((ref) async {
   ref.watch(refreshProvider);
@@ -834,14 +705,6 @@ final canProvider = FutureProvider.family<bool, String>((ref, perm) async {
   final user = await ref.watch(currentUserProvider.future);
   if (user == null || !user.active) return false;
   return user.can(perm);
-});
-
-/// الصلاحيات الفعالة الشاملة للمستخدم الحالي بالجلسة
-final effectivePermissionsProvider =
-    FutureProvider<EffectivePermissions>((ref) async {
-  ref.watch(refreshProvider);
-  ref.watch(currentUserProvider);
-  return ref.watch(repoProvider).effectivePermissions();
 });
 
 // ---------- شاشة العمليات المتزامنة ----------
@@ -1135,12 +998,6 @@ final groupPeersProvider = FutureProvider<List<GroupPeer>>((ref) async {
     );
   }
   return out;
-});
-
-/// رسائل دردشة المجموعة.
-final groupMessagesProvider = FutureProvider<List<ChatMessage>>((ref) async {
-  ref.watch(refreshProvider);
-  return ref.read(repoProvider).groupMessages();
 });
 
 /// ملخّص أعداد حالات المزامنة (للشارة والبطاقات العلوية).

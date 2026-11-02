@@ -76,68 +76,6 @@ void main() {
     });
   });
 
-  group('الطرد الكامل — تطهير الدردشة', () {
-    test('expelDevice يحذف محادثة القرين الفردية ورسائلها', () async {
-      final now = DateTime.now().toIso8601String();
-      await db.insert('devices', {
-        'id': 'DEVICE-EVICT01',
-        'workspace_id': 'default',
-        'name': 'جهاز مطرود',
-        'is_paired': 1,
-        'is_owner': 0,
-        'created_at': now,
-        'updated_at': now,
-      });
-      final convId = await repo.conversationForPeer(
-          'DEVICE-EVICT01', 'جهاز مطرود');
-      await db.insert('messages', {
-        'conversation_id': convId,
-        'workspace_id': 'default',
-        'sender': 'DEVICE-EVICT01',
-        'body': 'رسالة قديمة',
-        'kind': 'text',
-        'created_at': now,
-      });
-      await repo.expelDevice('DEVICE-EVICT01');
-      expect(
-          await db.query('conversations',
-              where: "title = 'peer:DEVICE-EVICT01'"),
-          isEmpty,
-          reason: 'المحادثة الفردية تُحذف كلياً');
-      expect(
-          await db.query('messages',
-              where: 'conversation_id = ?', whereArgs: [convId]),
-          isEmpty,
-          reason: 'رسائل المطرود تُطهَّر');
-      // (قانون 2026-09-22 — الطرد الكامل) صفه يُحذف من سجل المجموعة
-      // نهائياً بدل الاكتفاء بوسمه مفصولاً: لا يبقى له أثر يُعدّ جهازاً
-      // مرتبطاً ولا مقعداً محجوزاً.
-      expect(
-          await db.query('devices', where: "id = 'DEVICE-EVICT01'"),
-          isEmpty,
-          reason: 'الطرد يمحو صف الجهاز من المجموعة');
-    });
-
-    test('groupPeersProvider يستبعد المطرودين (فلتر expelled_at قائم)',
-        () async {
-      // التحقق من شرط SQL نفسه: المطرود لا يظهر في أي قائمة أقران.
-      final now = DateTime.now().toIso8601String();
-      await db.insert('devices', {
-        'id': 'DEVICE-EVICT02',
-        'workspace_id': 'default',
-        'name': 'شبح',
-        'is_paired': 0,
-        'expelled_at': now,
-        'revoked_at': now,
-        'created_at': now,
-        'updated_at': now,
-      });
-      final visible = await db.query('devices',
-          where: "COALESCE(expelled_at,'') = ''");
-      expect(visible.map((d) => d['id']),
-          isNot(contains('DEVICE-EVICT02')));
-    });
-  });
 
   group('الإبطال من جهة العميل — العودة للإعداد الأول', () {
     test('resetToStandaloneAfterExpulsion يمسح onboarding وإعدادات السحابة',

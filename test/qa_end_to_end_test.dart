@@ -135,9 +135,9 @@ void main() {
             home: const HomeShell(),
           )));
       await _drain(tester);
-      // (2026-09-22) زر الإضافة السريعة (+) يظهر في الشاشة الرئيسية فقط:
-      // نفتح ورقة الإجراء السريع من لوحة التحكم مباشرة، ثم ننتقل لقسم
-      // العمليات بعد الحفظ للتحقق من القائمة.
+      // (دفتر الحسابات الخالص) التطبيق يفتح مباشرة على شاشة العملاء —
+      // زر الإضافة السريع (+) ظاهر فيها؛ نفتح ورقة الإجراء السريع ثم
+      // ننتقل لتبويب الحركات بعد الحفظ للتحقق من القائمة.
       final fab = find.text('عملية');
       await _waitFor(tester, fab);
       await tester.ensureVisible(fab);
@@ -182,35 +182,30 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       expect(find.byType(TxForm), findsNothing);
-      // شاشة العمليات تُفتح من الشريط الجانبي ببلاطة «العمليات» —
-      // بعد الحفظ من الرئيسية. نفتح الدرج أولًا ثم نطابق البلاطة داخله
-      // حصراً (لا نعتمد على بناء عناصر بعيدة في ListView اللوحة).
-      // (استقرار CI) بعد إغلاق نموذج العملية قد تبقى طبقة عابرة فوق
-      // الشريط العلوي (انتقال المسار/إشعار) تمتص أول نقرة — نعيد المحاولة
-      // حتى يفتح الدرج فعلياً بدل الاعتماد على نقرة واحدة.
+      // (دفتر الحسابات الخالص) بعد الحفظ يظهر حوار مشاركة السند — نغلقه
+      // أولًا حتى لا يحجب نقرات الشريط السفلي.
+      final closeBtn = find.text('إغلاق');
       for (var i = 0;
-          i < 40 && find.byType(Drawer).evaluate().isEmpty;
+          i < 40 && closeBtn.evaluate().isNotEmpty;
           i++) {
-        await tester.tap(find.byIcon(Icons.menu).first,
-            warnIfMissed: false);
+        await tester.tap(closeBtn.last, warnIfMissed: false);
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 80)));
         await tester.pump(const Duration(milliseconds: 120));
       }
-      final txTile = find.descendant(
-        of: find.byType(Drawer),
-        matching: find.text('العمليات'),
-      );
-      await _waitFor(tester, txTile);
-      await tester.ensureVisible(txTile);
-      // (إصلاح CI 2026-09-22) pumpAndSettle لا يستقر على آلات CI البطيئة
-      // فينتهي بمهلة ويُسقط الاختبار بلا عطل حقيقي — نضخ إطارات مقيّدة
-      // حتى تهدأ الحركة (نفس معالجة التذبذب السابقة في هذا الملف).
-      for (var i = 0; i < 25; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
+      // شاشة الحركات تُفتح من الشريط السفلي — لا واجهة رئيسية ولا بلاطة درج.
+      final txTab = find.text('الحركات');
+      await _waitFor(tester, txTab);
+      // (استقرار CI) بعد إغلاق النموذج قد تبقى طبقة عابرة تمتص أول نقرة —
+      // نعيد المحاولة حتى تظهر بطاقة العملية في قائمة الحركات.
+      for (var i = 0;
+          i < 40 && find.textContaining('QA UI SAVE').evaluate().isEmpty;
+          i++) {
+        await tester.tap(txTab, warnIfMissed: false);
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 80)));
+        await tester.pump(const Duration(milliseconds: 120));
       }
-      await tester.tap(txTile, warnIfMissed: false);
-      await _drain(tester);
       // (إصلاح CI 2026-09-19 — تذبذب QA-E2E) انتظار مقيّد بدل pump ثابت:
       // على آلات CI البطيئة قد يتأخر انعكاس البطاقة في القائمة عن المهلة
       // الثابتة فيسقط الاختبار أحمر بلا عطل حقيقي. نضخ إطارات حتى تظهر

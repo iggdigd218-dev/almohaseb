@@ -189,18 +189,7 @@ void main() {
     expect(await repoB.importAll(ownBackup), greaterThan(0));
   });
 
-  test('QA-MM-07 local backup export works without export permission',
-      () async {
-    // مستخدم بلا أي صلاحيات.
-    await a.update('users', {'role': 'viewer', 'permissions': ''},
-        where: 'id = 1');
-    await a.insert(
-        'sync_meta',
-        {'key': 'workspaceMode', 'value': 'member'},
-        conflictAlgorithm: ConflictAlgorithm.replace);
-    final payload = await repoA.exportForLocalBackup();
-    expect(payload['app'], 'nexora');
-    // بينما التصدير العادي (الذي يغادر الجهاز) يُرفض.
-    await expectLater(repoA.exportAll(), throwsA(isA<StateError>()));
-  });
+  // (دفتر الحسابات الخالص 2026-11-02) حُذف QA-MM-07 «التصدير بلا صلاحية
+  // تصدير» — منظومة الأدوار/الصلاحيات (RBAC) اجتُثت بأمر المالك:
+  // المالك يملك كل شيء وexportAll لم يعد يرفض StateError.
 }

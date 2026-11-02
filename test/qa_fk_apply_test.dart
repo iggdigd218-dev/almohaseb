@@ -5,7 +5,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nexora_app/core/database.dart';
 import 'package:nexora_app/core/models.dart';
-import 'package:nexora_app/core/rbac.dart';
 import 'package:nexora_app/data/repository.dart';
 import 'package:nexora_app/data/sync/apply_remote.dart';
 import 'package:nexora_app/data/sync/conflict_resolver.dart';
@@ -160,25 +159,8 @@ void main() {
     await repo.setSetting('account.type', 'enterprise');
 
     final me = await repo.currentUser();
-    expect(me, isNotNull, reason: 'المالك لا يُقفل: لا شارة «بلا صلاحية»');
+    expect(me, isNotNull, reason: 'المالك موجود دائماً');
     expect(me!.role, UserRole.admin);
-    final perms = await repo.effectivePermissions();
-    expect(perms.isActive, isTrue);
-    expect(perms.isAdmin, isTrue);
-    expect(perms.canDeleteTx, isTrue);
-
-    final rows =
-        await db.query('user_permissions', where: 'user_email = ?', whereArgs: [
-      'owner@qa.test'
-    ]);
-    expect(rows.length, 1, reason: 'صف الصلاحيات يُحقن تلقائياً');
-    expect(rows.first['is_active'], 1);
-    expect(rows.first['role'], 'admin');
-  });
-
-  test('OWNER-02 EffectivePermissions.owner صلاحيات كاملة', () {
-    final p = EffectivePermissions.owner('a@b.test');
-    expect(p.isAdmin && p.isActive && p.canViewReports, isTrue);
   });
 
 }

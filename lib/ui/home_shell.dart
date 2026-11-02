@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -8,21 +7,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/accounting.dart';
 import '../core/shell_nav.dart';
-import '../core/models.dart';
 import '../core/app_version.dart';
 import '../core/theme.dart';
 import '../data/providers.dart';
-import '../data/sync/device_registry.dart';
 import '../data/update_installer.dart';
-import '../data/sync/cloud_join.dart';
 import '../data/update_service.dart';
 import 'update_section.dart';
 import 'account_form.dart';
 import 'accounts_screen.dart';
 import 'backup_screen.dart';
-import 'chat_screen.dart';
 import 'currencies_screen.dart';
-import 'dashboard_screen.dart';
 
 import 'dart:async';
 
@@ -36,7 +30,6 @@ import 'widgets/golden_bell_icon.dart';
 import 'sync_ops_screen.dart';
 import '../data/sync/sync_service.dart';
 
-import 'group_management_screen.dart';
 import 'notifications_sheet.dart';
 import 'app_notice.dart';
 import '../core/sfx.dart';
@@ -45,17 +38,12 @@ import '../data/sync/device_id.dart';
 import '../data/sync/sync_engine.dart';
 import '../data/sync/sync_activity.dart';
 import '../data/repository.dart';
-import '../data/sync/workspace_service.dart';
-import '../data/sync/chat_hooks.dart';
 import '../data/sync/cloud_control_service.dart';
 import 'trial_ui.dart';
 import 'dialogs/sync_resolution_dialog.dart';
-import 'widgets.dart' show showSnack;
-import '../core/cloud_config.dart';
 
 /// كل شاشات التطبيق الاثنتي عشرة.
 enum AppScreen {
-  dashboard('لوحة التحكم', Icons.dashboard_outlined, Icons.dashboard),
   accounts('الحسابات', Icons.people_alt_outlined, Icons.people_alt),
   transactions('العمليات', Icons.receipt_long_outlined, Icons.receipt_long),
   vouchers('السندات', Icons.receipt_outlined, Icons.receipt),
@@ -65,8 +53,6 @@ enum AppScreen {
     Icons.currency_exchange_outlined,
     Icons.currency_exchange,
   ),
-  chat('الدردشة', Icons.forum_outlined, Icons.forum),
-  group('إدارة المجموعة', Icons.groups_outlined, Icons.groups),
   trash('سلة المهملات', Icons.delete_outline, Icons.delete),
   activity('سجل النشاط', Icons.history, Icons.history),
   backup('النسخ الاحتياطي', Icons.backup_outlined, Icons.backup),
@@ -101,63 +87,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
   Timer? _greetingTimer;
   DateTime _lastDeliveredNotice = DateTime.fromMillisecondsSinceEpoch(0);
 
-  // (دفعة 58 — متطلب 20) مستمع سحابي عالمي لطلبات الانضمام على جهاز
-  // المدير: يعمل من إقلاع التطبيق وعلى أي شاشة — حوار الموافقة/الرفض
-  // يظهر فوق كل شيء لحظة وصول الطلب، لا فقط داخل شاشة إدارة المجموعة.
-  JoinRequestWatcher? _globalJoinWatcher;
-  bool _joinSheetShowing = false;
-
-  /// (منع تكرار الحوار) مفاتيح طلبات الانضمام التي عُرض حوارها واكتمل
-  /// اتخاذ قرار فيها خلال هذه الجلسة — فلا يُعاد فتح نفس الحوار لنفس
-  /// الجهاز عند كل نبضة SSE، ويبقى الطلب الجديد (بمفتاح مختلف) ظاهراً.
-  /// (منع تكرار الحوار) مفاتيح الطلبات التي سُوّي أمرها → وقت التسوية (ms).
-  ///
-  /// كانت مجموعة في الذاكرة فقط: إعادة تشغيل التطبيق تُعيد فتح حوار طلب
-  /// عُولج سابقاً. صارت تُحفظ في `settings` مع مهلة 6 ساعات — تكفي لضمان
-  /// عدم تكرار الحوار، ولا تمنع طلباً جديداً حقيقياً من نفس الجهاز لاحقاً.
-  final Map<String, int> _handledJoinRequests = <String, int>{};
-
-  /// مفتاح التخزين في جدول settings.
-  static const _handledJoinKey = 'joinRequests.handled';
-
-  /// مهلة صلاحية السجل المحفوظ.
-  static const _handledJoinTtl = Duration(hours: 6);
-
-  /// مفتاح تفرّد الطلب: معرّف الجهاز + وقت تقديمه (يتغيّر مع كل طلب جديد).
-  String _joinRequestKey(Map<String, Object?> r) =>
-      '${r['deviceId'] ?? ''}|${r['requestedAt'] ?? r['created_at'] ?? ''}';
-
-  /// تحميل الطلبات المعالجة سابقاً مع إسقاط ما انقضت مهلته.
-  Future<void> _loadHandledJoinRequests() async {
-    try {
-      final repo = ref.read(repoProvider);
-      final st = await repo.settings();
-      final raw = (st[_handledJoinKey] ?? '').trim();
-      if (raw.isEmpty) return;
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) return;
-      final cutoff = DateTime.now().millisecondsSinceEpoch -
-          _handledJoinTtl.inMilliseconds;
-      for (final e in decoded.entries) {
-        final at = (e.value as num?)?.toInt() ?? 0;
-        if (at >= cutoff) _handledJoinRequests['${e.key}'] = at;
-      }
-    } catch (_) {
-      // سجل تالف أو غير متاح — الحوار قد يتكرر مرة، وهو أقل ضرراً من تعطّل الشاشة.
-    }
-  }
-
-  /// حفظ السجل بعد تسوية طلب، مع تقليم المنتهي.
-  Future<void> _saveHandledJoinRequests() async {
-    try {
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      final cutoff = nowMs - _handledJoinTtl.inMilliseconds;
-      _handledJoinRequests.removeWhere((_, at) => at < cutoff);
-      final repo = ref.read(repoProvider);
-      await repo.setSetting(_handledJoinKey, jsonEncode(_handledJoinRequests));
-    } catch (_) {}
-  }
-
   /// (إصلاح تسليم الإدارة) نبضات نشاط المزامنة → تحديث حي لمزودي
   /// الملكية/الدور/الوضع، فتظهر «إدارة المجموعة» وشاشات الأجهزة فوراً
   /// عند استلام الملكية دون إعادة تشغيل أو تسجيل خروج.
@@ -179,8 +108,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
     WidgetsBinding.instance.addObserver(this);
     // (2026-09-24) قناة تنقّل من الشاشات الداخلية (زر الرئيسية).
     ShellNav.request.addListener(_onShellNavRequest);
-    // (منع تكرار الحوار) استعادة سجل الطلبات المعالجة قبل أي استطلاع.
-    unawaited(_loadHandledJoinRequests());
     _refreshSync();
     _syncTimer = Timer.periodic(
       const Duration(seconds: 10),
@@ -198,8 +125,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
       _applyStartupRouting();
       _consumeNotifyTap();
     });
-    // (دفعة 58) المستمع العالمي لطلبات الانضمام — للمدير فقط.
-    _startGlobalJoinWatcher();
     // 🔒 إشعارات الفترة التجريبية محذوفة بناءً على طلب المستخدم.
     // (إصلاح تسليم الإدارة) أي دفعة عمليات مطبقة (ومنها نقل الملكية أو
     // تغيير دور) تعيد بناء كل المزودات المشتقة من refreshProvider —
@@ -211,9 +136,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
         // إبطال موجّه لمزودي الهوية/الصلاحيات فقط — لا bump شاملاً حتى
         // لا تُفرَّغ قوائم البيانات (العمليات/الحسابات) أثناء إعادة البناء.
         ref.invalidate(isOwnerProvider);
-        ref.invalidate(deviceRoleProvider);
         ref.invalidate(workspaceModeProvider);
-        ref.invalidate(devicesProvider);
       });
     });
     // يقظة المجموعة + أذونات النظام الحقيقية (إشعارات/بطارية).
@@ -223,12 +146,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
         .startPeriodicHeartbeat(ref.read(repoProvider));
   }
 
-  /// (متطلب 5) سلوك الإقلاع وتوجيه البداية — دفتر حسابات صرف:
-  /// لوحة التحكم نقطة البداية للجميع، ونظام الصلاحيات يتكفل بحجب
-  /// الشاشات غير المسموح بها لكل دور.
+  /// سلوك الإقلاع: دخول مباشر إلى شاشة العملاء — لا واجهة رئيسية.
   Future<void> _applyStartupRouting() async {
     if (Platform.environment.containsKey('FLUTTER_TEST')) return;
-    if (mounted) setState(() => _screen = AppScreen.dashboard);
+    if (mounted) setState(() => _screen = AppScreen.accounts);
   }
 
   /// داخل مجموعة: يشغّل خدمة اليقظة (foreground service) ليستقبل الجهاز
@@ -391,13 +312,13 @@ class _HomeShellState extends ConsumerState<HomeShell>
         _go(AppScreen.vouchers);
         return true;
       case 'message' || 'conversation':
-        _go(AppScreen.chat);
+        _go(AppScreen.transactions);
         return true;
       case 'sync':
         _go(AppScreen.syncOps);
         return true;
       case 'user':
-        _go(AppScreen.group);
+        _go(AppScreen.accounts);
         return true;
       case 'cloud_alert':
         await showCloudAlertsSheet(context, ref);
@@ -469,25 +390,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
         entityType: 'sync',
       );
     };
-    // (3.71.0) المدير عدّل صلاحيات هذا العضو — التنفيذ فوري عبر السحب
-    // اللحظي (SSE + دورة 5 ثوانٍ)، والإخطار فوري على جهاز العضو:
-    // إشعار نظام قابل للنقر + جرس داخل التطبيق، بلا إعادة تشغيل.
-    SyncEngine.onPermissionsChanged = (roleLabel) {
-      Sfx.pair();
-      try {
-        ref.read(repoProvider).notify(
-              title: 'تم تعديل صلاحياتك',
-              body: 'دورك في المجموعة الآن: «$roleLabel» — التعديل نافذ فوراً',
-              kind: 'success',
-              entityType: 'sync',
-            );
-      } catch (_) {}
-      _showTappableNotice(
-        'تم تعديل صلاحياتك',
-        'دورك في المجموعة الآن: «$roleLabel» — نافذ فوراً',
-        entityType: 'sync',
-      );
-    };
     // اكتمال المزامنة مع جهاز: حدث تشغيلي عابر — توست سفلي خفيف يختفي
     // وحده، لا يُخزَّن أبداً في جدول notifications الداخلي (قاعدة صارمة).
     SyncEngine.onDeviceSyncComplete = (deviceName0) {
@@ -531,29 +433,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
       _dangerShown = true;
       _showDangerBanner(messenger, message);
     };
-    // رسالة دردشة واردة — قاعدة صارمة: مكانها الوحيد (1) إشعار النظام
-    // الخارجي بصوته المرفق بالنص و(2) شارة العداد على أيقونة الدردشة.
-    // يُمنع إدراجها في جدول notifications الداخلي (مخصص للمالي/الإداري)،
-    // والبانر الداخلي يظهر فقط إن كان المستخدم على شاشة أخرى غير الدردشة.
-    ChatHooks.onChatMessage = (senderName0, body) {
-      final senderName =
-          senderName0.trim().isEmpty ? kDefaultMemberName : senderName0;
-      final short = body.length > 80 ? '${body.substring(0, 80)}…' : body;
-      // إشعار النظام يحمل النص والصوت معاً — لا صوت معزولاً بلا محتوى.
-      Sfx.systemNotify(
-        title: 'رسالة من $senderName',
-        body: short,
-        entityType: 'message',
-      );
-      bump(ref); // تحديث شارة العداد غير المقروء فوراً.
-      if (_screen != AppScreen.chat) {
-        _showTappableNotice(
-          '💬 رسالة جديدة من $senderName',
-          short,
-          entityType: 'message',
-        );
-      }
-    };
     // وصول تنبيه سحابي أو إداري جديد (Broadcast / In-App Alert)
     CloudControlService.instance.onNewAlertReceived = (alert) {
       if (!mounted) return;
@@ -591,15 +470,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
           entityId: alert.id,
         );
       }
-    };
-    // تغيير أجراه المدير على هذا العضو (اسم/دور/صلاحيات): حدث إداري
-    // مهم → إشعار داخلي (الجرس) + خارجي + بانر.
-    ChatHooks.onMemberNotice = (title, body) {
-      Sfx.systemNotify(title: title, body: body);
-      try {
-        ref.read(repoProvider).notify(title: title, body: body, kind: 'info');
-      } catch (_) {}
-      _showTappableNotice(title, body);
     };
   }
 
@@ -640,78 +510,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
   }
 
   /// 🔒 دورة حياة الفترة التجريبية على الشاشة الرئيسية:
-  /// (دفعة 58 — متطلب 20) يشغّل قناة SSE عالمية على /joinRequests لجهاز
-  /// المدير: أي طلب انضمام يفتح حوار الموافقة فوق الشاشة الحالية أياً
-  /// كانت. تُعاد المحاولة تلقائياً داخل JoinRequestWatcher عند الانقطاع.
-  Future<void> _startGlobalJoinWatcher() async {
-    try {
-      final repo = ref.read(repoProvider);
-      if (!await repo.isWorkspaceOwner()) return;
-      final st = await repo.settings();
-      final url = effectiveBackendUrl(st['cloudBackendUrl']);
-      if (url.isEmpty || !mounted) return;
-      final db = await repo.database;
-      // (3.71.0 — ربط حتمي) المراقب يستمع لمساحة المجموعة الفعلية:
-      // طلبات المغادرة كانت تُكتب لمساحة ميتة فلا يصل المدير شيء.
-      final ws = await ensureWorkspace(db, repo: repo);
-      _globalJoinWatcher = JoinRequestWatcher(
-        backendUrl: url,
-        workspaceId: ws,
-        onRequestsChanged: () {
-          if (mounted) _handleGlobalJoinRequests(url, ws);
-        },
-      )..start();
-      // فحص أولي: طلب وصل والتطبيق مغلق يظهر فور الإقلاع.
-      await _handleGlobalJoinRequests(url, ws);
-    } catch (_) {}
-  }
-
-  Future<void> _handleGlobalJoinRequests(String url, String ws) async {
-    if (!mounted || _joinSheetShowing) return;
-    try {
-      final repo = ref.read(repoProvider);
-      if (!await repo.isWorkspaceOwner()) return;
-      final reqs = await CloudJoin.fetchJoinRequests(
-        repo,
-        backendUrl: url,
-        workspaceId: ws,
-      );
-      if (reqs.isEmpty || !mounted || _joinSheetShowing) return;
-      // (منع تكرار الحوار) تجاوز كل طلب سُوّي أمره في هذه الجلسة.
-      final next = reqs.firstWhere(
-        (r) => !_handledJoinRequests.containsKey(_joinRequestKey(r)),
-        orElse: () => const <String, Object?>{},
-      );
-      if (next.isEmpty) return;
-      final key = _joinRequestKey(next);
-      _joinSheetShowing = true;
-      try {
-        // فوق أي شاشة: نستخدم سياق جذر الملاحة لا سياق الشاشة الحالية.
-        final rootCtx = Navigator.of(context, rootNavigator: true).context;
-        // (الجلسة قد تُغلق أثناء الفجوة غير المتزامنة) حراسة السياق نفسه.
-        if (!rootCtx.mounted) return;
-        await showJoinApprovalSheet(
-          rootCtx,
-          ref,
-          next,
-          backendUrl: url,
-          workspaceId: ws,
-        );
-        // اكتمل الحوار (قبول أو رفض) — لا نعيد فتحه لهذا الطلب،
-        // ولا بعد إعادة تشغيل التطبيق (السجل محفوظ مع مهلة 6 ساعات).
-        _handledJoinRequests[key] = DateTime.now().millisecondsSinceEpoch;
-        unawaited(_saveHandledJoinRequests());
-      } finally {
-        _joinSheetShowing = false;
-      }
-      if (mounted) bump(ref);
-      // طلبات إضافية متراكمة؟ عالجها تباعاً.
-      if (mounted) await _handleGlobalJoinRequests(url, ws);
-    } catch (_) {
-      _joinSheetShowing = false;
-    }
-  }
-
   /// (دفعة 58 — متطلب 12) «الجديد في هذا التحديث» الديناميكي:
   /// يُعرض مرة واحدة فقط بعد كل ترقية فعلية (تغيّر kAppVersion عن آخر
   /// إصدار شوهد)، وبملاحظات هذا الإصدار حصراً — تُقرأ من بيان التحديث
@@ -789,7 +587,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
     WidgetsBinding.instance.removeObserver(this);
     _syncTimer?.cancel();
     _greetingTimer?.cancel();
-    _globalJoinWatcher?.stop();
     _activityBus?.cancel();
     _activityDebounce?.cancel();
     if (SyncEngine.onOpDelivered != null) SyncEngine.onOpDelivered = null;
@@ -799,8 +596,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
     }
     SyncEngine.onDeviceSyncComplete = null;
     SyncEngine.onSyncDanger = null;
-    ChatHooks.onChatMessage = null;
-    ChatHooks.onMemberNotice = null;
     ShellNav.request.removeListener(_onShellNavRequest);
     CloudControlService.instance.stop();
     super.dispose();
@@ -984,78 +779,27 @@ class _HomeShellState extends ConsumerState<HomeShell>
     if (target.isEmpty) return;
     switch (target) {
       case ShellNav.home:
-        _go(AppScreen.dashboard);
+        _go(AppScreen.accounts);
     }
   }
 
   void _go(AppScreen s) {
-    final user = ref.read(currentUserProvider).valueOrNull;
-    final wsMode = ref.read(workspaceModeProvider).valueOrNull ?? 'standalone';
-    final isOwnerAsync = ref.read(isOwnerProvider).valueOrNull;
-    final isOwner = (wsMode == 'member') ? false : (isOwnerAsync ?? true);
-    final isAdmin = (wsMode == 'member')
-        ? false
-        : (isOwner || user?.role == UserRole.admin || user?.role == UserRole.agent);
-    final isAccountant = user?.role == UserRole.accountant;
-    bool can(String p) => isAdmin || (user?.can(p) ?? false);
-
-    // حظر الوصول للشاشات المقيدة
-    if (s == AppScreen.settings && !isAdmin) {
-      showSnack(context, 'الإعدادات مقيدة ومتاحة لمدير النظام فقط', error: true);
-      return;
-    }
-    if (s == AppScreen.accounts && !isAdmin && !isAccountant && !can('edit_tx')) {
-      showSnack(context, 'الوصول لقسم الحسابات مقيد لهذا المستخدم', error: true);
-      return;
-    }
-    if (s == AppScreen.transactions && !isAdmin && !isAccountant && !can('edit_tx')) {
-      showSnack(context, 'الوصول لقسم العمليات مقيد لهذا المستخدم', error: true);
-      return;
-    }
-    if (s == AppScreen.reports && !can('view_reports')) {
-      showSnack(context, 'عرض التقارير مقيد ويتطلب صلاحية المشرف', error: true);
-      return;
-    }
-    if (s == AppScreen.trash && !can('delete_tx')) {
-      showSnack(context, 'سلة المهملات مقيدة وتتطلب صلاحية الحذف', error: true);
-      return;
-    }
-    if (s == AppScreen.backup && !can('manage_backup')) {
-      showSnack(context, 'النسخ الاحتياطي متاح لمدير النظام فقط', error: true);
-      return;
-    }
-    if (s == AppScreen.group && !isAdmin) {
-      showSnack(context, 'إدارة المجموعة متاحة لمدير النظام فقط', error: true);
-      return;
-    }
-
+    // دفتر فردي لصاحبه — لا بوابات صلاحيات.
     _screenHistory
       ..clear()
-      ..add(AppScreen.dashboard);
-    if (s != AppScreen.dashboard) {
+      ..add(AppScreen.accounts);
+    if (s != AppScreen.accounts) {
       _screenHistory.add(s);
     }
     setState(() => _screen = s);
-    // فتح شاشة الدردشة يوسم الرسائل كمقروءة ويصفّر شارتها.
-    if (s == AppScreen.chat) {
-      Future(() async {
-        try {
-          await ref.read(repoProvider).markChatSeen();
-          bump(ref);
-        } catch (_) {}
-      });
-    }
   }
 
   Widget _body() => switch (_screen) {
-        AppScreen.dashboard => DashboardScreen(onOpen: _go),
         AppScreen.accounts => const AccountsScreen(),
         AppScreen.transactions => const TransactionsScreen(),
         AppScreen.vouchers => const VouchersScreen(),
         AppScreen.reports => const ReportsScreen(),
         AppScreen.currencies => const CurrenciesScreen(),
-        AppScreen.chat => const ChatScreen(),
-        AppScreen.group => const GroupManagementScreen(),
         AppScreen.trash => const TrashScreen(),
         AppScreen.activity => const ActivityScreen(),
         AppScreen.backup => const BackupScreen(),
@@ -1065,13 +809,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
 
   /// زر العملية العائم المميّز بالتدرج الدائري كما في هوية التطبيق
   Widget? _fab() {
-    final me = ref.watch(currentUserProvider).valueOrNull;
-    bool can(String p) => me != null && me.can(p);
-    final add = can('add_tx');
-    if (!add) return null;
-
-    // زر الإضافة السريعة (+) يظهر في الشاشة الأولى (العملاء أو الرئيسية)
-    if (_screen != AppScreen.dashboard && _screen != AppScreen.accounts) return null;
+    // زر الإضافة السريعة (+) على شاشة العملاء — نقطة الدخول الأولى.
+    if (_screen != AppScreen.accounts) return null;
 
     // (قانون 2026-09-19) الزر العائم «إجراء سريع» كما كان: يفتح ورقة
     // الخيارات (عملية، سند، حساب) بدل نموذج مباشر.
@@ -1319,17 +1058,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
               );
             },
           ),
-          title: Consumer(
-            builder: (ctx, rref, _) {
-              if (_screen != AppScreen.dashboard) return Text(_screen.title);
-              final devName =
-                  rref.watch(ownDeviceNameProvider).valueOrNull?.trim();
-              if (devName != null && devName.isNotEmpty) {
-                return Text(devName, overflow: TextOverflow.ellipsis);
-              }
-              return const Text('مدير الحسابات');
-            },
-          ),
+          title: Text(_screen.title),
           actions: [
             Consumer(
               builder: (ctx, rref, _) {
@@ -1417,6 +1146,9 @@ class _HomeShellState extends ConsumerState<HomeShell>
                           ref.read(syncEngineProvider).forceSyncNow();
                         } catch (_) {}
                         _checkForAppUpdate();
+                      } else if (val == 'syncOps') {
+                        Sfx.tap();
+                        _go(AppScreen.syncOps);
                       }
                     },
                     itemBuilder: (c) => [
@@ -1431,6 +1163,20 @@ class _HomeShellState extends ConsumerState<HomeShell>
                             ),
                             const SizedBox(width: 10),
                             Text(darkActive ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'syncOps',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.cloud_sync_outlined,
+                              size: 19,
+                              color: Color(0xFF0284C7),
+                            ),
+                            SizedBox(width: 10),
+                            Text('العمليات المتزامنة'),
                           ],
                         ),
                       ),
@@ -1827,18 +1573,11 @@ class _Drawer extends ConsumerWidget {
     BuildContext context,
     String title,
     List<AppScreen> order,
-    List<AppScreen> items,
-    bool googleLinked,
     AppScreen current,
     bool dark,
     void Function(AppScreen) onSelect,
   ) {
-    final visible = order
-        .where(
-          (s) => items.contains(s) && !(s == AppScreen.group && !googleLinked),
-        )
-        .toList();
-    if (visible.isEmpty) return const [];
+    if (order.isEmpty) return const [];
     return [
       Builder(
         builder: (ctx) => Padding(
@@ -1854,7 +1593,7 @@ class _Drawer extends ConsumerWidget {
           ),
         ),
       ),
-      for (final s in visible)
+      for (final s in order)
         _DrawerTile(
           screen: s,
           active: current == s,
@@ -1870,15 +1609,12 @@ class _Drawer extends ConsumerWidget {
 
   /// لون مميز لكل قسم (كما في التصميم المرجعي).
   Color _colorOf(AppScreen s) => switch (s) {
-        AppScreen.dashboard => const Color(0xFF2563EB),
         AppScreen.transactions => const Color(0xFF0EA5E9),
         AppScreen.accounts => const Color(0xFF2563EB),
         AppScreen.reports => const Color(0xFF6366F1),
         AppScreen.settings => const Color(0xFF64748B),
         AppScreen.currencies => AppColors.primary2,
         AppScreen.vouchers => const Color(0xFFF59E0B),
-        AppScreen.chat => const Color(0xFF22C55E),
-        AppScreen.group => const Color(0xFF8B5CF6),
         AppScreen.trash => const Color(0xFFE11D48),
         AppScreen.activity => const Color(0xFF64748B),
         AppScreen.backup => AppColors.primary2,
@@ -1887,17 +1623,6 @@ class _Drawer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final user = ref.watch(currentUserProvider).valueOrNull;
-    final wsMode = ref.watch(workspaceModeProvider).valueOrNull ?? 'standalone';
-    final isOwnerAsync = ref.watch(isOwnerProvider).valueOrNull;
-    final isOwner = (wsMode == 'member') ? false : (isOwnerAsync ?? true);
-    // (3.70.0) التحقق من حساب Google.
-    final googleLinked = ref.watch(googleLinkedProvider).valueOrNull ?? false;
-    final items = _DrawerItems.of(
-      user: user,
-      isOwner: isOwner,
-      workspaceMode: (wsMode == 'standalone' && googleLinked) ? 'host' : wsMode,
-    );
     final dark = Theme.of(context).brightness == Brightness.dark;
 
     return Drawer(
@@ -1976,32 +1701,22 @@ class _Drawer extends ConsumerWidget {
                     context,
                     'الدفاتر والمحاسبة',
                     const [
-                      AppScreen.accounts,
-                      AppScreen.transactions,
                       AppScreen.vouchers,
                       AppScreen.currencies,
-                      AppScreen.reports,
                     ],
-                    items,
-                    googleLinked,
                     current,
                     dark,
                     onSelect,
                   ),
-                  // عناصر النظام والمزامنة
+                  // عناصر النظام
                   ..._drawerSection(
                     context,
-                    'النظام والمزامنة',
+                    'النظام',
                     const [
-                      AppScreen.syncOps,
-                      AppScreen.group,
                       AppScreen.backup,
                       AppScreen.trash,
                       AppScreen.activity,
-                      AppScreen.settings,
                     ],
-                    items,
-                    googleLinked,
                     current,
                     dark,
                     onSelect,
@@ -2169,29 +1884,11 @@ class _DrawerTile extends StatelessWidget {
             ),
             child: Row(
               children: [
-                // أيقونة الدردشة تحمل شارة عدد الرسائل غير المقروءة —
-                // المكان الرسمي لإشعار الرسائل داخل التطبيق.
-                if (screen == AppScreen.chat)
-                  Consumer(
-                    builder: (ctx, rref, _) {
-                      final n = rref.watch(unreadChatProvider).valueOrNull ?? 0;
-                      return Badge(
-                        isLabelVisible: n > 0,
-                        label: Text('$n'),
-                        child: Icon(
-                          active ? screen.activeIcon : screen.icon,
-                          color: active ? AppColors.infoOf(context) : color,
-                          size: 22,
-                        ),
-                      );
-                    },
-                  )
-                else
-                  Icon(
-                    active ? screen.activeIcon : screen.icon,
-                    color: active ? AppColors.infoOf(context) : color,
-                    size: 22,
-                  ),
+                Icon(
+                  active ? screen.activeIcon : screen.icon,
+                  color: active ? AppColors.infoOf(context) : color,
+                  size: 22,
+                ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Text(
@@ -2217,72 +1914,14 @@ class _DrawerTile extends StatelessWidget {
 /// عناصر الدرج: كل الشاشات ما عدا الموجودة في الشريط السفلي، حتى لا تتكرر
 /// الأيقونة نفسها في مكانين. إدارة المجموعة للمدير فقط.
 class DrawerItems {
-  static List<AppScreen> of({
-    AppUser? user,
-    required bool isOwner,
-    String workspaceMode = 'standalone',
-  }) =>
-      AppScreen.values.where((s) {
-        // (3.70.0) لوحة التحكم لم تعد عنصر قائمة — هي الشاشة الرئيسية
-        // الثابتة عند الإقلاع وبعد القفل (تُفتح من زر الرئيسية/الشعار).
-        if (s == AppScreen.dashboard) {
-          return false;
-        }
-        final standalone = workspaceMode == 'standalone';
-        // العزل الكامل للوضع المستقل: لا دردشة — الجهاز الفردي لا يرى
-        // أي أثر للشبكات. الترقية من الإعدادات.
-        if (standalone && s == AppScreen.chat) {
-          return false;
-        }
-        // التحقق من الصلاحيات يعتمد حصراً على المستخدم الفعلي بالجلسة والمالك
-        final isAdmin = user?.role == UserRole.admin ||
-            user?.role == UserRole.agent ||
-            (isOwner &&
-                user?.role != UserRole.cashier &&
-                user?.role != UserRole.viewer);
-        final isAccountant = user?.role == UserRole.accountant;
-        bool can(String p) => isAdmin || (user?.can(p) ?? false);
-
-        // إدارة المجموعة: للمنشآت (وضع المضيف أو مالك مربوط بجوجل) فقط.
-        if (s == AppScreen.group) {
-          if (standalone) return false;
-          return isAdmin && (isOwner || workspaceMode == 'host');
-        }
-        // قسم المزامنة متاح في القائمة (المدخل الموحد للتسجيل والمزامنة).
-        if (s == AppScreen.syncOps) return true;
-        // سجل النشاط: اطلاع تدقيقي — تقارير أو حذف.
-        if (s == AppScreen.activity) {
-          return can('view_reports') || can('delete_tx');
-        }
-        // التقارير تتطلب صلاحية عرض التقارير.
-        if (s == AppScreen.reports) return can('view_reports');
-        // النسخ الاحتياطي محظور ومحجوب تماماً عن أجهزة الأعضاء داخل المجموعة
-        if (s == AppScreen.backup) {
-          if (workspaceMode == 'member') return false;
-          return can('manage_backup');
-        }
-        // سلة المهملات: الاسترجاع والحذف النهائي شأن من يملك حذف العمليات.
-        if (s == AppScreen.trash) return can('delete_tx');
-        // العملاء: للمدير أو المحاسب أو من يملك تعديل العمليات (محجوبة عن الكاشير).
-        if (s == AppScreen.accounts) {
-          return isAdmin || isAccountant || can('edit_tx');
-        }
-        // العمليات: شاشة عمل — للمدير أو المحاسب أو من يملك تعديل العمليات.
-        if (s == AppScreen.transactions) {
-          return isAdmin || isAccountant || can('edit_tx');
-        }
-        // السندات: للمدير أو المحاسب أو من ينشئ عمليات ويملك اعتماد السندات.
-        if (s == AppScreen.vouchers) {
-          return isAdmin || isAccountant || can('approve_vouchers');
-        }
-        // العملات: إعداد مالي للمدير أو المحاسب فقط.
-        if (s == AppScreen.currencies) return isAdmin || isAccountant;
-        // الإعدادات: للمدير العام والوكيل فقط.
-        if (s == AppScreen.settings) {
-          return isAdmin;
-        }
-        return true;
-      }).toList();
+  /// عناصر الدرج الثانوية — دفتر فردي لصاحبه بلا صلاحيات:
+  /// السندات والعملات (الدفاتر) + النسخ والمهملات وسجل النشاط (النظام).
+  /// «العمليات المتزامنة» تُفتح من قائمة الخيارات (⋮) لا من الدرج.
+  static const List<AppScreen> drawerScreens = [
+    AppScreen.vouchers,
+    AppScreen.currencies,
+    AppScreen.backup,
+    AppScreen.trash,
+    AppScreen.activity,
+  ];
 }
-
-typedef _DrawerItems = DrawerItems;

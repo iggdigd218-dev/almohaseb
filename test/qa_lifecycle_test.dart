@@ -26,7 +26,8 @@ class _LifecycleRepo extends Repo {
   Future<Map<String, String>> settings() async => {};
   @override
   Future<bool> isWorkspaceOwner() async => true;
-  @override
+  // (دفتر الحسابات الخالص) autoExpireStaleDevices حُذف من Repo —
+  // انتهاء صلاحية الأجهزة كان جزءًا من منظومة الأعضاء.
   Future<List<String>> autoExpireStaleDevices() async => [];
 }
 

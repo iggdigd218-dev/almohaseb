@@ -89,42 +89,6 @@ void main() {
     expect(names.contains('port'), isFalse);
   });
 
-  test('B58-CHAT-01 رسائل أقدم من 24 ساعة تُحذف نهائياً والأحدث تبقى',
-      () async {
-    // محادثة المجموعة + رسالتان: قديمة (25 ساعة) وحديثة.
-    final now = DateTime.now();
-    await db.insert('conversations', {
-      'id': Repo.groupConversationId,
-      'workspace_id': 'default',
-      'title': 'دردشة المجموعة',
-      'created_at': now.toIso8601String(),
-      'updated_at': now.toIso8601String(),
-    });
-    await db.insert('messages', {
-      'conversation_id': Repo.groupConversationId,
-      'workspace_id': 'default',
-      'sender': 'DEV-A',
-      'body': 'قديمة',
-      'kind': 'text',
-      'payload': '',
-      'created_at':
-          now.subtract(const Duration(hours: 25)).toIso8601String(),
-    });
-    await db.insert('messages', {
-      'conversation_id': Repo.groupConversationId,
-      'workspace_id': 'default',
-      'sender': 'DEV-A',
-      'body': 'حديثة',
-      'kind': 'text',
-      'payload': '',
-      'created_at': now.toIso8601String(),
-    });
-    final purged = await repo.purgeExpiredChatMessages();
-    expect(purged, 1);
-    final left = await db.query('messages');
-    expect(left, hasLength(1));
-    expect(left.single['body'], 'حديثة');
-  });
 
   test('B58-CHAT-02 عمليات message المرفوعة القديمة تُقلَّم مع التطهير',
       () async {

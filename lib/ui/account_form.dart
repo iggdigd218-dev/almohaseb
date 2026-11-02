@@ -7,7 +7,6 @@ import '../core/accounting.dart';
 import '../core/format.dart';
 import '../core/theme.dart';
 import '../core/models.dart';
-import '../core/permission_dialog.dart';
 import '../core/sfx.dart';
 import '../data/providers.dart';
 import 'widgets.dart';
@@ -238,9 +237,6 @@ class _State extends ConsumerState<AccountFormScreen> {
       final granted = await FlutterContacts.requestPermission(readonly: true);
       if (!granted) {
         if (!mounted) return;
-        final retry = await showPermissionRationale(
-            context, PermissionRationale.contacts);
-        if (!retry) return;
         final second = await FlutterContacts.requestPermission(readonly: true);
         if (!second) {
           if (mounted) {

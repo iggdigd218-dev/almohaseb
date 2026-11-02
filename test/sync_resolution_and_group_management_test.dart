@@ -119,25 +119,5 @@ void main() {
       expect(diag.failedCount, equals(0));
     });
 
-    test('3. التحقق من وجود المستخدمين والأجهزة في قاعدة البيانات للشاشة الموحدة', () async {
-      // إدراج مستخدم إضافي (كاشير)
-      await db.insert('users', {
-        'id': 2,
-        'name': 'كاشير الصباح',
-        'role': 'cashier',
-        'permissions': '',
-        'is_me': 0,
-        'active': 1,
-        'created_at': nowIso,
-        'updated_at': nowIso,
-      });
-
-      final users = await repo.users();
-      expect(users.length, equals(2));
-      expect(users.any((u) => u.name == 'كاشير الصباح'), isTrue);
-
-      final devices = await repo.devices();
-      expect(devices.isNotEmpty, isTrue);
-    });
   });
 }

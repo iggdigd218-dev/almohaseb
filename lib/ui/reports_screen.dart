@@ -276,8 +276,15 @@ class _ScopeBar extends ConsumerWidget {
               s.cashier == null ? 'كل الكاشيرات' : 'الكاشير: ${s.cashier}',
               Icons.badge_outlined,
               () async {
-                final userList =
-                    ref.read(usersProvider).valueOrNull ?? [];
+                final db = await ref.read(repoProvider).database;
+                final rows = await db.query('users',
+                    where: "COALESCE(deleted_at,'') = ''",
+                    orderBy: 'name COLLATE NOCASE');
+                final userList = rows
+                    .map((r) => (r['name'] ?? '') as String)
+                    .where((n) => n.trim().isNotEmpty)
+                    .toList();
+                if (!context.mounted) return;
                 final v = await showModalBottomSheet<String>(
                   context: context,
                   builder: (_) => SafeArea(
@@ -292,11 +299,8 @@ class _ScopeBar extends ConsumerWidget {
                         for (final u in userList)
                           ListTile(
                             leading: const Icon(Icons.person_pin_outlined),
-                            title: Text(u.name),
-                            subtitle: Text(
-                              '${u.role.label} • ${u.active ? "نشط" : "معطل"}',
-                            ),
-                            onTap: () => Navigator.pop(context, u.name),
+                            title: Text(u),
+                            onTap: () => Navigator.pop(context, u),
                           ),
                       ],
                     ),

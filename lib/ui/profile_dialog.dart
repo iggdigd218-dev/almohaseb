@@ -9,7 +9,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -19,14 +18,10 @@ import '../core/theme.dart';
 import '../data/providers.dart';
 import '../data/repository.dart';
 import '../data/sync/account_workspace.dart';
-import '../data/sync/cloud_join.dart';
 import '../data/sync/firebase_auth_service.dart';
 import '../data/sync/google_auth_service.dart';
 import '../data/sync/workspace_service.dart';
 import 'account_section.dart';
-import 'join_approval_flow.dart';
-import 'logout_flow.dart';
-import 'qr_pair_scanner.dart';
 import 'widgets.dart';
 
 Future<void> showAccountProfileDialog(BuildContext context, WidgetRef ref) async {
@@ -56,8 +51,6 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
   bool _saving = false;
   bool _logoBusy = false;
   bool _googleBusy = false;
-  bool _joinBusy = false;
-  bool _showJoinInput = false;
   String _linkedEmail = '';
 
   @override
@@ -258,128 +251,6 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
     }
   }
 
-  Future<void> _submitMemberJoin({PairingData? qrData}) async {
-    if (_joinBusy) return;
-    final repo = ref.read(repoProvider);
-    final devName = _userNameCtrl.text.trim().isNotEmpty
-        ? _userNameCtrl.text.trim()
-        : 'جهاز عضو';
-
-    String tokenOrPin = _joinPinCtrl.text.trim();
-    String targetWs = '';
-    final st = await repo.settings();
-    String backendUrl = effectiveBackendUrl(st['cloudBackendUrl']);
-
-    if (qrData != null) {
-      tokenOrPin = qrData.tok.trim();
-      targetWs = qrData.ws.trim();
-      if (qrData.cloudUrl.trim().isNotEmpty) {
-        backendUrl = qrData.cloudUrl.trim();
-      }
-    }
-
-    if (tokenOrPin.isEmpty) {
-      if (mounted) {
-        showSnack(context, 'أدخل رمز الدعوة (6 أرقام) أو امسح باركود QR أولاً',
-            error: true);
-      }
-      return;
-    }
-
-    if (!mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.warning_amber_rounded,
-            color: Colors.orange, size: 40),
-        title: const Text('تحذير: الانضمام لمنشأة قائمة'),
-        content: const Text(
-          'سيتم حذف جميع بياناتك المحلية والسحابية السابقة نهائياً (الحسابات، السندات، الأصناف، المحادثات، والنسخ السحابية الخاصة بك) ولن يتم استرجاع أي بيانات سابقة.\n\n'
-          'إذا كان هذا الجهاز مرتبطاً بمؤسسة سابقة فسيتم عزله عنها تلقائياً، وستدخل المنشأة الجديدة نظيفاً تماماً ببيانات المنشأة المرتبط بها فقط.\n\n'
-          'هل توافق على المتابعة؟',
-          style: TextStyle(height: 1.7),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.orange),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('أوافق — حذف بياناتي والانضمام'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _joinBusy = true);
-    Sfx.click();
-    try {
-      if (targetWs.isEmpty || targetWs == 'default') {
-        final foundWs = await CloudJoin.findWorkspaceByInvite(
-          backendUrl: backendUrl,
-          tokenOrPin: tokenOrPin,
-        );
-        if (foundWs != null && foundWs.isNotEmpty) {
-          targetWs = foundWs;
-        }
-      }
-      if (targetWs.isEmpty) targetWs = 'default';
-
-      await CloudJoin.purgeAndIsolateJoiningMember(
-        repo,
-        backendUrl: backendUrl,
-        targetWorkspaceId: targetWs,
-      );
-
-      await CloudJoin.requestJoin(
-        repo,
-        backendUrl: backendUrl,
-        tokenOrPin: tokenOrPin,
-        deviceName: devName,
-        workspaceId: targetWs,
-      );
-      final savedWs = (await repo.settings())['pendingJoin.ws'] ?? targetWs;
-      if (!mounted) return;
-      final nav = Navigator.of(context);
-      nav.pop(); // إغلاق نافذة الحساب قبل فتح شاشة انتظار موافقة المدير
-      await nav.push(
-        MaterialPageRoute<void>(
-          builder: (_) => JoinApprovalScreen(
-            prefillUrl: backendUrl,
-            prefillWs: savedWs,
-            prefillToken: tokenOrPin,
-            startWaiting: true,
-          ),
-        ),
-      );
-      ref.invalidate(workspaceModeProvider);
-      ref.invalidate(isOwnerProvider);
-      ref.invalidate(currentUserProvider);
-      bump(ref);
-    } on CloudJoinException catch (e) {
-      Sfx.error();
-      if (mounted) showSnack(context, e.message, error: true);
-    } catch (e) {
-      Sfx.error();
-      if (mounted) showSnack(context, 'تعذّر إرسال طلب الانضمام: $e', error: true);
-    } finally {
-      if (mounted) setState(() => _joinBusy = false);
-    }
-  }
-
-  Future<void> _scanQrToJoin() async {
-    final data = await scanQrPair(context);
-    if (data == null || !mounted) return;
-    if (!data.isCloud || data.tok.trim().isEmpty) {
-      showSnack(context, 'رمز QR غير صالح — تأكد أنه رمز دعوة سحابية.',
-          error: true);
-      return;
-    }
-    await _submitMemberJoin(qrData: data);
-  }
 
   Future<void> _pickAndSetLogo() async {
     final isOwner = await ref.read(repoProvider).isWorkspaceOwner();
@@ -543,9 +414,6 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
     final googleLinked =
         (ref.watch(googleLinkedProvider).valueOrNull ?? false) ||
             _linkedEmail.isNotEmpty;
-    final st = ref.watch(settingsProvider).valueOrNull ?? const {};
-    final isIndividual = (st[Repo.accountModeKey] ?? '') == 'individual';
-    final canDirectLogout = isOwner || isIndividual;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     const fallback = Icon(Icons.person, color: Colors.white, size: 34);
@@ -720,141 +588,6 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
                 ),
               ),
 
-              // ══════════ 2) ربط هذا الجهاز كعضو في مجموعة (مخفي عند التسجيل بالبريد) ══════════
-              if (wsMode != 'member' && !googleLinked) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF1E293B).withValues(alpha: .6)
-                        : const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isDark
-                          ? const Color(0xFF334155)
-                          : const Color(0xFFE2E8F0),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: () =>
-                            setState(() => _showJoinInput = !_showJoinInput),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 4, horizontal: 4),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.group_add_rounded,
-                                  color: Color(0xFF7C3AED), size: 20),
-                              const SizedBox(width: 8),
-                              const Expanded(
-                                child: Text(
-                                  'ربط هذا الجهاز كعضو في مجموعة (رمز أو QR)',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 12.5,
-                                  ),
-                                ),
-                              ),
-                              Icon(
-                                _showJoinInput
-                                    ? Icons.expand_less_rounded
-                                    : Icons.expand_more_rounded,
-                                size: 20,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      if (_showJoinInput) ...[
-                        const SizedBox(height: 8),
-                        const Text(
-                          'أدخل رمز الدعوة المكون من 6 أرقام من جهاز المدير أو امسح باركود QR:',
-                          style: TextStyle(fontSize: 11.5),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _joinPinCtrl,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                maxLength: 12,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                      RegExp(r'[0-9A-Za-z\-]')),
-                                ],
-                                decoration: InputDecoration(
-                                  hintText: 'رمز 6 أرقام',
-                                  counterText: '',
-                                  isDense: true,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton.filledTonal(
-                              tooltip: 'مسح باركود QR',
-                              onPressed: _joinBusy ? null : _scanQrToJoin,
-                              icon: const Icon(Icons.qr_code_scanner_rounded),
-                            ),
-                            const SizedBox(width: 6),
-                            FilledButton(
-                              onPressed: _joinBusy
-                                  ? null
-                                  : () => _submitMemberJoin(),
-                              child: _joinBusy
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Text('انضمام'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ] else ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF7C3AED).withValues(alpha: .1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFF7C3AED).withValues(alpha: .35),
-                    ),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.groups_rounded,
-                          color: Color(0xFF7C3AED), size: 20),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'هذا الجهاز مرتبط كعضو فعّال في مجموعة المنشأة ويزامن لحظياً.',
-                          style: TextStyle(
-                              fontSize: 11.5, fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-
               const SizedBox(height: 14),
               // ══════════ 3) الشعار والأيقونة وبيانات المنشأة ══════════
               Center(
@@ -977,17 +710,29 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
           style: TextButton.styleFrom(
             foregroundColor: AppColors.dangerOf(context),
           ),
-          onPressed: () {
+          onPressed: () async {
+            // سياق يبقى حياً بعد إغلاق النافذة: جذر التطبيق لا النافذة
+            // نفسها (سياق النافذة يُهدم بpop فيختفي تأكيد الخروج).
+            final rootCtx = rootNavigatorKey.currentContext;
             Navigator.pop(context);
-            showSecuredLogout(ref);
+            try {
+              final db = await ref.read(repoProvider).database;
+              await GoogleAuthService(db).signOut();
+            } catch (_) {}
+            ref.invalidate(googleLinkedProvider);
+            ref.invalidate(currentUserProvider);
+            bump(ref);
+            if (rootCtx != null && rootCtx.mounted) {
+              showSnack(rootCtx, 'تم تسجيل الخروج من حساب Google');
+            }
           },
-          icon: Icon(
-            canDirectLogout ? Icons.logout_rounded : Icons.exit_to_app_rounded,
+          icon: const Icon(
+            Icons.logout_rounded,
             size: 18,
           ),
-          label: Text(
-            canDirectLogout ? 'تسجيل الخروج' : 'طلب الخروج',
-            style: const TextStyle(fontWeight: FontWeight.w800),
+          label: const Text(
+            'تسجيل الخروج',
+            style: TextStyle(fontWeight: FontWeight.w800),
           ),
         ),
         TextButton(

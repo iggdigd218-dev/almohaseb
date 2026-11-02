@@ -20,9 +20,7 @@ import 'package:sqflite/sqflite.dart';
 import '../repository.dart';
 import 'apply_remote.dart';
 import 'conflict_resolver.dart';
-import 'device_id.dart';
 import 'firebase_auth_service.dart';
-import 'chat_hooks.dart';
 import 'operation.dart';
 import 'sync_engine.dart';
 
@@ -237,14 +235,6 @@ class CloudFirebaseTransport implements SyncTransport {
     // (2026-09-22) عمليات مُهمَلة لأنها من مساحة أخرى — كانت تُسقط بصمت.
     int droppedOtherWs = 0;
     String droppedSample = '';
-    final ourId = await ensureDeviceId(repo);
-    // رسائل دردشة وصلت في هذه السحبة — تُشعر بعد إغلاق المعاملة.
-    final chatOps = <SyncOperation>[];
-    // (دفعة 58 — متطلب 18) عمليات user واردة: قد تحمل تغيير دور/صلاحيات
-    // هذا العضو من المدير — تُفحص بعد كل معاملة لإخطار العضو لحظياً.
-    final roleOps = <SyncOperation>[];
-    // (إصلاح تسليم الإدارة) عمليات نقل ملكية واردة — إخطار فوري للمستلم.
-    final ownershipOps = <SyncOperation>[];
 
     bool hasMore = true;
     int currentStartAtMs = startAtMs;
@@ -381,25 +371,6 @@ class CloudFirebaseTransport implements SyncTransport {
               }
               final ok = await repo.applyRemoteOperation(txn, op, r);
               if (ok) applied++;
-              if (ok &&
-                  op.entityType == EntityKind.message &&
-                  op.deviceId != ourId) {
-                chatOps.add(op);
-              }
-              // (دفعة 58 — متطلب 18) تحديث user وارد من جهاز آخر — قد يكون
-              // المدير غيّر دور/صلاحيات هذا العضو: يُفحص بعد المعاملة.
-              if (ok &&
-                  op.entityType == EntityKind.user &&
-                  op.deviceId != ourId) {
-                roleOps.add(op);
-              }
-              // (إصلاح تسليم الإدارة) نقل ملكية وارد: إخطار المستلم فوراً.
-              if (ok &&
-                  op.entityType == EntityKind.setting &&
-                  op.entityId == 'ownershipTransfer' &&
-                  op.deviceId != ourId) {
-                ownershipOps.add(op);
-              }
             }
           });
           if (end < entries.length) {
@@ -411,120 +382,6 @@ class CloudFirebaseTransport implements SyncTransport {
         // إعادة فحص المفاتيح الأجنبية في كل الحالات (نجاح أو استثناء).
         await _setForeignKeys(true);
       }
-      // إشعار وصول رسائل دردشة جماعية عبر السحابة (نفس سلوك LAN):
-      // خارج المعاملة، وبعد نجاح التطبيق فقط.
-      for (final op in chatOps) {
-        try {
-          final senderRows = await db.query('devices',
-              where: 'id = ?', whereArgs: [op.deviceId], limit: 1);
-          // الاسم الموحد: الافتراضي «مستخدم جديد» حتى يسميه المدير.
-          var senderName = senderRows.isNotEmpty
-              ? ((senderRows.first['name'] as String?) ?? '')
-              : '';
-          if (senderName.trim().isEmpty) senderName = kDefaultMemberName;
-          var body = '${op.payload['body'] ?? ''}';
-          if (body.isEmpty) {
-            body = switch ('${op.payload['kind'] ?? 'text'}') {
-              'image' => '📷 صورة',
-              'video' => '🎬 فيديو',
-              'audio' => '🎙️ رسالة صوتية',
-              'file' => '📎 ملف',
-              _ => '',
-            };
-          }
-          if (body.isNotEmpty) {
-            ChatHooks.onChatMessage?.call(senderName, body);
-          }
-        } catch (_) {}
-      }
-      chatOps.clear();
-      // (دفعة 58 — متطلب 18) إخطار لحظي للعضو عند تغيير دوره/صلاحياته:
-      // إن كانت عملية user الواردة تخص المستخدم المرتبط بجهازنا نبثّ
-      // إشعاراً فورياً + نبضة تحديث حي للواجهة — لا حاجة لإعادة تشغيل.
-      for (final op in roleOps) {
-        try {
-          final own = await db.query('devices',
-              columns: ['user_id'],
-              where: 'id = ?',
-              whereArgs: [ourId],
-              limit: 1);
-          final myUid = own.isNotEmpty ? own.first['user_id'] : null;
-          final isOurUser = (myUid != null && op.entityId == '$myUid') ||
-              (await repo.workspaceMode()) == 'member';
-          if (!isOurUser) continue;
-
-          final roleCode = '${op.payload['role'] ?? ''}';
-          final opUid = int.tryParse(op.entityId);
-          if (opUid != null) {
-            await db.update('users', {'is_me': 0});
-            await db.update('users', {
-              'is_me': 1,
-              'role': roleCode,
-              'active': 1,
-            }, where: 'id = ?', whereArgs: [opUid]);
-            await db.update('devices', {'user_id': opUid},
-                where: 'id = ?', whereArgs: [ourId]);
-          }
-
-          final roleLabel = switch (roleCode) {
-            'admin' => 'المدير',
-            'agent' => 'وكيل المدير',
-            'accountant' => 'محاسب',
-            'dataentry' => 'مدخل بيانات',
-            'viewer' => 'عرض فقط',
-            _ => roleCode,
-          };
-          ChatHooks.onMemberNotice?.call(
-            'تحدّثت صلاحياتك',
-            roleLabel.isEmpty
-                ? 'قام المدير بتحديث صلاحيات حسابك — سرى التغيير فوراً.'
-                : 'دورك الآن: $roleLabel — سرى التغيير فوراً على هذا الجهاز.',
-          );
-        } catch (_) {}
-      }
-      roleOps.clear();
-      // (إصلاح تسليم الإدارة) بلاغ فوري بعد تطبيق نقل الملكية:
-      // المستلم يرى «أنت الآن مدير المجموعة» والبقية تُخطر بتغيّر المدير.
-      for (final op in ownershipOps) {
-        try {
-          final decoded = jsonDecode('${op.payload['value'] ?? '{}'}');
-          if (decoded is! Map) continue;
-          final newOwnerDev = '${decoded['owner_device_id'] ?? ''}';
-          if (newOwnerDev == ourId) {
-            // (استرداد طارئ) تمييز الإرجاع الطوعي: المستلم يعيد الإدارة
-            // للمالك السابق — إشعار «عادت إليك» بدل «سلّمك».
-            if (decoded['handback'] == true) {
-              ChatHooks.onMemberNotice?.call(
-                '👑 عادت إليك الإدارة',
-                'لقد تم استلام صلاحية المدير وعادت إليك — أنت الآن مالك '
-                    'المجموعة بكل الصلاحيات، وظهرت لديك إدارة المجموعة '
-                    'والأجهزة فوراً.',
-              );
-            } else {
-              ChatHooks.onMemberNotice?.call(
-                '👑 أنت الآن مدير المجموعة',
-                'سلّمك المدير السابق الإدارة — أصبحت مالك المجموعة بكل '
-                    'الصلاحيات، وظهرت لديك إدارة المجموعة والأجهزة فوراً.',
-              );
-            }
-          } else {
-            final rows = await db.query('devices',
-                columns: ['name'],
-                where: 'id = ?',
-                whereArgs: [newOwnerDev],
-                limit: 1);
-            final name = rows.isNotEmpty
-                ? '${rows.first['name'] ?? 'جهاز آخر'}'
-                : 'جهاز آخر';
-            ChatHooks.onMemberNotice?.call(
-              'تغيّر مدير المجموعة',
-              'انتقلت إدارة المجموعة إلى «$name».',
-            );
-          }
-        } catch (_) {}
-      }
-      ownershipOps.clear();
-
       int pageMaxTs = 0;
       for (final entry in entries) {
         final ms = entryMs(entry.value);

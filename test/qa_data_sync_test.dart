@@ -168,13 +168,7 @@ void main() {
     expect(await repo.transactions(), isEmpty);
   });
 
-  test('QA-PERM-01 authorization lookup failure cannot silently grant access',
-      () async {
-    final fault = PermissionFaultRepo();
-    expect(await fault.can('delete_tx'), isFalse);
-    await expectLater(fault.saveTx(_tx(accountId)), throwsA(anything));
-    expect(await repo.transactions(), isEmpty);
-  });
+  // (مجتث QA-PERM-01) بوابات الصلاحيات — دفتر فردي لصاحبه.
 
   for (final value in ['1.2.3', '١٫٢٫٣', '12..3']) {
     test('QA-FORMAT-01 ambiguous decimal $value is rejected', () {
