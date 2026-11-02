@@ -1994,8 +1994,10 @@ class _Drawer extends ConsumerWidget {
                     'النظام والمزامنة',
                     const [
                       AppScreen.syncOps,
+                      AppScreen.group,
                       AppScreen.backup,
                       AppScreen.trash,
+                      AppScreen.activity,
                       AppScreen.settings,
                     ],
                     items,
@@ -2241,12 +2243,17 @@ class DrawerItems {
         final isAccountant = user?.role == UserRole.accountant;
         bool can(String p) => isAdmin || (user?.can(p) ?? false);
 
-        // إدارة المجموعة وسجل النشاط محذوفان نهائياً
-        if (s == AppScreen.group || s == AppScreen.activity) {
-          return false;
+        // إدارة المجموعة: للمنشآت (وضع المضيف أو مالك مربوط بجوجل) فقط.
+        if (s == AppScreen.group) {
+          if (standalone) return false;
+          return isAdmin && (isOwner || workspaceMode == 'host');
         }
-        // قسم المزامنة متاح في القائمة (المدخل الموحد للتسجيل والمزامنة)
+        // قسم المزامنة متاح في القائمة (المدخل الموحد للتسجيل والمزامنة).
         if (s == AppScreen.syncOps) return true;
+        // سجل النشاط: اطلاع تدقيقي — تقارير أو حذف.
+        if (s == AppScreen.activity) {
+          return can('view_reports') || can('delete_tx');
+        }
         // التقارير تتطلب صلاحية عرض التقارير.
         if (s == AppScreen.reports) return can('view_reports');
         // النسخ الاحتياطي محظور ومحجوب تماماً عن أجهزة الأعضاء داخل المجموعة

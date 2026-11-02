@@ -183,8 +183,24 @@ void main() {
       }
       expect(find.byType(TxForm), findsNothing);
       // شاشة العمليات تُفتح من الشريط الجانبي ببلاطة «العمليات» —
-      // بعد الحفظ من الرئيسية.
-      final txTile = find.text('العمليات');
+      // بعد الحفظ من الرئيسية. نفتح الدرج أولًا ثم نطابق البلاطة داخله
+      // حصراً (لا نعتمد على بناء عناصر بعيدة في ListView اللوحة).
+      // (استقرار CI) بعد إغلاق نموذج العملية قد تبقى طبقة عابرة فوق
+      // الشريط العلوي (انتقال المسار/إشعار) تمتص أول نقرة — نعيد المحاولة
+      // حتى يفتح الدرج فعلياً بدل الاعتماد على نقرة واحدة.
+      for (var i = 0;
+          i < 40 && find.byType(Drawer).evaluate().isEmpty;
+          i++) {
+        await tester.tap(find.byIcon(Icons.menu).first,
+            warnIfMissed: false);
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 80)));
+        await tester.pump(const Duration(milliseconds: 120));
+      }
+      final txTile = find.descendant(
+        of: find.byType(Drawer),
+        matching: find.text('العمليات'),
+      );
       await _waitFor(tester, txTile);
       await tester.ensureVisible(txTile);
       // (إصلاح CI 2026-09-22) pumpAndSettle لا يستقر على آلات CI البطيئة
