@@ -10,12 +10,18 @@ import 'account_detail.dart';
 import 'account_form.dart';
 import 'widgets.dart';
 
-import '../core/theme.dart';
+/// (تصحيح 2026-11-03) هل شريط البحث مفتوح في شاشة الحسابات؟
+/// البحث صار أيقونة بجوار الجرس أعلى يسار الشاشة — يُفتح من هناك
+/// بدل خانة دائمة تستهلك من مساحة الصفحة.
+final accountsSearchOpenProvider = StateProvider<bool>((ref) => false);
 
-/// شاشة الحسابات (تصحيح 2026-11-03): بحث + تصنيف **نوع الحساب**
-/// (الكل / عملاء / موردين / حساب عام) وقائمة واحدة مباشرة.
-/// لا فلاتر عملة في رأس الشاشة، ولا فرز أرصدة (لكم/عليكم) بالسحب —
-/// كل حساب يعرض رصيده بعملته داخل بطاقته.
+/// صفحة التصنيف الحالية (الكل/عملاء/موردين/حساب عام) — تربط
+/// شرائح التصنيف بصفحات السحب.
+final _kindPageProvider = StateProvider<int>((ref) => 0);
+
+/// شاشة الحسابات: تصنيف **نوع الحساب** (الكل / عملاء / موردين /
+/// حساب عام) — الشاشة كلها قابلة للسحب للتنقل بين التصنيفات،
+/// والبحث أيقونة في شريط التطبيق (لا خانة دائمة أعلى القائمة).
 class AccountsScreen extends ConsumerStatefulWidget {
   const AccountsScreen({super.key});
 
@@ -24,32 +30,75 @@ class AccountsScreen extends ConsumerStatefulWidget {
 }
 
 class _AccountsScreenState extends ConsumerState<AccountsScreen> {
+  static const _pages = <(String, AccountKind?)>[
+    ('الكل', null),
+    ('عملاء', AccountKind.customer),
+    ('موردين', AccountKind.supplier),
+    ('حساب عام', AccountKind.general),
+  ];
+
+  final _pageController = PageController(initialPage: 0);
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final filter = ref.watch(accountFilterProvider);
     final curs =
         ref.watch(currenciesProvider).valueOrNull ?? kDefaultCurrencies;
+    final searchOpen = ref.watch(accountsSearchOpenProvider);
+    final filter = ref.watch(accountFilterProvider);
 
     return Column(
       children: [
-        // البحث
-        _SearchBar(filter: filter),
-        // تصنيف نوع الحساب
-        const _KindTabs(),
-        // قائمة الحسابات الوحيدة — التصفية بالنوع تتم داخل accountsProvider
+        // البحث — يظهر فقط عند فتحه من أيقونة شريط التطبيق.
+        if (searchOpen)
+          _SearchBar(
+            filter: filter,
+            onClose: () {
+              ref.read(accountsSearchOpenProvider.notifier).state = false;
+              if (filter.query.isNotEmpty) {
+                ref.read(accountFilterProvider.notifier).state =
+                    filter.copyWith(query: '');
+              }
+            },
+          ),
+        // شرائح التصنيف — تعكس صفحة السحب الحالية
+        _KindTabs(controller: _pageController),
+        // قوائم الحسابات: سحب أفقي على كامل الشاشة يبدّل التصنيف
         Expanded(
-          child: _CustomerListPage(currencies: curs),
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: _pages.length,
+            onPageChanged: (i) {
+              Sfx.tap();
+              ref.read(_kindPageProvider.notifier).state = i;
+            },
+            itemBuilder: (context, i) => _CustomerListPage(
+              kind: _pages[i].$2,
+              kindLabel: _pages[i].$1,
+              currencies: curs,
+            ),
+          ),
         ),
       ],
     );
   }
 }
 
-/// قائمة الحسابات — تصفية النوع/البحث تتم في accountsProvider (kind).
+/// صفحة واحدة من قوائم الحسابات بتصنيف نوع محدد — التصفية بالنوع
+/// محلية حتى تبقى صفحة «الكل» كاملة بينما يعمل البحث في الجميع.
 class _CustomerListPage extends ConsumerWidget {
+  final AccountKind? kind;
+  final String kindLabel;
   final List<CurrencyDef> currencies;
 
   const _CustomerListPage({
+    required this.kind,
+    required this.kindLabel,
     required this.currencies,
   });
 
@@ -101,21 +150,26 @@ class _CustomerListPage extends ConsumerWidget {
           ),
         ),
       ),
-      data: (items) {
+      data: (rawItems) {
+        final items = rawItems
+            .where((it) => kind == null || it.account.kind == kind)
+            .toList();
+
         if (items.isEmpty) {
+          final searching = filter.query.isNotEmpty;
           return EmptyState(
-            icon: filter.kind == null
-                ? Icons.people_outline
-                : Icons.filter_alt_outlined,
-            title: filter.query.isEmpty && filter.kind == null
-                ? 'لا توجد حسابات بعد'
-                : (filter.query.isEmpty
-                    ? 'لا يوجد حسابات في هذا التصنيف'
-                    : 'لا نتائج مطابقة'),
-            message: filter.query.isEmpty && filter.kind == null
-                ? 'أضف أول حساب لعميل أو مورد'
-                : 'جرّب تصنيفًا آخر أو غيّر كلمة البحث',
-            action: filter.query.isEmpty && filter.kind == null
+            icon: searching
+                ? Icons.search_off
+                : (kind == null ? Icons.people_outline : Icons.folder_off),
+            title: searching
+                ? 'لا نتائج مطابقة'
+                : (kind == null ? 'لا توجد حسابات بعد' : 'لا يوجد $kindLabel'),
+            message: searching
+                ? 'جرّب كلمة بحث أخرى'
+                : (kind == null
+                    ? 'أضف أول حساب لعميل أو مورد'
+                    : 'اسحب يمينًا أو يسارًا للتنقل بين التصنيفات'),
+            action: !searching && kind == null
                 ? FilledButton.icon(
                     onPressed: () => openAccountForm(context, ref),
                     icon: const Icon(Icons.add),
@@ -144,35 +198,46 @@ class _CustomerListPage extends ConsumerWidget {
   }
 }
 
-/// شرائح نوع الحساب: الكل / عملاء / موردين / حساب عام —
-/// تصنيف واحد واضح يعتمد نوع الحساب لا عملته ولا رصيده.
+/// شرائح نوع الحساب: الكل / عملاء / موردين / حساب عام — مؤشر مرئي
+/// لصفحة السحب الحالية، والنقر يقفز إليها بانسيابية.
 class _KindTabs extends ConsumerWidget {
-  const _KindTabs();
+  final PageController controller;
 
-  static const _tabs = <(String, AccountKind?, Color)>[
-    ('الكل', null, Color(0xFF0284C7)),
-    ('عملاء', AccountKind.customer, Color(0xFF2563EB)),
-    ('موردين', AccountKind.supplier, Color(0xFFF59E0B)),
-    ('حساب عام', AccountKind.general, Color(0xFF10B981)),
-  ];
+  const _KindTabs({required this.controller});
+
+  static const _colors = <AccountKind?, Color>{
+    null: Color(0xFF0284C7),
+    AccountKind.customer: Color(0xFF2563EB),
+    AccountKind.supplier: Color(0xFFF59E0B),
+    AccountKind.general: Color(0xFF10B981),
+  };
+
+  static const _labels = <AccountKind?, String>{
+    null: 'الكل',
+    AccountKind.customer: 'عملاء',
+    AccountKind.supplier: 'موردين',
+    AccountKind.general: 'حساب عام',
+  };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final filter = ref.watch(accountFilterProvider);
-    final n = ref.read(accountFilterProvider.notifier);
+    final current = ref.watch(_kindPageProvider);
+    final kinds = _labels.keys.toList(growable: false);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
       child: Row(
         children: [
-          for (final (label, kind, color) in _tabs)
+          for (var i = 0; i < kinds.length; i++)
             Expanded(
               child: GestureDetector(
                 onTap: () {
                   Sfx.tap();
-                  n.state = kind == null
-                      ? filter.copyWith(clearKind: true)
-                      : filter.copyWith(kind: kind, clearCurrency: true);
+                  controller.animateToPage(
+                    i,
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                  );
                 },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
@@ -180,24 +245,27 @@ class _KindTabs extends ConsumerWidget {
                   padding:
                       const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
                   decoration: BoxDecoration(
-                    color: filter.kind == kind
-                        ? color.withValues(alpha: isDark ? 0.26 : 0.12)
+                    color: current == i
+                        ? _colors[kinds[i]]!
+                            .withValues(alpha: isDark ? 0.26 : 0.12)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: filter.kind == kind ? color : Colors.transparent,
+                      color: current == i
+                          ? _colors[kinds[i]]!
+                          : Colors.transparent,
                       width: 1.1,
                     ),
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    label,
+                    _labels[kinds[i]]!,
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight:
-                          filter.kind == kind ? FontWeight.w800 : FontWeight.w600,
-                      color: filter.kind == kind
-                          ? color
+                          current == i ? FontWeight.w800 : FontWeight.w600,
+                      color: current == i
+                          ? _colors[kinds[i]]!
                           : (isDark
                               ? const Color(0xFF94A3B8)
                               : const Color(0xFF475569)),
@@ -213,12 +281,15 @@ class _KindTabs extends ConsumerWidget {
   }
 }
 
-/// شريط البحث وحده — بلا شرائح عملة (تصحيح 2026-11-03).
+/// شريط البحث — يُفتح من أيقونة البحث بجوار الجرس، ويُغلق بزر ✕
+/// الذي يمسح الكلمة أيضًا.
 class _SearchBar extends ConsumerWidget {
   final AccountFilter filter;
+  final VoidCallback onClose;
 
   const _SearchBar({
     required this.filter,
+    required this.onClose,
   });
 
   @override
@@ -227,18 +298,18 @@ class _SearchBar extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 6),
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 2),
       child: TextField(
+        autofocus: true,
         decoration: InputDecoration(
           hintText: 'بحث بالاسم أو الهاتف أو الملاحظات…',
           hintStyle: const TextStyle(fontFamily: 'AppNaskh', fontSize: 13),
           prefixIcon: const Icon(Icons.search, size: 20),
-          suffixIcon: filter.query.isEmpty
-              ? null
-              : IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  onPressed: () => n.state = filter.copyWith(query: ''),
-                ),
+          suffixIcon: IconButton(
+            tooltip: 'إغلاق البحث',
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: onClose,
+          ),
           isDense: true,
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -260,6 +331,8 @@ class _SearchBar extends ConsumerWidget {
   }
 }
 
+/// بطاقة الحساب النحيفة — اسم بار بخط أسود عريض بلا دائرة مجاورة،
+/// والرصيد بلونه (عليه/له/مسدد) بعملة الحساب.
 class _AccountCard extends StatelessWidget {
   final AccountWithBalance item;
   final List<CurrencyDef> currencies;
@@ -273,30 +346,6 @@ class _AccountCard extends StatelessWidget {
     required this.txCount,
   });
 
-  String _getInitials(String name) {
-    final parts =
-        name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return '؟';
-    if (parts.length == 1) {
-      return parts[0].length >= 2 ? parts[0].substring(0, 2) : parts[0];
-    }
-    final first = parts[0].isNotEmpty ? parts[0].substring(0, 1) : '';
-    final second = parts[1].isNotEmpty ? parts[1].substring(0, 1) : '';
-    return '$first$second';
-  }
-
-  Color _avatarColor(String name) {
-    final colors = [
-      const Color(0xFF0284C7),
-      AppColors.primary2,
-      const Color(0xFF7C3AED),
-      const Color(0xFFEA580C),
-      const Color(0xFF4F46E5),
-      const Color(0xFFDB2777),
-    ];
-    return colors[name.hashCode.abs() % colors.length];
-  }
-
   @override
   Widget build(BuildContext context) {
     final a = item.account;
@@ -308,8 +357,6 @@ class _AccountCard extends StatelessWidget {
 
     final isDebt = item.balance < -Fmt.moneyEpsilon;
     final isCredit = item.balance > Fmt.moneyEpsilon;
-    final initials = _getInitials(a.name);
-    final accent = _avatarColor(a.name);
 
     return Container(
       decoration: BoxDecoration(
@@ -344,31 +391,7 @@ class _AccountCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
-                // الدائرة التعبيرية مع الحرفين الأولين من الاسم
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: isDark ? 0.22 : 0.12),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: accent.withValues(alpha: 0.3),
-                      width: 1.2,
-                    ),
-                  ),
-                  child: Text(
-                    initials,
-                    style: TextStyle(
-                      color: accent,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      fontFamily: 'AppNaskh',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // اسم الحساب ومعلوماته
+                // اسم الحساب بارزًا — بلا دائرة مجاورة (تصحيح 2026-11-03)
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -378,12 +401,13 @@ class _AccountCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w900,
+                          height: 1.15,
                           fontFamily: 'AppNaskh',
                         ),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 4),
                       Text(
                         [
                           if (a.phone.isNotEmpty) a.phone,

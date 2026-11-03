@@ -1060,6 +1060,46 @@ class _HomeShellState extends ConsumerState<HomeShell>
           ),
           title: Text(_screen.title),
           actions: [
+            // (تصحيح 2026-11-03) البحث أيقونة بجوار الجرس أعلى يسار
+            // الشاشة — تظهر في شاشة الحسابات، وتفتح شريط البحث الذي
+            // حُذف من أعلى القائمة ليوفر مساحة الصفحة.
+            if (_screen == AppScreen.accounts)
+              Builder(
+                builder: (ctx) {
+                  final isDark = Theme.of(ctx).brightness == Brightness.dark;
+                  final open = ref.watch(accountsSearchOpenProvider);
+                  return _appBarSquircleAction(
+                    tooltip: 'بحث في الحسابات',
+                    bg: open
+                        ? const Color(0xFF0284C7)
+                        : (isDark
+                            ? const Color(0xFF0C2A3F)
+                            : const Color(0xFFE0F2FE)),
+                    fg: open
+                        ? Colors.white
+                        : (isDark
+                            ? const Color(0xFF7DD3FC)
+                            : const Color(0xFF0284C7)),
+                    border: Border.all(
+                      color: open
+                          ? const Color(0xFF0369A1)
+                          : (isDark
+                              ? const Color(0xFF075985)
+                              : const Color(0xFFBAE6FD)),
+                      width: 1.1,
+                    ),
+                    icon: Icon(
+                      open ? Icons.search_off_rounded : Icons.search_rounded,
+                      size: 21,
+                    ),
+                    onTap: () {
+                      Sfx.tap();
+                      ref.read(accountsSearchOpenProvider.notifier).state =
+                          !open;
+                    },
+                  );
+                },
+              ),
             Consumer(
               builder: (ctx, rref, _) {
                 final unreadLocal =

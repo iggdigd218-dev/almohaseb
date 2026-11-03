@@ -201,8 +201,10 @@ void main() {
             () => Future<void>.delayed(const Duration(milliseconds: 60)));
         await tester.pump(const Duration(milliseconds: 100));
       }
-      // شريط البحث الخاص بشاشة العملاء ظاهر — أي أننا داخلها مباشرة.
-      expect(find.text('بحث بالاسم أو الهاتف أو الملاحظات…'), findsOneWidget);
+      // (تصحيح 2026-11-03) البحث أيقونة بجوار الجرس أعلى يسار الشاشة —
+      // لا خانة بحث دائمة تعلو القائمة.
+      expect(find.text('بحث بالاسم أو الهاتف أو الملاحظات…'), findsNothing);
+      expect(find.byIcon(Icons.search_rounded), findsOneWidget);
       // (تصحيح 2026-11-03) التصنيف صار **نوع الحساب**: عملاء/موردين/عام.
       expect(find.text('عملاء'), findsWidgets);
       expect(find.text('موردين'), findsOneWidget);
@@ -316,7 +318,16 @@ void main() {
         }
       }
 
-      // «موردين»: المورد فقط.
+      // (تصحيح 2026-11-03) الشاشة كلها قابلة للسحب بين التصنيفات:
+      // في RTL سحب الإصبع لليمين (+X) يكشف الصفحة التالية ← «عملاء».
+      // timedDrag يرسل الحركة على خطوات زمنية كما الإصبع الحقيقي.
+      await tester.timedDrag(find.text('عميل الاختبار'),
+          const Offset(400, 0), const Duration(milliseconds: 300));
+      await settle();
+      expect(find.text('عميل الاختبار'), findsOneWidget);
+      expect(find.text('مورد الاختبار'), findsNothing);
+
+      // «موردين»: المورد فقط (نقر الشريحة).
       await tester.tap(find.text('موردين'));
       await settle();
       expect(find.text('مورد الاختبار'), findsOneWidget);
@@ -331,6 +342,18 @@ void main() {
       await settle();
       expect(find.text('عميل الاختبار'), findsOneWidget);
       expect(find.text('مورد الاختبار'), findsOneWidget);
+
+      // البحث يُفتح من الأيقونة بجوار الجرس ويُغلق بزر ✕.
+      await tester.tap(find.byIcon(Icons.search_rounded));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.text('بحث بالاسم أو الهاتف أو الملاحظات…'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.close));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.text('بحث بالاسم أو الهاتف أو الملاحظات…'), findsNothing);
       final error = tester.takeException();
       expect(error, isNull);
     } finally {
