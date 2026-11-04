@@ -115,6 +115,10 @@ class _TxFormState extends ConsumerState<TxForm> {
 
       if (t != null) {
         _type = t.type;
+        // تعديل عملية بنوع متقدم (تحويل/مصروف/…) — نفتح الخيارات مباشرة.
+        if (t.type != OpType.debit && t.type != OpType.credit) {
+          _showMoreTypes = true;
+        }
         _accountId = t.type == OpType.transfer ? t.fromId : t.accountId;
         _toId = t.toId;
         _currency = t.currency;
@@ -321,9 +325,109 @@ class _TxFormState extends ConsumerState<TxForm> {
     }
   }
 
-  bool _advancedOpen = false;
+  /// دائرتا نوع العملية أسفل يمين النافذة — عليه (أخضر ▲) أو له
+  /// (أحمر ▼)، وزر «متقدم» صغير يسارًا للتحويل/المصروف/التسوية.
+  Widget _typeCircles() {
+    final isOwe = _type == OpType.debit;
+    final isLahu = _type == OpType.credit;
+    final isOther = !isOwe && !isLahu;
+    // دائرتا «عليه/له» أسفل يمين النافذة (بداية RTL)، وزر «متقدم»
+    // في الطرف المقابل — بحشوات مضغوطة كي يستوعب الصف عرض 320.
+    return Row(
+      children: [
+        _TypeCircle(
+          label: 'عليه',
+          icon: Icons.arrow_upward_rounded,
+          color: const Color(0xFF059669),
+          selected: isOwe,
+          onTap: () => setState(() => _type = OpType.debit),
+        ),
+        const SizedBox(width: 10),
+        _TypeCircle(
+          label: 'له',
+          icon: Icons.arrow_downward_rounded,
+          color: const Color(0xFFDC2626),
+          selected: isLahu,
+          onTap: () => setState(() => _type = OpType.credit),
+        ),
+        if (isOther)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsetsDirectional.only(start: 10),
+              child: Text(
+                'النوع: ${_type.label}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.text2Of(context),
+                ),
+              ),
+            ),
+          )
+        else
+          const Spacer(),
+        TextButton.icon(
+          onPressed: () =>
+              setState(() => _showMoreTypes = !_showMoreTypes),
+          icon: Icon(
+            _showMoreTypes ? Icons.expand_less : Icons.expand_more,
+            size: 15,
+          ),
+          label: const Text(
+            'متقدم',
+            style: TextStyle(fontSize: 11),
+          ),
+          style: TextButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            minimumSize: const Size(0, 32),
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+          ),
+        ),
+      ],
+    );
+  }
 
-  Widget _typeChips() => _typeGrid();
+  /// معاينة صغيرة للصورة المرفقة قابلة للحذف.
+  Widget _imagePreview() {
+    final hasImage = _image.isNotEmpty && File(_image).existsSync();
+    if (!hasImage) return const SizedBox.shrink();
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.file(
+              File(_image),
+              width: 52,
+              height: 52,
+              fit: BoxFit.cover,
+            ),
+          ),
+          PositionedDirectional(
+            top: -6,
+            end: -6,
+            child: GestureDetector(
+              onTap: () => setState(() => _image = ''),
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFDC2626),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close,
+                    size: 12, color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -390,16 +494,35 @@ class _TxFormState extends ConsumerState<TxForm> {
               child: Row(
                 children: [
                   const Icon(Icons.edit_note_rounded,
-                      color: Colors.white, size: 26),
+                      color: Colors.white, size: 24),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 17,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // (تصحيح 2026-11-03) اسم الحساب يتصدر النافذة.
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          _account?.name ?? 'اختر الحساب',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                            fontFamily: 'AppNaskh',
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   InkWell(
@@ -425,66 +548,79 @@ class _TxFormState extends ConsumerState<TxForm> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _typeChips(),
-                      const SizedBox(height: 14),
                       _accountPickers(),
                       const SizedBox(height: 14),
                       _amountRow(),
                       const SizedBox(height: 6),
                       AmountWords(controller: _amount),
+                      const SizedBox(height: 12),
+                      // التفاصيل وبجانبها أيقونة صغيرة للصورة: معرض أو
+                      // كاميرا فورية — كما في النموذج المرجعي.
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _desc,
+                              decoration: const InputDecoration(
+                                labelText: 'التفاصيل',
+                                prefixIcon: Icon(Icons.notes_outlined),
+                                hintText: 'وصف مختصر (اختياري)',
+                              ),
+                              textInputAction: TextInputAction.done,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _AttachPhotoButtons(
+                            onGallery: _pickImage,
+                            onCamera: _captureImage,
+                          ),
+                        ],
+                      ),
+                      if (_image.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        _imagePreview(),
+                      ],
+                      const SizedBox(height: 12),
+                      // التاريخ ظاهر مباشرة — لا قائمة منطوية.
+                      _datePicker(),
                       if (_type == OpType.settle) ...[
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 12),
                         _signPicker(),
                       ],
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: _desc,
-                        decoration: const InputDecoration(
-                          labelText: 'البيان / الوصف',
-                          prefixIcon: Icon(Icons.notes_outlined),
-                          hintText: 'وصف مختصر (اختياري)',
-                        ),
-                        textInputAction: TextInputAction.done,
-                      ),
-                      Theme(
-                        data: Theme.of(context)
-                            .copyWith(dividerColor: Colors.transparent),
-                        child: ExpansionTile(
-                          tilePadding: EdgeInsets.zero,
-                          childrenPadding: EdgeInsets.zero,
-                          title: Text(
-                            _advancedOpen
-                                ? 'إخفاء التفاصيل الإضافية'
-                                : 'التفاصيل الإضافية',
-                          ),
-                          leading: const Icon(Icons.tune),
-                          onExpansionChanged: (v) =>
-                              setState(() => _advancedOpen = v),
-                          children: [
-                            const SizedBox(height: 6),
-                            _datePicker(),
-                            const SizedBox(height: 14),
-                            TextFormField(
-                              controller: _ref,
-                              decoration: const InputDecoration(
-                                labelText: 'رقم مرجعي',
-                                prefixIcon: Icon(Icons.tag),
+                      if (_showMoreTypes) ...[
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: OpType.values
+                              .where((t) =>
+                                  t != OpType.debit &&
+                                  t != OpType.credit)
+                              .map((t) {
+                            final sel = t == _type;
+                            return ChoiceChip(
+                              selected: sel,
+                              onSelected: (_) =>
+                                  setState(() => _type = t),
+                              avatar: Text(t.icon,
+                                  style: const TextStyle(fontSize: 13)),
+                              label: Text(t.label),
+                              labelStyle: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 11.5,
+                                color: sel
+                                    ? AppColors.primaryOf(context)
+                                    : AppColors.text2Of(context),
                               ),
-                            ),
-                            const SizedBox(height: 14),
-                            TextFormField(
-                              controller: _notes,
-                              decoration: const InputDecoration(
-                                labelText: 'ملاحظات',
-                                prefixIcon: Icon(Icons.sticky_note_2_outlined),
-                              ),
-                              maxLines: 2,
-                            ),
-                            const SizedBox(height: 10),
-                            _smallImagePicker(),
-                          ],
+                            );
+                          }).toList(),
                         ),
-                      ),
+                      ],
+                      const SizedBox(height: 4),
+                      // دائرتا نوع العملية أسفل يمين النافذة.
+                      _typeCircles(),
+
                       if (_saveSlow)
                         const Padding(
                           padding: EdgeInsets.only(bottom: 10),
@@ -540,64 +676,6 @@ class _TxFormState extends ConsumerState<TxForm> {
     );
   }
 
-  /// إرفاق صورة اختياري — أيقونة صغيرة بجانب بيانات العملية (تُولَّد صورة
-  /// الإيصال تلقائياً عند الحفظ، وهذا لإرفاق صورة خارجية فقط).
-  Widget _smallImagePicker() {
-    final hasImage = _image.isNotEmpty && File(_image).existsSync();
-    return Row(
-      children: [
-        Icon(Icons.attach_file, size: 16, color: AppColors.text3Of(context)),
-        const SizedBox(width: 6),
-        Text(
-          'إرفاق صورة (اختياري):',
-          style: TextStyle(fontSize: 12.5, color: AppColors.text2Of(context)),
-        ),
-        const SizedBox(width: 6),
-        IconButton(
-          tooltip: 'من المعرض',
-          visualDensity: VisualDensity.compact,
-          icon: Icon(
-            Icons.photo_library_outlined,
-            size: 20,
-            color: AppColors.primaryOf(context),
-          ),
-          onPressed: _pickImage,
-        ),
-        IconButton(
-          tooltip: 'التقاط من الكاميرا',
-          visualDensity: VisualDensity.compact,
-          icon: Icon(
-            Icons.photo_camera_outlined,
-            size: 20,
-            color: AppColors.primaryOf(context),
-          ),
-          onPressed: _captureImage,
-        ),
-        if (hasImage) ...[
-          const SizedBox(width: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: Image.file(
-              File(_image),
-              width: 34,
-              height: 34,
-              fit: BoxFit.cover,
-            ),
-          ),
-          IconButton(
-            tooltip: 'إزالة الصورة',
-            visualDensity: VisualDensity.compact,
-            icon: Icon(
-              Icons.close,
-              size: 18,
-              color: AppColors.dangerOf(context),
-            ),
-            onPressed: () => setState(() => _image = ''),
-          ),
-        ],
-      ],
-    );
-  }
 
   Future<void> _pickImage() async {
     final x = await ImagePicker().pickImage(
@@ -623,171 +701,6 @@ class _TxFormState extends ConsumerState<TxForm> {
     }
   }
 
-  Widget _typeGrid() {
-    final isAlayh = _type == OpType.debit || _type == OpType.outflow;
-    final isLahu = _type == OpType.credit || _type == OpType.inflow;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SectionTitle('طبيعة العملية على الحساب'),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: InkWell(
-                onTap: () => setState(() => _type = OpType.debit),
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 11,
-                    horizontal: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isAlayh
-                        ? Colors.red.withValues(alpha: 0.12)
-                        : AppColors.surface2Of(context),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isAlayh ? Colors.red : AppColors.borderOf(context),
-                      width: isAlayh ? 2 : 1,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text('🔴', style: TextStyle(fontSize: 18)),
-                          const SizedBox(width: 6),
-                          Text(
-                            'عليه',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: isAlayh
-                                  ? Colors.red.shade800
-                                  : AppColors.textOf(context),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '(مستحق لنا / مدين / بيع)',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
-                          color: isAlayh
-                              ? Colors.red.shade700
-                              : AppColors.text2Of(context),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: InkWell(
-                onTap: () => setState(() => _type = OpType.credit),
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 11,
-                    horizontal: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isLahu
-                        ? Colors.green.withValues(alpha: 0.12)
-                        : AppColors.surface2Of(context),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color:
-                          isLahu ? Colors.green : AppColors.borderOf(context),
-                      width: isLahu ? 2 : 1,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text('🟢', style: TextStyle(fontSize: 18)),
-                          const SizedBox(width: 6),
-                          Text(
-                            'له',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: isLahu
-                                  ? Colors.green.shade800
-                                  : AppColors.textOf(context),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '(مستحق له / دائن / دفعة)',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
-                          color: isLahu
-                              ? Colors.green.shade700
-                              : AppColors.text2Of(context),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: () => setState(() => _showMoreTypes = !_showMoreTypes),
-            icon: Icon(
-              _showMoreTypes ? Icons.expand_less : Icons.expand_more,
-              size: 16,
-            ),
-            label: const Text(
-              'خيارات متقدمة (تحويل، مصروف، تسوية)',
-              style: TextStyle(fontSize: 11.5),
-            ),
-          ),
-        ),
-        if (_showMoreTypes) ...[
-          const SizedBox(height: 4),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: OpType.values
-                .where((t) => t != OpType.debit && t != OpType.credit)
-                .map((t) {
-              final sel = t == _type;
-              return ChoiceChip(
-                selected: sel,
-                onSelected: (_) => setState(() => _type = t),
-                avatar: Text(t.icon, style: const TextStyle(fontSize: 13)),
-                label: Text(t.label),
-                labelStyle: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 11.5,
-                  color: sel
-                      ? AppColors.primaryOf(context)
-                      : AppColors.text2Of(context),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ],
-    );
-  }
 
   Widget _accountPickers() {
     return Column(
@@ -1007,6 +920,135 @@ class _TxFormState extends ConsumerState<TxForm> {
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
+    );
+  }
+}
+
+/// دائرة اختيار صغيرة لنوع العملية — تمتلئ بلونها عند التحديد.
+class _TypeCircle extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _TypeCircle({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.14) : Colors.transparent,
+          borderRadius: BorderRadius.circular(40),
+          border: Border.all(
+            color: selected ? color : AppColors.borderOf(context),
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: selected ? color : Colors.transparent,
+                border: Border.all(
+                  color: selected ? color : AppColors.borderOf(context),
+                  width: 1.4,
+                ),
+              ),
+              child: selected
+                  ? Icon(icon, size: 12, color: Colors.white)
+                  : null,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                color: selected ? color : AppColors.text2Of(context),
+                fontFamily: 'AppNaskh',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// عمود أيقونتين صغيرتين بجانب حقل التفاصيل: معرض الصور أو كاميرا
+/// فورية لإرفاق صورة بالعملية.
+class _AttachPhotoButtons extends StatelessWidget {
+  final VoidCallback onGallery;
+  final VoidCallback onCamera;
+
+  const _AttachPhotoButtons({
+    required this.onGallery,
+    required this.onCamera,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: onGallery,
+          child: Tooltip(
+            message: 'صورة من المعرض',
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: AppColors.surface2Of(context),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.borderOf(context)),
+              ),
+              child: Icon(
+                Icons.photo_library_outlined,
+                size: 18,
+                color: AppColors.primaryOf(context),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        GestureDetector(
+          onTap: onCamera,
+          child: Tooltip(
+            message: 'التقاط صورة فورية',
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: AppColors.surface2Of(context),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.borderOf(context)),
+              ),
+              child: Icon(
+                Icons.photo_camera_outlined,
+                size: 18,
+                color: AppColors.primaryOf(context),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

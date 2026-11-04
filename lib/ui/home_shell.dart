@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/accounting.dart';
+import '../core/format.dart';
 import '../core/shell_nav.dart';
 import '../core/app_version.dart';
 import '../core/theme.dart';
@@ -808,56 +809,54 @@ class _HomeShellState extends ConsumerState<HomeShell>
       };
 
   /// زر العملية العائم المميّز بالتدرج الدائري كما في هوية التطبيق
+  /// هل المستخدم مشترك مدفوع فعّال؟ — بوابات الميزات المدفوعة.
+  bool get _subscribed =>
+      ref.watch(subscriptionProvider).valueOrNull?.isSubscribed ?? false;
+
   Widget? _fab() {
-    // زر الإضافة السريعة (+) على شاشة العملاء — نقطة الدخول الأولى.
-    if (_screen != AppScreen.accounts) return null;
-
-    // (قانون 2026-09-19) الزر العائم «إجراء سريع» كما كان: يفتح ورقة
-    // الخيارات (عملية، سند، حساب) بدل نموذج مباشر.
-    return _MarkedOperationFab(onPressed: _quickActionSheet);
-  }
-
-  /// ورقة الإجراء السريع من زر Omni على الرئيسية: أهم المهام
-  /// بلا تشتيت — عملية، سند، حساب.
-  void _quickActionSheet() {
-    Sfx.click();
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.receipt_long_outlined),
-              title: const Text('تسجيل عملية مالية'),
-              onTap: () {
-                Navigator.pop(ctx);
-                openTxForm(context, ref);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.receipt_outlined),
-              title: const Text('سند قبض / صرف'),
-              onTap: () {
-                Navigator.pop(ctx);
-                openVoucherForm(context, ref);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.person_add_alt_outlined),
-              title: const Text('حساب جديد'),
-              onTap: () {
-                Navigator.pop(ctx);
-                openAccountForm(context, ref);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+    // (تصحيح 2026-11-03) زر + سياقي صغير (48px) يطفو أسفل يمين الشاشة
+    // فوق بطاقة الملخص ولا يمس أي حافة: الحسابات → حساب جديد، العمليات
+    // → عملية، السندات → سند. داخل تفاصيل الحساب يظهر زر عملية خاص
+    // به هناك. أما بقية الشاشات فلا زر (لا معنى له هناك).
+    final VoidCallback onTap;
+    final IconData icon;
+    final String tooltip;
+    switch (_screen) {
+      case AppScreen.accounts:
+        tooltip = 'حساب جديد';
+        icon = Icons.person_add_alt_outlined;
+        onTap = () {
+          Sfx.click();
+          openAccountForm(context, ref);
+        };
+      case AppScreen.transactions:
+        tooltip = 'تسجيل عملية';
+        icon = Icons.receipt_long_outlined;
+        onTap = () {
+          Sfx.click();
+          openTxForm(context, ref);
+        };
+      case AppScreen.vouchers:
+        tooltip = 'سند جديد';
+        icon = Icons.post_add_outlined;
+        onTap = () {
+          Sfx.click();
+          openVoucherForm(context, ref);
+        };
+      default:
+        return null;
+    }
+    return FloatingActionButton.small(
+      tooltip: tooltip,
+      backgroundColor: const Color(0xFF0284C7),
+      foregroundColor: Colors.white,
+      onPressed: onTap,
+      child: Icon(icon, size: 22),
     );
   }
+
+  // (تصحيح 2026-11-03) حُذفت ورقة الإجراءات السريعة — زر + صار
+  // سياقيًا مباشرًا: حساب جديد على شاشة الحسابات، وعملية داخل الحساب.
 
   final List<AppScreen> _screenHistory = [AppScreen.accounts];
   bool _isExitDialogOpen = false;
@@ -1206,20 +1205,23 @@ class _HomeShellState extends ConsumerState<HomeShell>
                           ],
                         ),
                       ),
-                      const PopupMenuItem(
-                        value: 'syncOps',
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.cloud_sync_outlined,
-                              size: 19,
-                              color: Color(0xFF0284C7),
-                            ),
-                            SizedBox(width: 10),
-                            Text('العمليات المتزامنة'),
-                          ],
+                      // (تصحيح 2026-11-03) «العمليات المتزامنة» ميزة
+                      // مدفوعة — تظهر للمشترك الفعّال فقط.
+                      if (_subscribed)
+                        const PopupMenuItem(
+                          value: 'syncOps',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.cloud_sync_outlined,
+                                size: 19,
+                                color: Color(0xFF0284C7),
+                              ),
+                              SizedBox(width: 10),
+                              Text('العمليات المتزامنة'),
+                            ],
+                          ),
                         ),
-                      ),
                       PopupMenuItem(
                         value: 'balances',
                         child: Row(
@@ -1246,10 +1248,12 @@ class _HomeShellState extends ConsumerState<HomeShell>
         // بدل الشريط السفلي؛ الهاتف يبقى على الشريط السفلي كما هو.
         body: _body(),
         floatingActionButton: _fab(),
-        bottomNavigationBar: _MarkedBottomBar(
-          currentScreen: _screen,
-          onSelect: (s) => _go(s),
-        ),
+        // (تصحيح 2026-11-03) حُذف شريط التبويبات السفلي — التنقل كله من
+        // القائمة الجانبية. مكانه بطاقة ملخص: لك / عليك / الإجمالي
+        // مع اختصار «+ حساب جديد».
+        floatingActionButtonLocation:
+            FloatingActionButtonLocation.startFloat,
+        bottomNavigationBar: const _SummaryBar(),
       ),
     );
               },
@@ -1261,336 +1265,135 @@ class _HomeShellState extends ConsumerState<HomeShell>
   }
 }
 
-/// شريط التنقل السفلي الحديث ذو الأيقونات المُعلّمة والمميّزة بصرياً
-/// كما في هوية التطبيق (العملاء، الحركات، التقارير، الإعدادات).
-class _MarkedBottomBar extends ConsumerWidget {
-  final AppScreen currentScreen;
-  final ValueChanged<AppScreen> onSelect;
-
-  const _MarkedBottomBar({
-    required this.currentScreen,
-    required this.onSelect,
-  });
+/// بطاقة الملخص السفلية — تحل محل شريط التبويبات المحذوف (2026-11-03):
+/// «لك» مستحق لنا (أخضر) و«عليك» مستحق علينا (أحمر) والإجمالي، لكل
+/// عملة ذات أرصدة، مع اختصار «+» لإضافة حساب جديد بسرعة.
+class _SummaryBar extends ConsumerWidget {
+  const _SummaryBar();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bottomPadding = MediaQuery.paddingOf(context).bottom;
+    final hidden = ref.watch(hideBalancesProvider);
+    final summary = ref.watch(summaryProvider).valueOrNull;
+    final curs =
+        ref.watch(currenciesProvider).valueOrNull ?? kDefaultCurrencies;
+
+    final rows = curs.where((c) {
+      final toUs = summary?.owedToUs[c.code] ?? 0;
+      final byUs = summary?.owedByUs[c.code] ?? 0;
+      return toUs.abs() > Fmt.moneyEpsilon ||
+          byUs.abs() > Fmt.moneyEpsilon;
+    }).toList();
+    if (rows.isEmpty && curs.isNotEmpty) rows.add(curs.first);
 
     return Container(
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF0F172A) : Colors.white,
         border: Border(
           top: BorderSide(
-            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+            color:
+                isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
             width: 1,
           ),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      padding: EdgeInsets.only(
-        top: 6,
-        bottom: bottomPadding > 0 ? bottomPadding : 6,
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _BottomItem(
-            label: 'العملاء',
-            tone: AppTone.blue,
-            selected: currentScreen == AppScreen.accounts,
-            icon: (sel, fg) => Icon(
-              Icons.people_alt_rounded,
-              color: fg,
-              size: 21,
-            ),
-            onTap: () => onSelect(AppScreen.accounts),
-          ),
-          _BottomItem(
-            label: 'الحركات',
-            tone: AppTone.green,
-            selected: currentScreen == AppScreen.transactions,
-            icon: (sel, fg) => _MarkedReceiptIcon(selected: sel),
-            onTap: () => onSelect(AppScreen.transactions),
-          ),
-          _BottomItem(
-            label: 'التقارير',
-            tone: AppTone.violet,
-            selected: currentScreen == AppScreen.reports,
-            icon: (sel, fg) => _MarkedBarChartIcon(selected: sel),
-            onTap: () => onSelect(AppScreen.reports),
-          ),
-          _BottomItem(
-            label: 'الإعدادات',
-            tone: AppTone.teal,
-            selected: currentScreen == AppScreen.settings,
-            icon: (sel, fg) => _MarkedGearIcon(selected: sel),
-            onTap: () => onSelect(AppScreen.settings),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BottomItem extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final AppTone tone;
-  final Widget Function(bool selected, Color fg) icon;
-  final VoidCallback onTap;
-
-  const _BottomItem({
-    required this.label,
-    required this.selected,
-    required this.tone,
-    required this.icon,
-    required this.onTap,
-  });
-
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final squircleBg = selected
-        ? tone.foreground
-        : (isDark ? tone.foreground.withValues(alpha: .22) : tone.background);
-    final squircleFg = selected
-        ? Colors.white
-        : (isDark ? Colors.white : tone.foreground);
-
-    return InkWell(
-      onTap: () {
-        Sfx.tap();
-        onTap();
-      },
-      borderRadius: BorderRadius.circular(16),
-      splashColor: Colors.transparent,
-      highlightColor: Colors.transparent,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              width: selected ? 52 : 44,
-              height: 34,
-              decoration: BoxDecoration(
-                color: squircleBg,
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: selected
-                    ? [
-                        BoxShadow(
-                          color: tone.foreground.withValues(alpha: 0.35),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ]
-                    : null,
-              ),
-              alignment: Alignment.center,
-              child: icon(selected, squircleFg),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                color: selected
-                    ? (isDark ? Colors.white : tone.foreground)
-                    : (isDark
-                        ? const Color(0xFF94A3B8)
-                        : const Color(0xFF64748B)),
-                fontFamily: 'AppNaskh',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// أيقونة الرسم البياني ثلاثية الأعمدة والملوّنة المميزة للتقارير (أخضر، أصفر، أزرق)
-class _MarkedBarChartIcon extends StatelessWidget {
-  final bool selected;
-  const _MarkedBarChartIcon({required this.selected});
-
-
-  @override
-  Widget build(BuildContext context) {
-    if (selected) {
-      return const Icon(Icons.bar_chart_rounded, color: Colors.white, size: 22);
-    }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Container(
-          width: 4,
-          height: 12,
-          decoration: BoxDecoration(
-            color: const Color(0xFF22C55E),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 2.5),
-        Container(
-          width: 4,
-          height: 20,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF59E0B),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 2.5),
-        Container(
-          width: 4,
-          height: 16,
-          decoration: BoxDecoration(
-            color: const Color(0xFF3B82F6),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// أيقونة الفاتورة / السند المميّزة بخطوط زرقاء للحركات
-class _MarkedReceiptIcon extends StatelessWidget {
-  final bool selected;
-  const _MarkedReceiptIcon({required this.selected});
-
-
-  @override
-  Widget build(BuildContext context) {
-    if (selected) {
-      return const Icon(
-        Icons.receipt_long_rounded,
-        color: Colors.white,
-        size: 21,
-      );
-    }
-    return Container(
-      width: 20,
-      height: 22,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: const Color(0xFF38BDF8), width: 1.4),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 2.5, vertical: 3),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Container(
-            height: 2,
-            width: 14,
-            decoration: BoxDecoration(
-              color: const Color(0xFF0284C7),
-              borderRadius: BorderRadius.circular(1),
-            ),
-          ),
-          Container(
-            height: 2,
-            width: 9,
-            decoration: BoxDecoration(
-              color: const Color(0xFF38BDF8),
-              borderRadius: BorderRadius.circular(1),
-            ),
-          ),
-          Container(
-            height: 2,
-            width: 12,
-            decoration: BoxDecoration(
-              color: const Color(0xFF0284C7),
-              borderRadius: BorderRadius.circular(1),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// أيقونة الترس المعدني للإعدادات
-class _MarkedGearIcon extends StatelessWidget {
-  final bool selected;
-  const _MarkedGearIcon({required this.selected});
-
-
-  @override
-  Widget build(BuildContext context) {
-    if (selected) {
-      return const Icon(Icons.settings_rounded, color: Colors.white, size: 22);
-    }
-    return const Icon(
-      Icons.settings_rounded,
-      color: Color(0xFF64748B),
-      size: 22,
-    );
-  }
-}
-
-/// زر العملية العائم المميّز بالتدرج الدائري كما في الصورة
-class _MarkedOperationFab extends StatelessWidget {
-  final VoidCallback? onPressed;
-  const _MarkedOperationFab({required this.onPressed});
-
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 58,
-      height: 58,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFB923C), Color(0xFF0284C7)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0284C7).withValues(alpha: 0.4),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-          BoxShadow(
-            color: const Color(0xFFFB923C).withValues(alpha: 0.25),
+            color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.05),
             blurRadius: 8,
-            offset: const Offset(-2, -2),
+            offset: const Offset(0, -3),
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPressed,
-          child: const Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 64,
+          child: Row(
             children: [
-              Icon(Icons.add_rounded, color: Colors.white, size: 22),
-              Text(
-                'عملية',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w800,
-                  fontFamily: 'AppNaskh',
-                  height: 1.0,
+              Expanded(
+                child: rows.isEmpty
+                    ? const SizedBox.shrink()
+                    : ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        itemCount: rows.length,
+                        separatorBuilder: (_, __) => const VerticalDivider(
+                          width: 20,
+                          indent: 14,
+                          endIndent: 14,
+                        ),
+                        itemBuilder: (_, i) {
+                          final c = rows[i];
+                          final toUs =
+                              summary?.owedToUs[c.code] ?? 0; // لك
+                          final byUs =
+                              summary?.owedByUs[c.code] ?? 0; // عليك
+                          final net = summary?.net[c.code] ?? 0;
+                          return Row(
+                            children: [
+                              _SummaryCell(
+                                label: 'لك',
+                                value: hidden
+                                    ? '•••'
+                                    : Fmt.moneyFor(toUs, c),
+                                color: const Color(0xFF059669),
+                                symbol: c.symbol,
+                              ),
+                              const SizedBox(width: 14),
+                              _SummaryCell(
+                                label: 'عليك',
+                                value: hidden
+                                    ? '•••'
+                                    : Fmt.moneyFor(byUs, c),
+                                color: const Color(0xFFDC2626),
+                                symbol: c.symbol,
+                              ),
+                              const SizedBox(width: 14),
+                              _SummaryCell(
+                                label: 'الإجمالي',
+                                value: hidden
+                                    ? '•••'
+                                    : Fmt.moneyFor(net, c),
+                                color: net.abs() <= Fmt.moneyEpsilon
+                                    ? (isDark
+                                        ? const Color(0xFF94A3B8)
+                                        : const Color(0xFF64748B))
+                                    : (net > 0
+                                        ? const Color(0xFF059669)
+                                        : const Color(0xFFDC2626)),
+                                symbol: c.symbol,
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+              ),
+              // اختصار + لإضافة حساب جديد
+              Padding(
+                padding: const EdgeInsetsDirectional.only(start: 4, end: 10),
+                child: Tooltip(
+                  message: 'حساب جديد',
+                  child: Material(
+                    color: const Color(0xFF0284C7),
+                    borderRadius: BorderRadius.circular(13),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () {
+                        Sfx.click();
+                        openAccountForm(context, ref);
+                      },
+                      child: const SizedBox(
+                        width: 38,
+                        height: 38,
+                        child: Icon(
+                          Icons.person_add_alt_outlined,
+                          size: 21,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -1601,7 +1404,53 @@ class _MarkedOperationFab extends StatelessWidget {
   }
 }
 
-/// عنصر واحد في الشريط الجانبي المكتبي — hover ناعم + تمييز واضح للمحدد.
+/// خلية واحدة في بطاقة الملخص: تسمية صغيرة وقيمة ملونة.
+class _SummaryCell extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  final String symbol;
+
+  const _SummaryCell({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.symbol,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w700,
+            color: Theme.of(context).hintColor,
+            fontFamily: 'AppNaskh',
+          ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w800,
+            color: color,
+            fontFamily: 'AppNaskh',
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+}
+
+
 class _Drawer extends ConsumerWidget {
   final AppScreen current;
   final void Function(AppScreen) onSelect;

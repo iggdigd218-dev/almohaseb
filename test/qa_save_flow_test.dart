@@ -14,11 +14,13 @@ import 'package:nexora_app/ui/account_form.dart';
 import 'package:nexora_app/ui/tx_form.dart';
 
 final qaDate = DateTime(2026, 9, 6);
-Account qaAccount({int id = 1, double opening = 0}) => Account(
+Account qaAccount({int id = 1, double opening = 0, String category = ''}) =>
+    Account(
       id: id,
       name: 'حساب الاختبار $id',
       kind: AccountKind.customer,
       openingBalance: opening,
+      category: category,
       notifyChannel: 'none',
       createdAt: qaDate,
       updatedAt: qaDate,
@@ -27,6 +29,7 @@ Account qaAccount({int id = 1, double opening = 0}) => Account(
 /// UI tests use a controlled service boundary. Real SQLite is covered separately.
 class UiRepo extends Repo {
   List<Account> accountRows = [qaAccount(), qaAccount(id: 2)];
+  List<String> categoryRows = [];
   final submitted = <Tx>[];
   Account? savedAccount;
   Completer<int>? saveGate;
@@ -63,6 +66,12 @@ class UiRepo extends Repo {
     savedAccount = account;
     return account.id ?? 1;
   }
+
+  @override
+  Future<List<String>> categories() async => categoryRows;
+
+  @override
+  Future<void> addCategory(String name) async => categoryRows.add(name);
 }
 
 Future<void> pumpForm(
@@ -255,6 +264,62 @@ void main() {
     await tester.tap(button);
     await tester.pumpAndSettle();
     expect(repo.savedAccount?.openingBalance, -500);
+  });
+
+  testWidgets(
+      'QA-CAT-01 new category can be created from the account form and saved',
+      (tester) async {
+    final repo = UiRepo()..categoryRows = ['تجزئة'];
+    await pumpForm(tester, repo, form: const AccountFormScreen());
+    // افتح قائمة التصنيف واختر «تصنيف جديد…».
+    await tester.tap(find.text('التصنيف'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تصنيف جديد…'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.descendant(
+            of: find.byType(AlertDialog), matching: find.byType(TextField)),
+        'عملاء الجملة');
+    await tester.tap(find.text('إضافة'));
+    await tester.pumpAndSettle();
+    // التصنيف أُنشئ وقُطِّر كقيمة مختارة في الحقل.
+    expect(repo.categoryRows, contains('عملاء الجملة'));
+    // انتظر اختفاء إشعار «أُضيف تصنيف…» حتى لا يحجب زر الحفظ.
+    await tester.pump(const Duration(seconds: 4, milliseconds: 300));
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'اسم الحساب *'), 'حساب مصنّف');
+    final button = find.ancestor(
+        of: find.text('إضافة الحساب'),
+        matching: find.byWidgetPredicate((w) => w is FilledButton));
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(repo.savedAccount?.category, 'عملاء الجملة',
+        reason: 'التصنيف الجديد يجب أن يُحفظ على الحساب');
+  });
+
+  testWidgets('QA-CAT-02 account can be moved between existing categories',
+      (tester) async {
+    final repo = UiRepo()..categoryRows = ['تجزئة', 'جملة'];
+    final account = qaAccount(category: 'تجزئة');
+    await pumpForm(
+        tester, repo, form: AccountFormScreen(existing: account));
+    // الحقل يعرض التصنيف الحالي.
+    expect(find.text('تجزئة'), findsOneWidget);
+    await tester.tap(find.text('تجزئة'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('جملة').last);
+    await tester.pumpAndSettle();
+    final button = find.ancestor(
+        of: find.text('حفظ التعديلات'),
+        matching: find.byWidgetPredicate((w) => w is FilledButton));
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(repo.savedAccount?.category, 'جملة',
+        reason: 'نقل الحساب بين التصنيفات يجب أن ينعكس على الحفظ');
   });
 
   for (final width in [320.0, 360.0, 480.0]) {

@@ -63,6 +63,9 @@ Future<bool> openAccountForm(
   return r ?? false;
 }
 
+/// قيمة وهمية لعنصر «تصنيف جديد…» في قائمة التصنيف.
+const String kNewCategoryValue = ' __new_category__';
+
 class AccountFormScreen extends ConsumerStatefulWidget {
   final Account? existing;
 
@@ -83,7 +86,9 @@ class _State extends ConsumerState<AccountFormScreen> {
   late final TextEditingController _phone;
   late final TextEditingController _address;
   late final TextEditingController _notes;
-  late final TextEditingController _category;
+
+  /// التصنيف المختار للحساب (نقله بين التصنيفات يتم من هنا).
+  late String _category;
   late final TextEditingController _limit;
   late final TextEditingController _tags;
 
@@ -113,7 +118,7 @@ class _State extends ConsumerState<AccountFormScreen> {
     );
     _address = TextEditingController(text: a?.address ?? '');
     _notes = TextEditingController(text: a?.notes ?? '');
-    _category = TextEditingController(text: a?.category ?? '');
+    _category = a?.category ?? '';
     _limit = TextEditingController(
       text: a?.creditLimit == null ? '' : Fmt.money(a!.creditLimit!, 2),
     );
@@ -133,7 +138,7 @@ class _State extends ConsumerState<AccountFormScreen> {
         _phone.text,
         _address.text,
         _notes.text,
-        _category.text,
+        _category,
         _limit.text,
         _tags.text,
         _kind.name,
@@ -169,13 +174,98 @@ class _State extends ConsumerState<AccountFormScreen> {
       _phone,
       _address,
       _notes,
-      _category,
       _limit,
       _tags,
     ]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  /// حقل التصنيف: قائمة منبثقة بالتصنيفات المعرفة + «تصنيف جديد…».
+  Widget _categoryField(BuildContext context) {
+    final cats = ref.watch(categoriesProvider).valueOrNull ?? const <String>[];
+    // تصنيف الحساب إن كان محذوفًا أو غير معروف محليًا يظل ظاهرًا
+    // حتى لا يضيع عند الحفظ.
+    final options = [...cats];
+    if (_category.isNotEmpty && !options.contains(_category)) {
+      options.insert(0, _category);
+    }
+    return DropdownButtonFormField<String>(
+      key: ValueKey('cat_$_category'),
+      initialValue: _category,
+      decoration: const InputDecoration(
+        labelText: 'التصنيف',
+        prefixIcon: Icon(Icons.category_outlined),
+      ),
+      items: [
+        const DropdownMenuItem(
+          value: '',
+          child: Text('بدون تصنيف'),
+        ),
+        ...options.map((c) => DropdownMenuItem(value: c, child: Text(c))),
+        DropdownMenuItem(
+          value: kNewCategoryValue,
+          child: Row(
+            children: [
+              Icon(Icons.add_circle_outline,
+                  size: 19, color: AppColors.primaryOf(context)),
+              const SizedBox(width: 7),
+              Text(
+                'تصنيف جديد…',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.primaryOf(context),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+      onChanged: (v) async {
+        if (v == kNewCategoryValue) {
+          await _promptNewCategory();
+          return;
+        }
+        setState(() => _category = v ?? '');
+      },
+    );
+  }
+
+  /// حوار إدخال تصنيف جديد — يُخزن في جدول categories ويُزامَن سحابيًا.
+  Future<void> _promptNewCategory() async {
+    if (!mounted) return;
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تصنيف جديد'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'اسم التصنيف',
+            hintText: 'مثال: عملاء الجملة',
+          ),
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('إضافة'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    await ref.read(repoProvider).addCategory(name);
+    ref.invalidate(categoriesProvider);
+    setState(() => _category = name);
+    if (mounted) showSnack(context, 'أُضيف تصنيف «$name»');
   }
 
   Future<void> _save() async {
@@ -199,7 +289,7 @@ class _State extends ConsumerState<AccountFormScreen> {
         whatsapp: Fmt.phoneDigits(_phone.text),
         address: _address.text.trim(),
         notes: _notes.text.trim(),
-        category: widget.existing?.category ?? '',
+        category: _category,
         creditLimit: limit,
         tags: _tags.text
             .split(RegExp('[,،]'))
@@ -365,24 +455,36 @@ class _State extends ConsumerState<AccountFormScreen> {
                     Expanded(
                       child: Wrap(
                         spacing: 5,
-                        children: AccountKind.values
-                            .map(
-                              (k) => ChoiceChip(
-                                label: Text(
-                                  '${k.icon} ${k.label}',
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                visualDensity: VisualDensity.compact,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 0,
-                                ),
-                                selected: _kind == k,
-                                showCheckmark: false,
-                                onSelected: (_) => setState(() => _kind = k),
-                              ),
-                            )
-                            .toList(),
+                        // (تصحيح 2026-11-03) دوائر اختيار بنمط نافذة
+                        // العملية الموحّدة — بدل رقائق ChoiceChip.
+                        children: [
+                          _KindCircle(
+                            label: 'عميل',
+                            icon: Icons.person_outline_rounded,
+                            color: const Color(0xFF059669),
+                            selected: _kind == AccountKind.customer,
+                            onTap: () => setState(
+                                () => _kind = AccountKind.customer),
+                          ),
+                          const SizedBox(width: 10),
+                          _KindCircle(
+                            label: 'مورد',
+                            icon: Icons.factory_outlined,
+                            color: const Color(0xFFD97706),
+                            selected: _kind == AccountKind.supplier,
+                            onTap: () => setState(
+                                () => _kind = AccountKind.supplier),
+                          ),
+                          const SizedBox(width: 10),
+                          _KindCircle(
+                            label: 'حساب عام',
+                            icon: Icons.account_balance_outlined,
+                            color: const Color(0xFF0284C7),
+                            selected: _kind == AccountKind.general,
+                            onTap: () => setState(
+                                () => _kind = AccountKind.general),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -420,6 +522,10 @@ class _State extends ConsumerState<AccountFormScreen> {
                     .toList(),
                 onChanged: (v) => setState(() => _currency = v ?? 'YER'),
               ),
+              const SizedBox(height: 13),
+              // (3.87.0) التصنيف: قائمة تصنيفات المحفظة + خيار إنشاء
+              // تصنيف جديد، ونقل الحساب بين التصنيفات بتغيير الاختيار.
+              _categoryField(context),
               const SizedBox(height: 13),
               TextFormField(
                 controller: _phone,
@@ -478,6 +584,78 @@ class _State extends ConsumerState<AccountFormScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// دائرة اختيار نوع الحساب — بنفس نمط نافذة العملية الموحّدة.
+class _KindCircle extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _KindCircle({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color:
+              selected ? color.withValues(alpha: 0.14) : Colors.transparent,
+          borderRadius: BorderRadius.circular(40),
+          border: Border.all(
+            color: selected ? color : Theme.of(context).dividerColor,
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: selected ? color : Colors.transparent,
+                border: Border.all(
+                  color: selected ? color : Theme.of(context).dividerColor,
+                  width: 1.4,
+                ),
+              ),
+              child: selected
+                  ? Icon(icon, size: 13, color: Colors.white)
+                  : null,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                color: selected
+                    ? color
+                    : (Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF94A3B8)
+                        : const Color(0xFF475569)),
+                fontFamily: 'AppNaskh',
+              ),
+            ),
+          ],
         ),
       ),
     );

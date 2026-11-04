@@ -138,29 +138,34 @@ void main() {
       // (دفتر الحسابات الخالص) التطبيق يفتح مباشرة على شاشة العملاء —
       // زر الإضافة السريع (+) ظاهر فيها؛ نفتح ورقة الإجراء السريع ثم
       // ننتقل لتبويب الحركات بعد الحفظ للتحقق من القائمة.
-      final fab = find.text('عملية');
+      // (تصحيح 2026-11-03) لا شريط سفلي ولا ورقة إجراءات — زر + السياقي
+      // صار: شاشة الحسابات → حساب جديد، وداخل الحساب → تسجيل عملية.
+      // ندخل حساب العميل من بطاقته ثم نسجل العملية من هناك.
+      final customerCard = find.text('QA E2E customer');
+      await _waitFor(tester, customerCard);
+      await tester.tap(customerCard, warnIfMissed: false);
+      await _drain(tester);
+      // داخل الحساب: زر + صغير بتلميح «تسجيل عملية».
+      final fab = find.byTooltip('تسجيل عملية');
       await _waitFor(tester, fab);
       await tester.ensureVisible(fab);
-      // (إصلاح CI 2026-09-22) نضخ إطارات مقيّدة بدل pumpAndSettle: على
-      // آلات CI البطيئة قد لا تهدأ الحركة ضمن المهلة فيفشل الاختبار زوراً.
       for (var i = 0; i < 25; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
       await tester.tap(fab, warnIfMissed: false);
       await _drain(tester);
-      // (قانون 2026-09-19) الزر العائم «إجراء سريع»: يفتح ورقة خيارات —
-      // نختار «تسجيل عملية مالية» منها فيفتح نموذج العملية.
-      final sheetAction = find.text('تسجيل عملية مالية');
-      await _waitFor(tester, sheetAction);
-      await tester.tap(sheetAction);
-      await _drain(tester);
-      final debitTab = find.text('عليه');
-      await _waitFor(tester, debitTab);
-      await tester.tap(debitTab);
+      // دائرة النوع «عليه» أسفل يمين النافذة — النموذج الموحّد الجديد.
+      // (نستهدفها داخل TxForm حصراً: شاشة التفاصيل تعرض «عليه» أيضًا.)
+      final debitCircle = find.descendant(
+        of: find.byType(TxForm),
+        matching: find.text('عليه'),
+      );
+      await _waitFor(tester, debitCircle);
+      await tester.tap(debitCircle.last, warnIfMissed: false);
       await tester.enterText(
           find.widgetWithText(TextFormField, 'المبلغ *'), '٥٠٠');
       await tester.enterText(
-          find.widgetWithText(TextFormField, 'البيان / الوصف'), 'QA UI SAVE');
+          find.widgetWithText(TextFormField, 'التفاصيل'), 'QA UI SAVE');
       final save = find.text('حفظ العملية');
       await _waitFor(tester, save);
       await tester.ensureVisible(save);
@@ -171,9 +176,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 70));
       await _drain(tester);
       await _drain(tester);
-      // (إصلاح CI 2026-09-24) ننتظر اكتمال حركة إغلاق النموذج واختفائه
-      // كلياً قبل محاولة النقر على الشريط الجانبي؛ لأن حاجز النموذج
-      // (Modal Barrier) يغطي كامل الشاشة ويحجب النقرات حتى زواله.
+      // ننتظر اكتمال إغلاق النموذج واختفاءه كلياً قبل أي نقرة تالية.
       for (var i = 0;
           i < 40 && find.byType(TxForm).evaluate().isNotEmpty;
           i++) {
@@ -182,8 +185,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       expect(find.byType(TxForm), findsNothing);
-      // (دفتر الحسابات الخالص) بعد الحفظ يظهر حوار مشاركة السند — نغلقه
-      // أولًا حتى لا يحجب نقرات الشريط السفلي.
+      // بعد الحفظ يظهر حوار مشاركة السند — نغلقه أولًا.
       final closeBtn = find.text('إغلاق');
       for (var i = 0;
           i < 40 && closeBtn.evaluate().isNotEmpty;
@@ -193,30 +195,7 @@ void main() {
             () => Future<void>.delayed(const Duration(milliseconds: 80)));
         await tester.pump(const Duration(milliseconds: 120));
       }
-      // شاشة الحركات تُفتح من الشريط السفلي — لا واجهة رئيسية ولا بلاطة درج.
-      final txTab = find.text('الحركات');
-      await _waitFor(tester, txTab);
-      // (استقرار CI) بعد إغلاق النموذج قد تبقى طبقة عابرة تمتص أول نقرة —
-      // نعيد المحاولة حتى تظهر بطاقة العملية في قائمة الحركات.
-      for (var i = 0;
-          i < 40 && find.textContaining('QA UI SAVE').evaluate().isEmpty;
-          i++) {
-        await tester.tap(txTab, warnIfMissed: false);
-        await tester.runAsync(
-            () => Future<void>.delayed(const Duration(milliseconds: 80)));
-        await tester.pump(const Duration(milliseconds: 120));
-      }
-      // (إصلاح CI 2026-09-19 — تذبذب QA-E2E) انتظار مقيّد بدل pump ثابت:
-      // على آلات CI البطيئة قد يتأخر انعكاس البطاقة في القائمة عن المهلة
-      // الثابتة فيسقط الاختبار أحمر بلا عطل حقيقي. نضخ إطارات حتى تظهر
-      // البطاقة أو حتى سقف 15 ثانية زمنية افتراضية.
-      for (var i = 0;
-          i < 75 && find.textContaining('QA UI SAVE').evaluate().isEmpty;
-          i++) {
-        await tester.pump(const Duration(milliseconds: 200));
-      }
-      // (دفعة 58 — متطلب 10) البطاقة تعرض «الوصف · HH:MM» — نطابق جزئياً.
-      expect(find.textContaining('QA UI SAVE'), findsOneWidget);
+      // نتحقق من قاعدة البيانات (عملية واحدة، الرقم المرجعي تلقائي).
       await tester.runAsync(() async {
         final rows = await _awaitTransactions(repo);
         expect(rows, hasLength(1));
@@ -225,11 +204,54 @@ void main() {
         expect(rows.single.accountId, accountId);
         expect(await repo.balanceOf((await repo.account(accountId))!), 1500);
       });
-      // (تنظيف 2026-10-31) تخطيط سطح المكتب حُذف — الشريط السفلي ثابت
-      // على كل العروض. ننقر «العملاء» لعرض رصيد الحساب في القائمة.
-      await tester.tap(find.text('العملاء'));
+      // الرجوع من الحساب إلى قائمة الحسابات (زر الرجوع المادي في AppBar).
+      await tester.tap(find.byType(BackButton).first, warnIfMissed: false);
       await _drain(tester);
+      // بطاقة الحساب تعرض الرصيد الجديد (عليه — أخضر).
+      for (var i = 0;
+          i < 75 && find.textContaining('1,500').evaluate().isEmpty;
+          i++) {
+        await tester.pump(const Duration(milliseconds: 200));
+      }
       expect(find.textContaining('1,500'), findsWidgets);
+      // (بدون شريط سفلي) قائمة العمليات تُفتح من القائمة الجانبية.
+      for (var i = 0;
+          i < 40 && find.byType(Drawer).evaluate().isEmpty;
+          i++) {
+        await tester.tap(find.byIcon(Icons.menu).first, warnIfMissed: false);
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 80)));
+        await tester.pump(const Duration(milliseconds: 120));
+      }
+      expect(find.byType(Drawer).evaluate(), isNotEmpty);
+      // (استقرار CI) ننتظر اكتمال حركة فتح الدرج قبل النقر — النقر
+      // أثناء الحركة يقع على الستارة الخلفية ويغلق الدرج فوراً.
+      await tester.pump(const Duration(milliseconds: 300));
+      // انقر «العمليات» داخل الدرج (مرة تكفي، مع إعادة محاولة حذرة
+      // حتى تنعكس شاشة العمليات؛ لا نفحص بقاء Drawer في الشجرة لأن
+      // عناصر الدرج تبقى مبنية دائماً حتى وهو مغلق).
+      for (var i = 0;
+          i < 10 && find.textContaining('QA UI SAVE').evaluate().isEmpty;
+          i++) {
+        final opsItem = find.descendant(
+            of: find.byType(Drawer), matching: find.text('العمليات'));
+        if (opsItem.evaluate().isNotEmpty) {
+          await tester.tap(opsItem.last);
+        }
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 100)));
+        await tester.pump(const Duration(milliseconds: 150));
+      }
+      // (استقرار CI) تحميل قائمة العمليات استعلام حقيقي — نعطيه زمنًا
+      // فعليًا لكل دورة حتى تكتمل قراءة sqflite وتنعكس البطاقة.
+      for (var i = 0;
+          i < 40 && find.textContaining('QA UI SAVE').evaluate().isEmpty;
+          i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 80)));
+        await tester.pump(const Duration(milliseconds: 120));
+      }
+      expect(find.textContaining('QA UI SAVE'), findsOneWidget);
       expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());

@@ -355,8 +355,17 @@ class _AccountCard extends StatelessWidget {
       orElse: () => kDefaultCurrencies.first,
     );
 
-    final isDebt = item.balance < -Fmt.moneyEpsilon;
-    final isCredit = item.balance > Fmt.moneyEpsilon;
+    // (إصلاح فادح 2026-11-03) الاتجاه الصحيح المتسق مع شاشة الحساب
+    // وopEffect: debit (عليه) يزيد الرصيد ← الموجب «عليه» أخضر،
+    // والسالب «له» أحمر — القائمة القديمة كانت تعكسهما.
+    final isOwe = item.balance > Fmt.moneyEpsilon; // عليه — مستحق لنا
+    final isOwed = item.balance < -Fmt.moneyEpsilon; // له — مستحق علينا
+    final stateColor = isOwe
+        ? const Color(0xFF10B981)
+        : (isOwed ? const Color(0xFFEF4444) : null);
+    final stateIcon = isOwe
+        ? Icons.arrow_circle_up
+        : (isOwed ? Icons.arrow_circle_down : Icons.remove_circle_outline);
 
     return Container(
       decoration: BoxDecoration(
@@ -391,7 +400,17 @@ class _AccountCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
-                // اسم الحساب بارزًا — بلا دائرة مجاورة (تصحيح 2026-11-03)
+                // اسم الحساب واضحًا (w700 بلا تشبع يطمس التفاصيل) وبجواره
+                // سهم حالة بارز: ▲ أخضر «عليه» / ▼ أحمر «له» / • مسدد.
+                Icon(
+                  stateIcon,
+                  size: 26,
+                  color: stateColor ??
+                      (isDark
+                          ? const Color(0xFF64748B)
+                          : const Color(0xFF94A3B8)),
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -400,10 +419,13 @@ class _AccountCard extends StatelessWidget {
                         a.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 16.5,
-                          fontWeight: FontWeight.w900,
-                          height: 1.15,
+                        style: TextStyle(
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w700,
+                          height: 1.2,
+                          color: isDark
+                              ? const Color(0xFFF1F5F9)
+                              : const Color(0xFF0F172A),
                           fontFamily: 'AppNaskh',
                         ),
                       ),
@@ -443,18 +465,18 @@ class _AccountCard extends StatelessWidget {
                       )
                     else
                       Text(
-                        isDebt
-                            ? '${Fmt.moneyFor(item.balance.abs(), c)} ${c.symbol}'
-                            : (isCredit
-                                ? '+ ${Fmt.moneyFor(item.balance, c)} ${c.symbol}'
+                        isOwe
+                            ? '${Fmt.moneyFor(item.balance, c)} ${c.symbol}'
+                            : (isOwed
+                                ? '${Fmt.moneyFor(item.balance.abs(), c)} ${c.symbol}'
                                 : '0 ${c.symbol}'),
                         style: TextStyle(
                           fontSize: 15.5,
-                          fontWeight: FontWeight.w900,
-                          color: isDebt
-                              ? const Color(0xFFEF4444)
-                              : (isCredit
-                                  ? const Color(0xFF10B981)
+                          fontWeight: FontWeight.w800,
+                          color: isOwe
+                              ? const Color(0xFF059669)
+                              : (isOwed
+                                  ? const Color(0xFFDC2626)
                                   : (isDark
                                       ? const Color(0xFF94A3B8)
                                       : const Color(0xFF64748B))),
@@ -463,14 +485,14 @@ class _AccountCard extends StatelessWidget {
                       ),
                     const SizedBox(height: 2),
                     Text(
-                      isDebt ? 'عليه' : (isCredit ? 'له' : 'مسدد'),
+                      isOwe ? 'عليه' : (isOwed ? 'له' : 'مسدد'),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: isDebt
-                            ? const Color(0xFFEF4444)
-                            : (isCredit
-                                ? const Color(0xFF10B981)
+                        color: isOwe
+                            ? const Color(0xFF059669)
+                            : (isOwed
+                                ? const Color(0xFFDC2626)
                                 : (isDark
                                     ? const Color(0xFF64748B)
                                     : const Color(0xFF94A3B8))),

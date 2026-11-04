@@ -342,13 +342,17 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                 ),
             ],
           ),
-          floatingActionButton: FloatingActionButton.extended(
+          // (تصحيح 2026-11-03) زر عملية صغير (48px) لا يمس الحواف —
+          // داخل الحساب يصبح زر + هنا «تسجيل عملية» على الحساب نفسه.
+          floatingActionButton: FloatingActionButton.small(
+            tooltip: 'تسجيل عملية',
+            backgroundColor: const Color(0xFF0284C7),
+            foregroundColor: Colors.white,
             onPressed: () async {
               await openTxForm(context, ref, presetAccountId: accountId);
               bump(ref);
             },
-            icon: const Icon(Icons.add),
-            label: const Text('عملية جديدة'),
+            child: const Icon(Icons.receipt_long_outlined, size: 22),
           ),
         );
       },
