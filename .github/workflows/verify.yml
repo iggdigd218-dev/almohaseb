@@ -21,7 +21,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.x'
+          flutter-version: '3.50.x'
           channel: stable
           cache: true
 
@@ -80,7 +80,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.x'
+          flutter-version: '3.50.x'
           channel: stable
           cache: true
 
@@ -104,6 +104,9 @@ jobs:
           sed -i "s/const String kAppVersion = .*/const String kAppVersion = '$NAME';/" lib/core/app_version.dart
           sed -i "s/const int kAppBuild = .*/const int kAppBuild = $BUILD;/" lib/core/app_version.dart
           sed -i "s/AppSemVer([0-9]*, [0-9]*, [0-9]*, kAppBuild)/AppSemVer($MAJ, $MIN, $PAT, kAppBuild)/" lib/core/app_version.dart
+
+      - name: Install native sqlite3 (for sqflite ffi tests)
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 
       - name: Run test shard
         run: |
