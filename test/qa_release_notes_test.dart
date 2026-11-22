@@ -109,8 +109,17 @@ void main() {
   });
 
   test('RN-06 سير العمل يقصّ السجل عند التوليد (دفاع دائم)', () {
-    final wf = File('.github/workflows/build-flutter-apk.yml').readAsStringSync();
-    expect(wf, contains('release_notes.txt'));
-    expect(wf, contains('lines[:3]'), reason: 'لا قصّ عند ٣ أسطر في التوليد');
+    // (2026-11-21) منطق التوليد انتقل من heredoc داخل الـ workflow إلى
+    // سكربت مستقل يصدر JSON صالحاً مضموناً. الحارس يبقى كما هو: لا توليد
+    // بلا قراءة السجل ولا بلا قصّ عند ثلاثة أسطر ولا بلا تحقّق من الصحة.
+    final wf =
+        File('.github/workflows/build-flutter-apk.yml').readAsStringSync();
+    final gen = File('tool/gen_version_manifest.py').readAsStringSync();
+    expect(wf, contains('gen_version_manifest.py'),
+        reason: 'التوليد يجب أن يمرّ بالسكربت المتحقّق');
+    expect(gen, contains('release_notes.txt'));
+    expect(gen, contains('lines[:3]'), reason: 'لا قصّ عند ٣ أسطر في التوليد');
+    expect(gen, contains('json.loads(text)'),
+        reason: 'لا توليد بلا تحقّق ذاتي من صحة JSON');
   });
 }
