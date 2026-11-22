@@ -436,7 +436,8 @@ class _ProfileDialogState extends ConsumerState<_ProfileDialog> {
             : fallback);
 
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      // حواف النوافذ بنمط «دفتر الحسابات»: استدارة بسيطة لا كبسولة.
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20),
       title: Row(

@@ -140,7 +140,7 @@ class _NotificationsSheet extends ConsumerWidget {
             decoration: BoxDecoration(
               color: AppColors.surfaceOf(context),
               borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(22)),
+                  const BorderRadius.vertical(top: Radius.circular(12)),
             ),
             child: Column(
               children: [

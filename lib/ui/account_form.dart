@@ -378,7 +378,8 @@ class _State extends ConsumerState<AccountFormScreen> {
         // داخل الورقة السفلية: ترويسة مدمجة أنحف بدل AppBar كامل.
         appBar: widget.embedded
             ? null
-            : AppBar(title: Text(_isEdit ? 'تعديل حساب' : 'حساب جديد')),
+            : simpleBar(context, _isEdit ? 'تعديل حساب' : 'حساب جديد',
+                showTemplate: false),
         body: Form(
           key: _formKey,
           child: ListView(

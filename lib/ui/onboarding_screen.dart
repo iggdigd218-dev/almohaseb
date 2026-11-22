@@ -208,11 +208,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               child: Card(
                 elevation: 12,
                 margin: const EdgeInsets.symmetric(horizontal: 24),
+                // حواف بنمط «دفتر الحسابات»: استدارة خفيفة وحد رمادي رقيق
+                // بدل الكبسولة ذات الظل الثقيل.
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  side: BorderSide(
-                    color: Theme.of(context).primaryColor.withValues(alpha: 0.2),
-                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: AppColors.border),
                 ),
                 child: Padding(
                   padding:
