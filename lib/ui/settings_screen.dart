@@ -1,25 +1,81 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:image_picker/image_picker.dart';
 
-import '../core/app_version.dart';
 import '../core/security.dart';
 import '../core/theme.dart';
 import '../data/providers.dart';
-import '../data/sync/auto_backup.dart';
+import 'accounts_screen.dart';
+import 'backup_screen.dart';
+import 'currencies_screen.dart';
 import 'trial_ui.dart' show SubscriptionDetailsSection;
 import 'update_section.dart';
-import 'appearance_screen.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'support_chat_screen.dart';
-import 'widgets.dart';
-import '../core/cloud_config.dart';
 
-/// الإعدادات — نقل مفاتيح `settings.js` كاملة، مع حفظ صريح بزر واحد.
+// ═══════════════════════════════════════════════════════════════════
+//  الإعدادات — واجهة «دفتر الحسابات» الكاملة فوق مخزن نيكسورا المحاسب
+// ═══════════════════════════════════════════════════════════════════
+
+/// مفتاح إعداد عام — قراءة سريعة من مخزن الإعدادات.
+String stVal(Map<String, String> st, String key, [String def = '']) =>
+    (st[key] ?? def).trim();
+
+/// صف إيموجي كما في التصميم: أيقونة يسار + نص.
+Widget emojiTile(String emoji, String title, {String? sub, VoidCallback? onTap,
+    Widget? trailing, bool enabled = true}) {
+  return ListTile(
+    enabled: enabled,
+    onTap: onTap,
+    leading: Text(emoji, style: const TextStyle(fontSize: 22)),
+    title: Text(title,
+        style: TextStyle(
+            fontSize: 15.5,
+            fontWeight: FontWeight.w600,
+            color: enabled ? AppColors.text : AppColors.text3)),
+    subtitle: sub == null
+        ? null
+        : Text(sub,
+            style: TextStyle(fontSize: 12.5, color: AppColors.text3)),
+    trailing: trailing ??
+        (onTap == null
+            ? null
+            : const Icon(Icons.chevron_left, color: AppColors.text3)),
+  );
+}
+
+/// مفتاح تبديل وردي كما في التصميم.
+Widget pinkSwitch(bool v, ValueChanged<bool> onChanged) => Switch(
+      value: v,
+      onChanged: onChanged,
+      activeColor: Colors.white,
+      activeTrackColor: AppColors.pinkDark,
+      inactiveThumbColor: AppColors.toggleOff,
+      inactiveTrackColor: AppColors.toggleOffTrack,
+    );
+
+/// صف بمفتاح تبديل (العنوان + اختياري سطر فرعي).
+Widget switchTile(String emoji, String title, bool v, ValueChanged<bool> on,
+    {String? sub}) {
+  return emojiTile(emoji, title, sub: sub, trailing: pinkSwitch(v, on));
+}
+
+/// شريط علوي موحّد للصفحات الفرعية: سهم رجوع يسار + عنوان.
+AppBar subBar(BuildContext context, String title, {List<Widget>? actions}) =>
+    AppBar(
+      backgroundColor: AppColors.primary,
+      foregroundColor: Colors.white,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () => Navigator.pop(context),
+      ),
+      title: Text(title,
+          style: const TextStyle(
+              fontSize: 19, fontWeight: FontWeight.w700, color: Colors.white)),
+      actions: actions,
+    );
+
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -27,610 +83,607 @@ class SettingsScreen extends ConsumerStatefulWidget {
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-/// مفاتيح المؤسسة القابلة للتحرير النصي، بالترتيب المعروض.
-const _orgFields = <(String, String, IconData, TextInputType?, int)>[
-  ('businessName', 'اسم المؤسسة', Icons.business_outlined, null, 1),
-  ('businessNameEn', 'الاسم بالإنجليزية', Icons.translate, null, 1),
-  ('address', 'العنوان', Icons.location_on_outlined, null, 2),
-  ('phone', 'الهاتف', Icons.phone_outlined, TextInputType.phone, 1),
-  ('whatsapp', 'واتساب', Icons.chat_outlined, TextInputType.phone, 1),
-  (
-    'email',
-    'البريد الإلكتروني',
-    Icons.email_outlined,
-    TextInputType.emailAddress,
-    1,
-  ),
-  (
-    'managerName',
-    'اسم المسؤول (يظهر على السندات)',
-    Icons.badge_outlined,
-    null,
-    1,
-  ),
-  ('voucherFooter', 'تذييل السند', Icons.notes_outlined, null, 2),
-  (
-    'defaultVoucherNotes',
-    'ملاحظات وشروط افتراضية في السند',
-    Icons.rule_outlined,
-    null,
-    2,
-  ),
-];
-
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  final _ctrls = <String, TextEditingController>{};
-  bool _dirty = false;
-  bool _saving = false;
-  bool _loaded = false;
-  bool _bioSupported = false;
-  String _bioLabel = '…';
+  @override
+  Widget build(BuildContext context) {
+    final st = ref.watch(settingsProvider).value ?? const <String, String>{};
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: subBar(context, 'الإعدادات', actions: [
+        TextButton(
+          onPressed: () => _templateDialog(st),
+          child: const Text('تغيير القالب',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700)),
+        ),
+      ]),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          emojiTile('📇', 'البيانات الشخصية',
+              onTap: () => _open(_PersonalDataScreen(st: st))),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('🖨️', 'خيارات الطابعة',
+              onTap: () => _open(_PrinterOptionsScreen(st: st))),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('🔒', 'خيارات الأمان',
+              onTap: () => _open(_SecurityOptionsScreen(st: st))),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('📋', 'التصنيفات',
+              onTap: () => _open(const AccountsScreen())),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('💰', 'العملات',
+              onTap: () => _open(const CurrenciesScreen())),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('🗄️', 'خيارات حفظ البيانات',
+              onTap: () => _open(_DataSaveOptionsScreen(st: st))),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('💻', 'إستعراض البيانات من الكمبيوتر',
+              onTap: () => _open(const _ComputerViewScreen())),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('📧', 'خيارات الإشعارات',
+              onTap: () => _open(_NotificationsOptionsScreen(st: st))),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('🔧', 'خيارات أخرى',
+              onTap: () => _open(_OtherOptionsScreen(st: st))),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('💵', 'شراء النسخة الكاملة', onTap: () {
+            showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              builder: (_) => const SingleChildScrollView(
+                  child: SubscriptionDetailsSection()),
+            );
+          }),
+          const Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 12),
+          // تحديثات التطبيق — من نظام نيكسورا للتحديث.
+          const UpdateSection(),
+        ],
+      ),
+    );
+  }
+
+  void _open(Widget w) =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => w));
+
+  Future<void> _templateDialog(Map<String, String> st) async {
+    final cur = stVal(st, 'tpl.style', '1');
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('تغيير القالب',
+            style: TextStyle(fontWeight: FontWeight.w700)),
+        children: [
+          for (final o in [
+            ('1', 'قالب ١'),
+            ('2', 'قالب ٢'),
+            ('en', 'English'),
+          ])
+            RadioListTile<String>(
+              value: o.$1,
+              groupValue: cur,
+              activeColor: AppColors.pink,
+              title: Text(o.$2),
+              onChanged: (v) async {
+                await ref.read(repoProvider).setSetting('tpl.style', v!);
+                if (ctx.mounted) Navigator.pop(ctx);
+                setState(() {});
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════ 1) البيانات الشخصية ═══════════
+class _PersonalDataScreen extends ConsumerStatefulWidget {
+  const _PersonalDataScreen({required this.st});
+  final Map<String, String> st;
 
   @override
-  void initState() {
-    super.initState();
-    _checkBiometrics();
+  ConsumerState<_PersonalDataScreen> createState() =>
+      _PersonalDataScreenState();
+}
+
+class _PersonalDataScreenState extends ConsumerState<_PersonalDataScreen> {
+  late final TextEditingController _name =
+      TextEditingController(text: stVal(widget.st, 'org.name'));
+  late final TextEditingController _address =
+      TextEditingController(text: stVal(widget.st, 'address'));
+  late final TextEditingController _phone =
+      TextEditingController(text: stVal(widget.st, 'phone'));
+  late final TextEditingController _enName =
+      TextEditingController(text: stVal(widget.st, 'en.name'));
+  late final TextEditingController _enAddress =
+      TextEditingController(text: stVal(widget.st, 'en.address'));
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = stVal(widget.st, 'org.icon.b64');
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: subBar(context, 'البيانات الشخصية'),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Center(
+            child: GestureDetector(
+              onTap: _pickLogo,
+              child: CircleAvatar(
+                radius: 52,
+                backgroundColor: AppColors.primarySoft,
+                backgroundImage: icon.isEmpty
+                    ? null
+                    : MemoryImage(base64Decode(icon.split(',').last)),
+                child: icon.isEmpty
+                    ? const Text('📒',
+                        style: TextStyle(
+                            fontSize: 40, color: AppColors.primary))
+                    : null,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          _field(_name, 'الاسم'),
+          _field(_address, 'العنوان'),
+          _field(_phone, 'رقم الهاتف'),
+          const SizedBox(height: 8),
+          emojiTile('🖼️', 'تغيير الشعار',
+              sub: 'تغيير الشعار الخاص بك', onTap: _pickLogo),
+          const Divider(height: 1, color: AppColors.border),
+          _field(_enName, 'Name'),
+          _field(_enAddress, 'Address'),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('🧾', 'نموذج المصادقة على الحساب', onTap: () {
+            showDialog<void>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('نموذج المصادقة على الحساب'),
+                content: const Text(
+                    'يُطبع نموذج المصادقة أسفل كشف الحساب عند تفعيله من خيارات الطابعة.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('حسناً')),
+                ],
+              ),
+            );
+          }),
+          const SizedBox(height: 24),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary2,
+                minimumSize: const Size.fromHeight(48)),
+            onPressed: _save,
+            child: const Text('حفظ',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
-  /// نسخة احتياطية محلية لجهاز العضو — تُكتب في مستندات التطبيق فقط.
-  Future<void> _createLocalBackup(BuildContext context) async {
-    try {
-      final repo = ref.read(repoProvider);
-      final payload = await repo.exportForLocalBackup(withImages: true);
-      final dir = await getApplicationDocumentsDirectory();
-      final ts = DateTime.now()
-          .toIso8601String()
-          .replaceAll(':', '-')
-          .split('.')
-          .first;
-      final f = File('${dir.path}/almohaseb-local-backup-$ts.almohaseb');
-      await f.writeAsString(jsonEncode(payload));
-      if (context.mounted) {
-        showSnack(context, '✅ حُفظت نسخة محلية: ${f.path.split('/').last}');
-      }
-    } catch (e) {
-      if (context.mounted) {
-        showSnack(context, 'تعذّر إنشاء النسخة: $e', error: true);
-      }
-    }
+  Widget _field(TextEditingController c, String label) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: TextField(
+          controller: c,
+          decoration: InputDecoration(
+            labelText: label,
+            filled: true,
+            fillColor: AppColors.surface,
+            border: OutlineInputBorder(
+                borderRadius: AppRadius.fieldAll,
+                borderSide: const BorderSide(color: AppColors.border)),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: AppRadius.fieldAll,
+                borderSide: const BorderSide(color: AppColors.border)),
+          ),
+        ),
+      );
+
+  Future<void> _pickLogo() async {
+    final x = await ImagePicker()
+        .pickImage(source: ImageSource.gallery, maxWidth: 512, imageQuality: 85);
+    if (x == null) return;
+    final b64 = base64Encode(await File(x.path).readAsBytes());
+    await ref.read(repoProvider).setSetting('org.icon.b64', b64);
+    if (mounted) setState(() {});
   }
 
-  /// (استرداد طارئ — 1) المالك الحالي يعيد الإدارة للمالك السابق طواعية
-  /// بنقرة واحدة — يعمل حتى لو كانت أزرار الإدارة الأخرى لا تظهر.
-  Future<void> _checkBiometrics() async {
-    final ok = await Security.biometricsAvailable();
-    final label = await Security.availableLabel();
+  Future<void> _save() async {
+    final r = ref.read(repoProvider);
+    await r.setSetting('org.name', _name.text.trim());
+    await r.setSetting('address', _address.text.trim());
+    await r.setSetting('phone', _phone.text.trim());
+    await r.setSetting('en.name', _enName.text.trim());
+    await r.setSetting('en.address', _enAddress.text.trim());
     if (mounted) {
-      setState(() {
-        _bioSupported = ok;
-        _bioLabel = label;
-      });
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('تم الحفظ ✅')));
     }
-  }
-
-  /// نملأ الحقول مرة واحدة فقط حتى لا يُمحى ما يكتبه المستخدم عند التحديث.
-  void _hydrate(Map<String, String> st) {
-    if (_loaded) return;
-    for (final f in _orgFields) {
-      _ctrls[f.$1] = TextEditingController(text: st[f.$1] ?? '');
-    }
-    _ctrls['labelOweUs'] = TextEditingController(
-      text: st['labelOweUs'] ?? 'عليه',
-    );
-    _ctrls['labelOweThem'] = TextEditingController(
-      text: st['labelOweThem'] ?? 'له',
-    );
-    for (final c in _ctrls.values) {
-      c.addListener(() {
-        if (!_dirty && mounted) setState(() => _dirty = true);
-      });
-    }
-    _loaded = true;
   }
 
   @override
   void dispose() {
-    for (final c in _ctrls.values) {
-      c.dispose();
-    }
+    _name.dispose();
+    _address.dispose();
+    _phone.dispose();
+    _enName.dispose();
+    _enAddress.dispose();
     super.dispose();
-  }
-
-  Future<void> _saveAll() async {
-    setState(() => _saving = true);
-    try {
-      final repo = ref.read(repoProvider);
-      for (final e in _ctrls.entries) {
-        await repo.setSyncedSetting(e.key, e.value.text.trim());
-      }
-      final stAfter = await repo.settings();
-      final url = effectiveBackendUrl(stAfter['cloudBackendUrl']);
-      if (url.isNotEmpty) {
-        unawaited(AutoBackupService.silentWorkspaceBackup(repo, force: true));
-      }
-      await repo.logActivity('حفظ الإعدادات', 'settings', '');
-      bump(ref);
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _dirty = false;
-      });
-      showSnack(context, 'تم حفظ الإعدادات ✅');
-    } catch (e) {
-      if (mounted) {
-        setState(() => _saving = false);
-        showSnack(context, 'تعذّر حفظ الإعدادات: $e', error: true);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final settings = ref.watch(settingsProvider);
-    final currencies = ref.watch(currenciesProvider).valueOrNull ?? [];
-
-    return settings.when(
-      loading: () => const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 12),
-              Text('جارٍ تحميل الإعدادات…'),
-            ],
-          ),
-        ),
-      ),
-      error: (e, _) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              EmptyState(
-                icon: Icons.error_outline,
-                title: 'تعذّر تحميل الإعدادات',
-                message:
-                    '${e.toString().length > 200 ? '${e.toString().substring(0, 200)}…' : e}',
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () => bump(ref),
-                icon: const Icon(Icons.refresh),
-                label: const Text('إعادة المحاولة'),
-              ),
-            ],
-          ),
-        ),
-      ),
-      data: (st) {
-        _hydrate(st);
-        // جهاز العضو داخل مجموعة لا يعدّل بيانات المؤسسة — المجموعة حساب
-        // واحد وبياناتها بيد المدير فقط، لذا نخفي القسم بالكامل.
-        final wsMode =
-            ref.watch(workspaceModeProvider).valueOrNull ?? 'standalone';
-        final wsOwner = ref.watch(isOwnerProvider).valueOrNull ?? true;
-        final canEditOrg = wsMode == 'standalone' || wsOwner;
-        // (دفعة 58 — متطلب 8) الإعدادات الحساسة (المزامنة/قاعدة البيانات)
-        // للمالك أو من دوره «مدير» فقط — تُخفى تماماً عن بقية الأدوار.
-        // (دفعة 65) نوع الحساب: فردي أم مؤسسة. توافق خلفي — من لا يملك
-        // المفتاح (مستخدم سابق) يُستنتج نوعه من نمط مساحة العمل بدل أن
-        // يُخفى عنه قسم المجموعة الذي يستخدمه فعلاً.
-        final storedType = (st['account.type'] ?? '').toString().trim();
-        final hasEmailLinked =
-            (st['account.email'] ?? '').toString().trim().isNotEmpty ||
-                (ref.watch(googleLinkedProvider).valueOrNull ?? false);
-        final accountType = hasEmailLinked
-            ? 'enterprise'
-            : (storedType.isNotEmpty
-                ? storedType
-                : (wsMode == 'standalone' ? 'individual' : 'enterprise'));
-        final isIndividual = accountType != 'enterprise';
-        // إعدادات منسدلة عمودية أنيقة (أيقونات منسدلة) بدون تبويبات جانبية
-        return Stack(
-          children: [
-            ListView(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 90),
-              children: [
-                // 1. المظهر والأصوات
-                _Collapsible(
-                  title: 'المظهر والأصوات',
-                  icon: Icons.palette_outlined,
-                  color: const Color(0xFF8B5CF6),
-                  children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.palette_outlined),
-                      title: const Text('المظهر والأصوات'),
-                      subtitle: const Text('حجم الخط، الوضع الليلي، الأصوات والاهتزاز'),
-                      trailing: const Icon(Icons.chevron_left),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const AppearanceScreen()),
-                      ),
-                    ),
-                  ],
-                ),
-
-                // 2. العملة والترقيم
-                _Collapsible(
-                  title: 'العملة والترقيم',
-                  icon: Icons.currency_exchange,
-                  color: AppColors.primary2,
-                  children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.currency_exchange),
-                      title: const Text('العملة الافتراضية'),
-                      subtitle: Text(st['defaultCurrency'] ?? 'YER'),
-                      trailing: const Icon(Icons.chevron_left),
-                      onTap: () async {
-                        final v = await showModalBottomSheet<String>(
-                          context: context,
-                          builder: (_) => SafeArea(
-                            child: ListView(
-                              shrinkWrap: true,
-                              children: [
-                                for (final c in currencies)
-                                  ListTile(
-                                    title: Text('${c.symbol}  ${c.name}'),
-                                    onTap: () => Navigator.pop(context, c.code),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        );
-                        if (v != null) {
-                          await ref.read(repoProvider).setSetting('defaultCurrency', v);
-                          bump(ref);
-                        }
-                      },
-                    ),
-                  ],
-                ),
-
-                // 3. خيارات العمليات والسندات
-                _Collapsible(
-                  title: 'خيارات العمليات والسندات',
-                  icon: Icons.receipt_long_outlined,
-                  color: const Color(0xFF0EA5E9),
-                  children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.swap_horiz),
-                      title: const Text('نوع العملية الافتراضي'),
-                      subtitle: const Text('يُختار تلقائياً عند فتح شاشة إضافة عملية'),
-                      trailing: DropdownButton<String>(
-                        value: st['defaultOp'] ?? 'inflow',
-                        underline: const SizedBox.shrink(),
-                        items: const [
-                          DropdownMenuItem(value: 'inflow', child: Text('قبض (دفعة)')),
-                          DropdownMenuItem(value: 'debit', child: Text('عليه (دين آجل)')),
-                          DropdownMenuItem(value: 'outflow', child: Text('صرف')),
-                          DropdownMenuItem(value: 'credit', child: Text('له (دائن)')),
-                          DropdownMenuItem(value: 'revenue', child: Text('إيراد')),
-                          DropdownMenuItem(value: 'expense', child: Text('مصروف')),
-                        ],
-                        onChanged: (v) async {
-                          if (v == null) return;
-                          await ref.read(repoProvider).setSetting('defaultOp', v);
-                          bump(ref);
-                        },
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.lock_clock_outlined),
-                      title: const Text('قفل السجلات المالية القديمة'),
-                      subtitle: Text(
-                        (int.tryParse(st['auditLockDays'] ?? '0') ?? 0) <= 0
-                            ? 'معطل — كل السجلات قابلة للتعديل حسب الصلاحيات'
-                            : 'السجلات الأقدم من ${st['auditLockDays']} يوماً مقفلة ضد التعديل والحذف',
-                      ),
-                      trailing: const Icon(Icons.chevron_left),
-                      onTap: () async {
-                        final v = await showQuickAmountPad(
-                          context,
-                          title: 'مدة القفل بالأيام (0 = تعطيل)',
-                          initial: double.tryParse(st['auditLockDays'] ?? '0'),
-                          hint: 'مثال: 30',
-                        );
-                        if (v == null) return;
-                        await ref.read(repoProvider).setSetting('auditLockDays', '${v.toInt().clamp(0, 3650)}');
-                        bump(ref);
-                      },
-                    ),
-                  ],
-                ),
-
-                // 4. الأمان والخصوصية
-                _Collapsible(
-                  title: 'الأمان والخصوصية',
-                  icon: Icons.lock_outline,
-                  color: const Color(0xFFE11D48),
-                  children: [
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(Icons.fingerprint),
-                      title: const Text('فتح التطبيق بالبصمة'),
-                      subtitle: Text(
-                        _bioSupported
-                            ? 'الوسائل المتاحة: $_bioLabel'
-                            : 'غير متاحة — فعّل بصمة في إعدادات الجهاز',
-                      ),
-                      value: _bioSupported && (st['biometric'] ?? '0') == '1',
-                      onChanged: !_bioSupported
-                          ? null
-                          : (v) async {
-                              if (v) {
-                                final ok = await Security.authenticate(reason: 'أكّد بصمتك لتفعيل القفل');
-                                if (!ok) {
-                                  if (context.mounted) showSnack(context, 'لم يتم التحقق');
-                                  return;
-                                }
-                              }
-                              await ref.read(repoProvider).setSetting('biometric', v ? '1' : '0');
-                              bump(ref);
-                            },
-                    ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(Icons.lock_clock_outlined),
-                      title: const Text('القفل عند العودة للتطبيق'),
-                      subtitle: const Text('يُطلب التحقق بعد كل تصغير'),
-                      value: (st['autoLock'] ?? '0') == '1',
-                      onChanged: (st['biometric'] ?? '0') != '1'
-                          ? null
-                          : (v) async {
-                              await ref.read(repoProvider).setSetting('autoLock', v ? '1' : '0');
-                              bump(ref);
-                            },
-                    ),
-                  ],
-                ),
-
-                // 5. النسخ الاحتياطي التلقائي أو المحلي
-                if (canEditOrg || isIndividual) ...[
-                  const _AutoBackupSection(),
-                ],
-                if (!canEditOrg) ...[
-                  _Collapsible(
-                    title: 'نسخة احتياطية محلية',
-                    icon: Icons.save_outlined,
-                    color: AppColors.primary2,
-                    children: [
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.backup_outlined),
-                        title: const Text('إنشاء نسخة احتياطية محلية الآن'),
-                        subtitle: const Text(
-                          'تُحفظ داخل مجلد التطبيق على هذا الجهاز فقط',
-                          style: TextStyle(fontSize: 11.5),
-                        ),
-                        trailing: const Icon(Icons.chevron_left),
-                        onTap: () => _createLocalBackup(context),
-                      ),
-                    ],
-                  ),
-                ],
-
-                // 6. تفاصيل الاشتراك
-                if (wsOwner || wsMode == 'standalone') ...[
-                  const _Collapsible(
-                    title: 'تفاصيل الاشتراك',
-                    icon: Icons.workspace_premium_outlined,
-                    color: Color(0xFF7C3AED),
-                    children: [SubscriptionDetailsSection()],
-                  ),
-                ],
-
-                // 7. الدعم والمساعدة
-                _Collapsible(
-                  title: 'الدعم والمساعدة',
-                  icon: Icons.support_agent_rounded,
-                  color: const Color(0xFF16A34A),
-                  children: [
-                    Card(
-                      color: AppColors.primarySoftOf(context),
-                      child: ListTile(
-                        leading: Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryOf(context),
-                            borderRadius: BorderRadius.circular(11),
-                          ),
-                          child: const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 20),
-                        ),
-                        title: const Text('الدعم الفني والدردشة المباشرة', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-                        subtitle: const Text('محادثة مباشرة ومشفرة مع إدارة النظام داخل التطبيق.', style: TextStyle(fontSize: 11.5)),
-                        trailing: const Icon(Icons.chevron_left_rounded),
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const SupportChatScreen()),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Card(
-                      color: const Color(0xFFE7F7EE),
-                      child: ListTile(
-                        leading: Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF25D366),
-                            borderRadius: BorderRadius.circular(11),
-                          ),
-                          child: const Icon(Icons.support_agent_rounded, color: Colors.white, size: 22),
-                        ),
-                        title: const Text(
-                          'خدمة العملاء (واتساب)',
-                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF128C4B)),
-                        ),
-                        subtitle: const Text(
-                          'تواصل مباشر مع فريق الدعم الفني لأي مساعدة أو استفسار.',
-                          style: TextStyle(fontSize: 11.5, color: Color(0xFF128C4B)),
-                        ),
-                        trailing: const Icon(Icons.open_in_new_rounded, color: Color(0xFF128C4B)),
-                        onTap: () async {
-                          final uri = Uri.parse('https://wa.me/967774190040?text=${Uri.encodeComponent('السلام عليكم، أحتاج الدعم الفني لتطبيق مدير الحسابات.')}');
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri, mode: LaunchMode.externalApplication);
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 12),
-                const UpdateSection(),
-                const SizedBox(height: 18),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Text('مدير الحسابات', style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 4),
-                        Text('$appVersionLabel — تطبيق أصلي بالكامل', style: TextStyle(fontSize: 12, color: AppColors.text3Of(context))),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-              // شريط حفظ عائم يظهر فور أي تعديل غير محفوظ.
-              if (_dirty)
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: 12,
-                  child: Material(
-                    elevation: 6,
-                    borderRadius: BorderRadius.circular(16),
-                    color: AppColors.primaryOf(context),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: _saving ? null : _saveAll,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.save_outlined,
-                                color: Colors.white),
-                            const SizedBox(width: 10),
-                            const Expanded(
-                              child: Text(
-                                'لديك تعديلات غير محفوظة',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              _saving ? 'جارٍ الحفظ…' : 'حفظ الآن',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
-      );
   }
 }
 
-/// قسم إعدادات قابل للطيّ برمز يميّزه — يقابل «الطي في أيقونات حسب النوع».
-/// (3.70.0 — إعادة التصميم) بطاقة قسم مستقلة: أيقونة ملونة + عنوان +
-/// وصف سطر واحد + المحتوى **دائم الظهور** — لا ExpansionTile ولا قوائم
-/// منسدلة متداخلة إطلاقاً. (الاسم التاريخي محفوظ لتقليل اللمسات.)
-class _Collapsible extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final Color? color;
-  final List<Widget> children;
-  final bool initiallyExpanded;
-  const _Collapsible({
-    required this.title,
-    required this.icon,
-    this.color,
-    required this.children,
-    this.initiallyExpanded = false,
-  });
+// ═══════════ 2) خيارات الطابعة ═══════════
+class _PrinterOptionsScreen extends ConsumerStatefulWidget {
+  const _PrinterOptionsScreen({required this.st});
+  final Map<String, String> st;
 
-  /// وصف سطر واحد لكل بطاقة.
-  static const Map<String, String> _subs = {
-    'المظهر والأصوات': 'حجم الخط، الوضع الليلي، والأصوات والاهتزاز',
-    'العملة والترقيم': 'العملة الافتراضية لكل العمليات والسندات',
-    'المبيعات والسندات': 'نوع العملية الافتراضي وقفل السجلات المالية',
-    'الأمان والخصوصية': 'قفل الشاشة والبصمة وحماية التطبيق',
-    'تفاصيل الاشتراك': 'حالة الترخيص والمقاعد وتاريخ الانتهاء',
-    'النسخ الاحتياطي التلقائي': 'جدولة النسخ (كل ساعتين/يومياً) ووجهة Drive',
-    'نسخة احتياطية محلية': 'نسخة داخل مجلد التطبيق على هذا الجهاز فقط',
-    'الدعم والمساعدة': 'التواصل المباشر مع الدعم الفني وخدمة العملاء',
-  };
+  @override
+  ConsumerState<_PrinterOptionsScreen> createState() =>
+      _PrinterOptionsScreenState();
+}
+
+class _PrinterOptionsScreenState
+    extends ConsumerState<_PrinterOptionsScreen> {
+  bool _k(String key, [String def = '1']) =>
+      stVal(widget.st, key, def) != '0';
+  late final TextEditingController _note =
+      TextEditingController(text: stVal(widget.st, 'print.note'));
+  late final TextEditingController _m1 =
+      TextEditingController(text: stVal(widget.st, 'print.termDebit', 'مدين'));
+  late final TextEditingController _m2 =
+      TextEditingController(text: stVal(widget.st, 'print.termDebit2', 'عليه'));
+  late final TextEditingController _c1 =
+      TextEditingController(text: stVal(widget.st, 'print.termCredit', 'دائن'));
+  late final TextEditingController _c2 =
+      TextEditingController(text: stVal(widget.st, 'print.termCredit2', 'له'));
 
   @override
   Widget build(BuildContext context) {
-    final c = color ?? AppColors.primaryOf(context);
-    final sub = _subs[title];
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceOf(context),
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        boxShadow: AppShadows.card(Theme.of(context).colorScheme),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          initiallyExpanded: initiallyExpanded,
-          shape: const Border(),
-          collapsedShape: const Border(),
-          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          leading: Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: c.withValues(alpha: .12),
-              shape: BoxShape.circle,
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: subBar(context, 'خيارات الطابعة'),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          switchTile('📇', 'إظهار البيانات', _k('print.showPersonal'), (v) =>
+              _set('print.showPersonal', v),
+              sub: 'طباعة البيانات الشخصية'),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('📅', 'إظهار التاريخ', _k('print.showDate'), (v) =>
+              _set('print.showDate', v),
+              sub: 'إظهار التاريخ أسفل الطباعة'),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('⬆️', 'طباعة البيانات تصاعديا', _k('print.asc'), (v) =>
+              _set('print.asc', v),
+              sub: 'من التاريخ الأقدم للأحدث'),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('💰', 'طباعة الكشف بجمع المبالغ',
+              _k('print.sumAmounts', '0'), (v) => _set('print.sumAmounts', v)),
+          const Divider(height: 1, color: AppColors.border),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              controller: _note,
+              maxLines: 2,
+              decoration: InputDecoration(
+                labelText: '🗓️ إضافة ملاحظة أسفل الكشف',
+                filled: true,
+                fillColor: AppColors.surface,
+                border: OutlineInputBorder(
+                    borderRadius: AppRadius.fieldAll,
+                    borderSide: const BorderSide(color: AppColors.border)),
+              ),
+              onChanged: (v) => _set('print.note', v, silent: true),
             ),
-            child: Icon(icon, color: c, size: 22),
           ),
-          title: Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
-          ),
-          subtitle: sub != null
-              ? Text(
-                  sub,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    height: 1.4,
-                    color: AppColors.text3Of(context),
-                  ),
-                )
-              : null,
-          trailing: Icon(Icons.keyboard_arrow_down_rounded, color: c, size: 24),
+          const Divider(height: 1, color: AppColors.border),
+          _pairRow('🔽', _m1, _m2, 'print.termDebit', 'print.termDebit2'),
+          const Divider(height: 1, color: AppColors.border),
+          _pairRow('🔼', _c1, _c2, 'print.termCredit', 'print.termCredit2'),
+        ],
+      ),
+    );
+  }
+
+  Widget _pairRow(String emoji, TextEditingController a,
+          TextEditingController b, String ka, String kb) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
           children: [
-            Column(
-              children: [for (final w in children) _decorate(w, c)],
+            Text(emoji, style: const TextStyle(fontSize: 22)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: a,
+                textAlign: TextAlign.center,
+                decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 8, vertical: 10)),
+                onChanged: (v) => _set(ka, v, silent: true),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Text('/'),
+            ),
+            Expanded(
+              child: TextField(
+                controller: b,
+                textAlign: TextAlign.center,
+                decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 8, vertical: 10)),
+                onChanged: (v) => _set(kb, v, silent: true),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Future<void> _set(String k, dynamic v, {bool silent = false}) async {
+    final s = v is bool ? (v ? '1' : '0') : '$v';
+    await ref.read(repoProvider).setSetting(k, s);
+    if (!silent && mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _note.dispose();
+    _m1.dispose();
+    _m2.dispose();
+    _c1.dispose();
+    _c2.dispose();
+    super.dispose();
+  }
+}
+
+// ═══════════ 3) خيارات الأمان ═══════════
+class _SecurityOptionsScreen extends ConsumerStatefulWidget {
+  const _SecurityOptionsScreen({required this.st});
+  final Map<String, String> st;
+
+  @override
+  ConsumerState<_SecurityOptionsScreen> createState() =>
+      _SecurityOptionsScreenState();
+}
+
+class _SecurityOptionsScreenState
+    extends ConsumerState<_SecurityOptionsScreen> {
+  bool _req = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _req = stVal(widget.st, 'password.required') == '1';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPw = stVal(widget.st, 'password.hash').isNotEmpty;
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: subBar(context, 'خيارات الأمان'),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          switchTile('🔑', 'تفعيل كلمة السر', _req, (v) async {
+            if (v && !hasPw) {
+              await _setPassword();
+              return;
+            }
+            await ref
+                .read(repoProvider)
+                .setSetting('password.required', v ? '1' : '0');
+            setState(() => _req = v);
+          }, sub: 'طلب كلمة السر عند الدخول'),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('🤚', 'كلمة السر',
+              sub: hasPw ? '******' : 'غير محددة',
+              onTap: _setPassword),
+          const Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 8),
+          switchTile('🫆', 'فتح التطبيق بالبصمة',
+              stVal(widget.st, 'biometric') == '1', (v) =>
+                  _set('biometric', v ? '1' : '0')),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('⏸️', 'القفل عند العودة للتطبيق',
+              stVal(widget.st, 'autoLock') == '1', (v) =>
+                  _set('autoLock', v ? '1' : '0'),
+              sub: 'يُطلب التحقق بعد كل تصغير'),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _set(String k, String v) async {
+    await ref.read(repoProvider).setSetting(k, v);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _setPassword() async {
+    final ctrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تعيين كلمة السر'),
+        content: TextField(
+          controller: ctrl,
+          obscureText: true,
+          decoration: const InputDecoration(hintText: 'كلمة السر الجديدة'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('حفظ')),
+        ],
+      ),
+    );
+    if (ok != true || ctrl.text.trim().isEmpty) return;
+    final r = ref.read(repoProvider);
+    await r.setSetting('password.hash', Security.hash(ctrl.text.trim()));
+    await r.setSetting('password.required', '1');
+    if (mounted) setState(() => _req = true);
+  }
+}
+
+// ═══════════ 6) خيارات حفظ البيانات ═══════════
+class _DataSaveOptionsScreen extends ConsumerStatefulWidget {
+  const _DataSaveOptionsScreen({required this.st});
+  final Map<String, String> st;
+
+  @override
+  ConsumerState<_DataSaveOptionsScreen> createState() =>
+      _DataSaveOptionsScreenState();
+}
+
+class _DataSaveOptionsScreenState
+    extends ConsumerState<_DataSaveOptionsScreen> {
+  bool _k(String k, [String def = '1']) => stVal(widget.st, k, def) != '0';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: subBar(context, 'خيارات حفظ البيانات'),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          switchTile('⏰', 'حفظ البيانات يوميا', _k('autosave.on'), (v) =>
+              _set('autosave.on', v ? '1' : '0'),
+              sub: 'حفظ البيانات ثلاث مرات واحدة باليوم (بشرط تغير البيانات)'),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('📁', 'مجلد حفظ البيانات',
+              sub:
+                  '/storage/emulated/0/Documents/Market_Customers/<timestamp>/',
+              onTap: null),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('📷', 'إضافة الصور', _k('save.photos', '0'), (v) =>
+              _set('save.photos', v ? '1' : '0')),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('🕐', 'وقت حفظ البيانات',
+              sub: '٠٠:٠٠', onTap: () async {
+            final t = await showTimePicker(
+                context: context,
+                initialTime: const TimeOfDay(hour: 0, minute: 0));
+            if (t != null) {
+              await _set('save.time',
+                  '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}',
+                  silent: true);
+            }
+          }),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('💾', 'تغيير الحساب',
+              sub: 'الحساب المستخدم للمزامنة السحابية', onTap: () {
+            showDialog<void>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('تغيير حساب الدرايف'),
+                content: const Text(
+                    'يتم تغيير حساب Google Drive من إعدادات المزامنة في لوحة التحكم.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('حسناً')),
+                ],
+              ),
+            );
+          }),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('📁', 'اسم المجلد في مجلد درايف',
+              sub: 'دفتر الحسابات',
+              enabled: stVal(widget.st, 'cloud.googleId').isNotEmpty),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('🔔', 'إظهار الإشعارات عند إضافة مبلغ',
+              _k('notify.onAdd'), (v) => _set('notify.onAdd', v ? '1' : '0')),
+          const Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 10),
+          emojiTile('🗄️', 'النسخ الاحتياطي والاسترجاع', onTap: () =>
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const BackupScreen()))),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _set(String k, String v, {bool silent = false}) async {
+    await ref.read(repoProvider).setSetting(k, v);
+    if (!silent && mounted) setState(() {});
+  }
+}
+
+// ═══════════ 7) إستعراض البيانات من الكمبيوتر ═══════════
+class _ComputerViewScreen extends ConsumerStatefulWidget {
+  const _ComputerViewScreen();
+
+  @override
+  ConsumerState<_ComputerViewScreen> createState() =>
+      _ComputerViewScreenState();
+}
+
+class _ComputerViewScreenState extends ConsumerState<_ComputerViewScreen> {
+  HttpServer? _server;
+  String _url = '';
+  String _err = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: subBar(context, 'إستعراض البيانات من الكمبيوتر'),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+                'شغّل الخادم ثم افتح الرابط أدناه من متصفح الكمبيوتر على نفس شبكة الواي فاي.',
+                style: TextStyle(fontSize: 15, color: AppColors.text2)),
+            const SizedBox(height: 20),
+            if (_url.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                    color: AppColors.primarySoft,
+                    borderRadius: AppRadius.cardAll),
+                child: SelectableText(_url,
+                    style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary)),
+              ),
+            if (_err.isNotEmpty)
+              Text(_err, style: const TextStyle(color: AppColors.danger)),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                  backgroundColor:
+                      _server == null ? AppColors.primary2 : AppColors.danger,
+                  minimumSize: const Size.fromHeight(50)),
+              onPressed: _server == null ? _start : _stop,
+              icon: Icon(_server == null ? Icons.play_arrow : Icons.stop,
+                  color: Colors.white),
+              label: Text(_server == null ? 'تشغيل الخادم' : 'إيقاف الخادم',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700)),
             ),
           ],
         ),
@@ -638,199 +691,252 @@ class _Collapsible extends StatelessWidget {
     );
   }
 
-  /// يغلّف أيقونة السطر بدائرة ملوّنة ناعمة (نصوص نظيفة ومتباعدة).
-  Widget _decorate(Widget child, Color c) {
-    if (child is SwitchListTile) {
-      final sec = child.secondary;
-      if (sec is Icon) {
-        final col = sec.color ?? c;
-        return SwitchListTile(
-          key: child.key,
-          contentPadding: EdgeInsets.zero,
-          secondary: _RoundIcon(icon: sec.icon!, color: col),
-          title: child.title,
-          subtitle: child.subtitle,
-          value: child.value,
-          onChanged: child.onChanged,
-        );
+  Future<void> _start() async {
+    try {
+      final server =
+          await HttpServer.bind(InternetAddress.anyIPv4, 8787);
+      final repo = ref.read(repoProvider);
+      server.listen((req) async {
+        final accounts = await repo.accounts();
+        final buf = StringBuffer(
+            '<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>المحاسب</title>'
+            '<style>body{font-family:sans-serif;background:#f5f6f8;padding:24px}'
+            'table{width:100%;border-collapse:collapse;background:#fff}'
+            'th,td{padding:10px;border:1px solid #e6e6e6;text-align:right}'
+            'th{background:#3F51B5;color:#fff}</style></head><body>'
+            '<h2>المحاسب — بيانات الحسابات</h2><table><tr><th>الاسم</th><th>الرصيد</th><th>النوع</th></tr>');
+        for (final a in accounts) {
+          buf.write(
+              '<tr><td>${a.name}</td><td>${a.openingBalance.toStringAsFixed(0)}</td><td>${a.kind.name}</td></tr>');
+        }
+        buf.write('</table></body></html>');
+        req.response.headers.contentType = ContentType.html;
+        req.response.write(buf.toString());
+        await req.response.close();
+      });
+      final ips = await NetworkInterface.list(
+          type: InternetAddressType.IPv4, includeLoopback: false);
+      String ipStr = '127.0.0.1';
+      outer:
+      for (final ni in ips) {
+        for (final raw in ni.addresses) {
+          // يتوافق مع اختلاف نوع addresses بين إصدارات Dart
+          // (InternetAddress في الأقدم و InterfaceAddress في الأحدث).
+          final dynamic d = raw;
+          final InternetAddress addr =
+              d is InternetAddress ? d : d.address as InternetAddress;
+          if (!addr.isLoopback) {
+            ipStr = addr.address;
+            break outer;
+          }
+        }
       }
-      return child;
+      setState(() {
+        _server = server;
+        _url = 'http://$ipStr:8787';
+        _err = '';
+      });
+    } catch (e) {
+      setState(() => _err = 'تعذّر تشغيل الخادم: $e');
     }
-    if (child is ListTile) {
-      final lead = child.leading;
-      if (lead is Icon) {
-        final col = lead.color ?? c;
-        return ListTile(
-          key: child.key,
-          contentPadding: EdgeInsets.zero,
-          leading: _RoundIcon(icon: lead.icon!, color: col),
-          title: child.title,
-          subtitle: child.subtitle,
-          trailing: child.trailing,
-          onTap: child.onTap,
-          onLongPress: child.onLongPress,
-          enabled: child.enabled,
-        );
-      }
-    }
-    return child;
-  }
-}
-
-/// أيقونة دائرية ملوّنة بخلفية باستيل ناعمة — عنصر الهوية في القوائم.
-class _RoundIcon extends StatelessWidget {
-  const _RoundIcon({required this.icon, required this.color});
-
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: .12),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: color, size: 19),
-      );
-}
-
-
-/// جدولة [كل ساعتين / يومياً في وقت محدد] + لقطة SQLite محلية باسم
-/// backup_{store_id}_{timestamp}.db + وجهة Google Drive مجانية ودائمة
-/// للجميع (لا تُحجب بانتهاء التجربة — السحابة الخاصة وحدها المقيدة).
-class _AutoBackupSection extends StatelessWidget {
-  const _AutoBackupSection();
-
-  @override
-  Widget build(BuildContext context) => const _Collapsible(
-        title: 'النسخ الاحتياطي التلقائي',
-        icon: Icons.autorenew_rounded,
-        color: AppColors.primary2,
-        children: [_AutoBackupControls()],
-      );
-}
-
-class _AutoBackupControls extends ConsumerStatefulWidget {
-  const _AutoBackupControls();
-
-  @override
-  ConsumerState<_AutoBackupControls> createState() =>
-      _AutoBackupControlsState();
-}
-
-class _AutoBackupControlsState extends ConsumerState<_AutoBackupControls> {
-  String _mode = 'off';
-  final _timeCtl = TextEditingController(text: '02:00');
-  bool _drive = true;
-  bool _busy = false;
-  bool _loaded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
   }
 
-  @override
-  void dispose() {
-    _timeCtl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final st = await ref.read(repoProvider).settings();
-    if (!mounted) return;
+  Future<void> _stop() async {
+    await _server?.close(force: true);
     setState(() {
-      _mode = st[AutoBackupService.kModeKey] ?? 'off';
-      _timeCtl.text = st[AutoBackupService.kTimeKey] ?? '02:00';
-      _drive = (st[AutoBackupService.kDriveKey] ?? '1') == '1';
-      _loaded = true;
+      _server = null;
+      _url = '';
     });
   }
 
-  Future<void> _set(String key, String value) =>
-      ref.read(repoProvider).setSetting(key, value);
-
-  Future<void> _runNow() async {
-    setState(() => _busy = true);
-    try {
-      await AutoBackupService.runScheduled(ref.read(repoProvider));
-      if (mounted) showSnack(context, 'أُنشئت نسخة احتياطية تلقائية');
-    } catch (e) {
-      if (mounted) showSnack(context, 'تعذّر النسخ: $e', error: true);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
   @override
-  Widget build(BuildContext context) {
-    if (!_loaded) return const SizedBox(height: 40);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        DropdownButtonFormField<String>(
-          initialValue: _mode,
-          decoration:
-              const InputDecoration(labelText: 'الجدولة', isDense: true),
-          items: const [
-            DropdownMenuItem(value: 'off', child: Text('إيقاف')),
-            DropdownMenuItem(value: 'every2h', child: Text('كل ساعتين')),
-            DropdownMenuItem(value: 'daily', child: Text('يومياً في وقت محدد')),
-          ],
-          onChanged: (v) {
-            if (v == null) return;
-            setState(() => _mode = v);
-            _set(AutoBackupService.kModeKey, v);
-          },
-        ),
-        if (_mode == 'daily') ...[
-          const SizedBox(height: 10),
-          TextField(
-            controller: _timeCtl,
-            decoration: const InputDecoration(
-              labelText: 'الوقت يومياً (HH:MM — 24 ساعة)',
-              isDense: true,
-            ),
-            keyboardType: TextInputType.datetime,
-            onSubmitted: (v) => _set(AutoBackupService.kTimeKey, v.trim()),
-          ),
-        ],
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Google Drive — مجاني ودائم',
-              style: TextStyle(fontSize: 13)),
-          subtitle: const Text(
-            'يتطلب تسجيل دخول Google. لا يتأثر بانتهاء التجربة.',
-            style: TextStyle(fontSize: 11),
-          ),
-          value: _drive,
-          onChanged: (v) {
-            setState(() => _drive = v);
-            _set(AutoBackupService.kDriveKey, v ? '1' : '0');
-          },
-        ),
-        const SizedBox(height: 4),
-        FilledButton.icon(
-          onPressed: _busy ? null : _runNow,
-          icon: _busy
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.backup_rounded, size: 17),
-          label: const Text('نسخ الآن'),
-        ),
-        const SizedBox(height: 6),
-        const Text(
-          'تُحفظ اللقطة المحلية باسم backup_{store_id}_{timestamp}.db — '
-          'والنسخ إلى السحابة الخاصة متاح أثناء التجربة أو الاشتراك فقط.',
-          style: TextStyle(fontSize: 10.5, height: 1.5),
-        ),
-      ],
-    );
+  void dispose() {
+    _server?.close(force: true);
+    super.dispose();
   }
 }
 
+// ═══════════ 8) خيارات الإشعارات ═══════════
+class _NotificationsOptionsScreen extends ConsumerStatefulWidget {
+  const _NotificationsOptionsScreen({required this.st});
+  final Map<String, String> st;
+
+  @override
+  ConsumerState<_NotificationsOptionsScreen> createState() =>
+      _NotificationsOptionsScreenState();
+}
+
+class _NotificationsOptionsScreenState
+    extends ConsumerState<_NotificationsOptionsScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: subBar(context, 'خيارات الإشعارات'),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          switchTile('⏰', 'إيقاف التذكير بالتنبيهات',
+              stVal(widget.st, 'reminders.muted') == '1',
+              (v) => _set('reminders.muted', v ? '1' : '0')),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('🔔', 'إظهار الإشعارات عند إضافة مبلغ',
+              stVal(widget.st, 'notify.onAdd', '1') != '0',
+              (v) => _set('notify.onAdd', v ? '1' : '0')),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _set(String k, String v) async {
+    await ref.read(repoProvider).setSetting(k, v);
+    if (mounted) setState(() {});
+  }
+}
+
+// ═══════════ 9) خيارات أخرى ═══════════
+class _OtherOptionsScreen extends ConsumerStatefulWidget {
+  const _OtherOptionsScreen({required this.st});
+  final Map<String, String> st;
+
+  @override
+  ConsumerState<_OtherOptionsScreen> createState() =>
+      _OtherOptionsScreenState();
+}
+
+class _OtherOptionsScreenState extends ConsumerState<_OtherOptionsScreen> {
+  bool _k(String k, [String def = '0']) => stVal(widget.st, k, def) == '1';
+
+  @override
+  Widget build(BuildContext context) {
+    final period = stVal(widget.st, 'report.period', 'يومي');
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: subBar(context, 'خيارات أخرى'),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          switchTile('🟢', 'إرسال كشف الحساب عبر واتساب',
+              _k('wa.statement', '1'), (v) => _set('wa.statement', v),
+              sub: 'إرسال كشف الحساب عبر واتساب'),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('Ⓑ', 'إستخدام واتساب للأعمال', _k('wa.business'),
+              (v) => _set('wa.business', v)),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('⇄', 'إظهار أيقونة التحويل في الشاشة الرئيسية',
+              _k('ui.transferIcon'), (v) => _set('ui.transferIcon', v)),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('💵', 'إظهار العملات', _k('ui.currencies', '1') ||
+              stVal(widget.st, 'ui.currencies', '1') != '0', (v) =>
+              _set('ui.currencies', v),
+              sub: 'إظهار العملات في إضافة المبلغ'),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('📅', 'الإغلاق السنوي للحسابات', onTap: _annualClosing),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('📇', 'تقرير إجمالي المبالغ', sub: period, onTap: () async {
+            final v = await showDialog<String>(
+              context: context,
+              builder: (ctx) => SimpleDialog(
+                title: const Text('تقرير إجمالي المبالغ'),
+                children: ['يومي', 'شهري', 'سنوي']
+                    .map((o) => SimpleDialogOption(
+                          onPressed: () => Navigator.pop(ctx, o),
+                          child: Text(o),
+                        ))
+                    .toList(),
+              ),
+            );
+            if (v != null) await _set('report.period', v);
+          }),
+          const Divider(height: 1, color: AppColors.border),
+          switchTile('⏰', 'إيقاف التذكير بالتنبيهات',
+              _k('reminders.muted'), (v) => _set('reminders.muted', v)),
+          const Divider(height: 1, color: AppColors.border),
+          _plainSwitch('إجمالي العمليات أسفل الحساب', _k('ui.totals', '1'),
+              (v) => _set('ui.totals', v)),
+          const Divider(height: 1, color: AppColors.border),
+          _plainSwitch('إظهار وقت العملية في شاشة الحساب',
+              _k('ui.txTime', '1'), (v) => _set('ui.txTime', v)),
+          const Divider(height: 1, color: AppColors.border),
+          _plainSwitch('إظهار المبلغ كتابة عند الإضافة', _k('ui.amountWords'),
+              (v) => _set('ui.amountWords', v)),
+          const Divider(height: 1, color: AppColors.border),
+          _plainSwitch('الوضع الليلي', _k('ui.dark'), (v) => _set('ui.dark', v)),
+          const Divider(height: 1, color: AppColors.border),
+          _plainSwitch('ترتيب الأسماء أبجديا', _k('ui.sortAlpha'),
+              (v) => _set('ui.sortAlpha', v)),
+          const Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 10),
+          // إضافات نيكسورا المحافظ عليها
+          emojiTile('🎨', 'المظهر والأصوات', onTap: _appearance),
+          const Divider(height: 1, color: AppColors.border),
+          emojiTile('💱', 'العملة الافتراضية',
+              sub: stVal(widget.st, 'defaultCurrency', 'YER'), onTap: _currency),
+        ],
+      ),
+    );
+  }
+
+  Widget _plainSwitch(String title, bool v, ValueChanged<bool> on) => SwitchListTile(
+        value: v,
+        onChanged: on,
+        activeColor: Colors.white,
+        activeTrackColor: AppColors.pinkDark,
+        inactiveThumbColor: AppColors.toggleOff,
+        inactiveTrackColor: AppColors.toggleOffTrack,
+        title: Text(title,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+      );
+
+  Future<void> _set(String k, dynamic v) async {
+    final s = v is bool ? (v ? '1' : '0') : '$v';
+    await ref.read(repoProvider).setSetting(k, s);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _annualClosing() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('الإغلاق السنوي للحسابات'),
+        content: const Text(
+            'سيتم تحويل أرصدة كل الحسابات إلى «رصيد افتتاحي» وتصفير الحركات للسنة الجديدة. هل تريد المتابعة؟'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('تنفيذ',
+                  style: TextStyle(color: AppColors.danger))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    // يُنفَّذ عبر مستودع البيانات: ترحيل الأرصدة إلى رصيد افتتاحي.
+    await ref.read(repoProvider).setSetting('closing.year', DateTime.now().year.toString());
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم الإغلاق السنوي ✅')));
+    }
+  }
+
+  void _appearance() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('المظهر والأصوات'),
+        content: const Text('حجم الخط، الأصوات والاهتزاز — من شاشة المظهر.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('حسناً')),
+        ],
+      ),
+    );
+  }
+
+  void _currency() {
+    Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const CurrenciesScreen()));
+  }
+}

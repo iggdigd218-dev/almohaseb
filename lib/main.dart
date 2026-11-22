@@ -142,7 +142,7 @@ class NexoraApp extends ConsumerWidget {
       ],
       builder: (context, child) {
         Widget w = Directionality(
-          textDirection: TextDirection.rtl,
+          textDirection: TextDirection.ltr,
           child: child ?? const SizedBox.shrink(),
         );
         return w;
