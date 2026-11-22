@@ -128,37 +128,27 @@ jobs:
 
       - name: Generate version manifest (version.json)
         run: |
+          set -euo pipefail
           VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
-          NAME="${VER%%+*}"; BUILD="${VER##*+}"
-          # ملاحظات الإصدار تُقرأ من release_notes.txt وتُهرَّب كسلسلة JSON
-          # عبر python (قصّ عند حدود المحارف لا البايتات + تهريب آمن).
-          # (2026-09-24) السجل مقتضب ودائم: أحدث إصدار فقط — أول ٣ أسطر
-          # غير فارغة من release_notes.txt، وكل سطر يُقصّ عند 220 محرفاً.
-          NOTES=$(python3 -c "import json; lines=[l.strip() for l in open('release_notes.txt',encoding='utf-8').read().splitlines() if l.strip()]; lines=lines[:3]; lines=[(l[:219].rstrip()+'…') if len(l)>220 else l for l in lines]; t='\\n'.join(lines); print(json.dumps(t,ensure_ascii=False)[1:-1])")
+          NAME="${VER%%+*}"
+          BUILD="${VER##*+}"
           echo "إصدار البناء: $NAME (build $BUILD)"
-          cat > version.json <<EOF
-          {
-            "version": "$NAME+$BUILD",
-            "minSupported": "3.13.0",
-            "releaseUrl": "https://github.com/${{ github.repository }}/releases/tag/latest",
-            "downloads": {
-              \"android\": \"https://github.com/${{ github.repository }}/releases/download/latest/almohaseb-arm64-v8a.apk\",
-              \"androidArm32\": \"https://github.com/${{ github.repository }}/releases/download/latest/almohaseb-armeabi-v7a.apk\",
-              \"androidX64\": \"https://github.com/${{ github.repository }}/releases/download/latest/almohaseb-x86_64.apk\"
-            },
-            "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "notes": "$NOTES"
-          }
-          EOF
-          cat version.json
+          # البيان يُبنى في سكربت مستقل بـ json.dump: صالح مضموناً، مع
+          # تحقّق ذاتي — بدل heredoc التهريب الذي أصدر JSON غير صالح سابقاً
+          # فلا يرى التطبيق أي تحديث.
+          NAME="$NAME" BUILD="$BUILD" REPO="${{ github.repository }}" \
+            python3 tool/gen_version_manifest.py
 
-          # مزامنة فورية وموثوقة لبيان التحديث إلى Firebase RTDB العام
-          curl -s -X PATCH -H "Content-Type: application/json; charset=utf-8" \
-            -d @version.json \
-            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/force_update.json" || true
-          curl -s -X PUT -H "Content-Type: application/json; charset=utf-8" \
-            -d @version.json \
-            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/version_manifest.json" || true
+          # مزامنة بيان التحديث إلى Firebase RTDB العام — مع كشف الفشل.
+          # (إصلاح) كان `|| true` يُخفي أعطال النشر بصمت؛ الآن يُبلَّغ عنها.
+          for KEY in force_update version_manifest; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+              -H "Content-Type: application/json; charset=utf-8" \
+              -d @version.json \
+              "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/$KEY.json" || echo 000)
+            echo "Firebase $KEY → HTTP $CODE"
+            [ "$CODE" = "200" ] || echo "::warning::تعذّرت مزامنة $KEY إلى Firebase (HTTP $CODE)"
+          done
 
       # الأصل الواحد يحمل ملفي النشر معاً: APK + version.json، فلا حاجة
       # لإعادة توليد أي شيء في وظيفة النشر، ولا لرفع مزدود للملف الكبير.

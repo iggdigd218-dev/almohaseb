@@ -606,8 +606,15 @@ class _DataSaveOptionsScreenState
             );
           }),
           const Divider(height: 1, color: AppColors.border),
+          emojiTile('☁️', 'مجلد الدرايف',
+              sub: stVal(widget.st, 'cloud.googleId').isNotEmpty
+                  ? 'متصل — ${stVal(widget.st, 'cloud.folderName', 'دفتر الحسابات')}'
+                  : 'غير متصل — اضغط للربط',
+              onTap: _driveFolder),
+          const Divider(height: 1, color: AppColors.border),
           emojiTile('📁', 'اسم المجلد في مجلد درايف',
-              sub: 'دفتر الحسابات',
+              sub: stVal(widget.st, 'cloud.folderName', 'دفتر الحسابات'),
+              onTap: () => _renameDriveFolder(),
               enabled: stVal(widget.st, 'cloud.googleId').isNotEmpty),
           const Divider(height: 1, color: AppColors.border),
           switchTile('🔔', 'إظهار الإشعارات عند إضافة مبلغ',
@@ -620,6 +627,67 @@ class _DataSaveOptionsScreenState
         ],
       ),
     );
+  }
+
+  /// صف «مجلد الدرايف»: يعرض حالة الربط ويفتح حوار الاتصال.
+  Future<void> _driveFolder() async {
+    final connected = stVal(widget.st, 'cloud.googleId').isNotEmpty;
+    if (!connected) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('ربط مجلد الدرايف'),
+          content: const Text(
+              'سيتم إنشاء مجلد باسم التطبيق داخل حسابك في Google Drive وحفظ '
+              'النسخ الاحتياطية فيه.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('إلغاء')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('ربط الآن')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      await Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => Scaffold(
+                    appBar: AppBar(title: const Text('مجلد الدرايف')),
+                    body: const BackupScreen(),
+                  )));
+      if (mounted) setState(() {});
+      return;
+    }
+    await _renameDriveFolder();
+  }
+
+  /// تعديل اسم مجلد الدرايف.
+  Future<void> _renameDriveFolder() async {
+    final ctl = TextEditingController(
+        text: stVal(widget.st, 'cloud.folderName', 'دفتر الحسابات'));
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('اسم المجلد في مجلد درايف'),
+        content: TextField(
+            controller: ctl,
+            decoration: const InputDecoration(hintText: 'دفتر الحسابات')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إلغاء')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, ctl.text.trim()),
+              child: const Text('حفظ')),
+        ],
+      ),
+    );
+    if (name != null && name.isNotEmpty) {
+      await _set('cloud.folderName', name);
+    }
   }
 
   Future<void> _set(String k, String v, {bool silent = false}) async {

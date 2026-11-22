@@ -97,6 +97,10 @@ class _TxFormState extends ConsumerState<TxForm> {
   /// توليد صورة الإيصال وإرسالها للعميل فور الحفظ (البنود ٣ و ٤ و ١٢ و ١٤).
   String _image = '';
 
+  /// آخر عمليات هذا الحساب — تُعرض في جدول أسفل النموذج كما في التصميم.
+  List<Tx> _history = [];
+  double _prevBalance = 0;
+
   @override
   void initState() {
     super.initState();
@@ -157,6 +161,7 @@ class _TxFormState extends ConsumerState<TxForm> {
 
       final acc = accs.where((a) => a.id == _accountId).firstOrNull;
       if (t == null && acc != null) _currency = acc.currency;
+      await _loadHistory();
     } catch (e) {
       if (mounted) {
         Sfx.error();
@@ -172,6 +177,26 @@ class _TxFormState extends ConsumerState<TxForm> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  /// آخر عمليات الحساب المختار + رصيده السابق — لجدول النموذج المرجعي.
+  Future<void> _loadHistory() async {
+    final id = _accountId;
+    if (id == null) return;
+    try {
+      final repo = ref.read(repoProvider);
+      final acc =
+          _accounts.where((a) => a.id == id).firstOrNull;
+      final list = await repo.transactions(accountId: id);
+      list.sort((a, b) => b.date.compareTo(a.date));
+      double prev = acc?.openingBalance ?? 0;
+      if (acc != null) prev = await repo.balanceOf(acc);
+      if (!mounted) return;
+      setState(() {
+        _history = list.take(8).toList();
+        _prevBalance = prev;
+      });
+    } catch (_) {}
   }
 
   @override
@@ -732,6 +757,7 @@ class _TxFormState extends ConsumerState<TxForm> {
                 _currency = acc.currency;
               }
             });
+            _loadHistory();
           },
           validator: (v) => v == null ? 'اختر الحساب' : null,
         ),
