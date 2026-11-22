@@ -100,6 +100,7 @@ class _TxFormState extends ConsumerState<TxForm> {
   /// آخر عمليات هذا الحساب — تُعرض في جدول أسفل النموذج كما في التصميم.
   List<Tx> _history = [];
   double _prevBalance = 0;
+  bool _disposed = false;
 
   @override
   void initState() {
@@ -161,7 +162,6 @@ class _TxFormState extends ConsumerState<TxForm> {
 
       final acc = accs.where((a) => a.id == _accountId).firstOrNull;
       if (t == null && acc != null) _currency = acc.currency;
-      await _loadHistory();
     } catch (e) {
       if (mounted) {
         Sfx.error();
@@ -176,22 +176,30 @@ class _TxFormState extends ConsumerState<TxForm> {
       if (mounted) {
         setState(() => _loading = false);
       }
+      // جدول سجل الحساب يُحمّل بعد إظهار النموذج: قراءته لا تحجب الواجهة
+      // (وقد تكون قاعدة البيانات مشغولة) فلا يتعلّق النموذج في مؤشر دوّار.
+      unawaited(_loadHistory());
     }
   }
 
   /// آخر عمليات الحساب المختار + رصيده السابق — لجدول النموذج المرجعي.
+  /// لا يرمي ولا يعلّق: أي فشل يُبقي الجدول فارغاً.
   Future<void> _loadHistory() async {
+    if (!mounted) return;
     final id = _accountId;
     if (id == null) return;
     try {
       final repo = ref.read(repoProvider);
       final acc =
           _accounts.where((a) => a.id == id).firstOrNull;
+      // بلا `.timeout`: أي مؤقّت مؤقّت معلّق يبقى بعد إغلاق النموذج فيُفشل
+      // اختبارات flutter_test («Timer is still pending»). التحميل غير محجوب
+      // أصلاً، فالتأخير لا يُظهر مؤشراً ولا يمنع أي إجراء.
       final list = await repo.transactions(accountId: id);
       list.sort((a, b) => b.date.compareTo(a.date));
       double prev = acc?.openingBalance ?? 0;
       if (acc != null) prev = await repo.balanceOf(acc);
-      if (!mounted) return;
+      if (!mounted || _disposed) return;
       setState(() {
         _history = list.take(8).toList();
         _prevBalance = prev;
@@ -201,6 +209,7 @@ class _TxFormState extends ConsumerState<TxForm> {
 
   @override
   void dispose() {
+    _disposed = true;
     _amount.dispose();
     _rate.dispose();
     _desc.dispose();
