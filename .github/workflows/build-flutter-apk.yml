@@ -124,6 +124,21 @@ jobs:
           done
           echo "كل الحزم محاذية وموقعة توقيعاً صالحاً"
 
+      - name: Report APK composition
+        run: |
+          # (2026-11-22) تشخيص الحجم: ما الذي يملأ الحزمة فعلاً؟ بلا هذا
+          # نبقى نخمّن. يُطبع أكبر 20 مدخلاً في حزمة arm64.
+          python3 - <<'EOP'
+          import zipfile
+          z = zipfile.ZipFile('almohaseb-arm64-v8a.apk')
+          rows = sorted(((i.file_size, i.filename) for i in z.infolist()),
+                          reverse=True)[:20]
+          total = sum(i.file_size for i in z.infolist())
+          print(f'محتويات الحزمة غير المضغوطة: {total/1048576:.1f}MB')
+          for sz, name in rows:
+              print(f'  {sz/1048576:7.2f}MB  {name}')
+          EOP
+
       - name: Enforce APK size gate (20 MB)
         run: |
           # شرط صارم: لا تتجاوز أي حزمة 20,000,000 بايت. البناء المقسّم
