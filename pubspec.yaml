@@ -1,7 +1,7 @@
 name: nexora_app
 description: دفتر الحسابات — سجل الديون والحسابات
 publish_to: 'none'
-version: 4.6.0+308
+version: 4.6.0+309
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -21,7 +21,7 @@ dependencies:
   file_picker: ^8.1.2
   image_picker: ^1.1.2
   pdf: ^3.11.1
-  printing: ^5.13.2
+  open_filex: ^4.5.0
   math_expressions: ^2.6.0
 
 dev_dependencies:

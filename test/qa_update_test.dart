@@ -63,6 +63,17 @@ void main() {
         reason: 'الفحص يجب أن يبدأ بعد بناء الواجهة لا قبله');
   });
 
+  test('UPD-08 لا حزم تجرّ محرك PDFium (سبب تضخّم الحجم)', () {
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    // printing تجرّ pdfium ~10MB لكل معمارية ⇒ كل APK يتجاوز 20MB.
+    expect(pubspec.contains('printing:'), isFalse,
+        reason: 'أعِد إزالتها أو استخدم حزمة أخف مثل open_filex');
+    final acct = File('lib/ui/account_screen.dart').readAsStringSync();
+    expect(acct.contains('package:printing'), isFalse);
+    expect(acct.contains('open_filex'), isTrue,
+        reason: 'مسار فتح/مشاركة الـPDF يجب أن يبقى عاملاً');
+  });
+
   test('UPD-07 بوابة الحجم 20MB موجودة في الـ workflow', () {
     final wf = File('.github/workflows/build-flutter-apk.yml').readAsStringSync();
     expect(wf, contains('20000000'), reason: 'بوابة الحجم شرط صارم');
@@ -83,3 +94,7 @@ class _FakeService extends UpdateService {
     return super.checkWithBody(body);
   }
 }
+
+// (2026-11-22) حارس الحجم: حزمة printing تجرّ PDFium (~10MB/معمارية)
+// فترفعت كل APK إلى 25-28MB وتجاوزت حدّ 20MB. أُزيلت. لا تُعِدها.
+void _sizeGuardTests() {}

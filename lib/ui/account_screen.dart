@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pdf/pdf.dart' as pdfc;
 import 'package:pdf/widgets.dart' as pdf;
-import 'package:printing/printing.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -897,7 +897,20 @@ class _AccountScreenState extends State<AccountScreen> {
       await Share.shareXFiles([XFile(f.path)],
           text: 'كشف حساب $name');
     } else {
-      await Printing.layoutPdf(onLayout: (_) => doc.save());
+      // (2026-11-22) بديل الطباعة: نكتب الملف ونفتحه في أي تطبيق PDF.
+      // أُزيلت حزمة printing لأنها تجرّ محرك PDFium (~10MB لكل معمارية)
+      // فكانت كل حزمة APK تتجاوز حدّ الـ20MB. open_filex لا يضيف حجماً.
+      final bytes = await doc.save();
+      final dir = await getApplicationDocumentsDirectory();
+      final f = File(p.join(dir.path,
+          'كشف_${name}_${todayISO()}.pdf'));
+      await f.writeAsBytes(bytes);
+      final r = await OpenFilex.open(f.path);
+      if (r.type != ResultType.done) {
+        // لا يوجد قارئ PDF مثبّت — نشارك الملف بدل الفشل الصامت.
+        await Share.shareXFiles([XFile(f.path)],
+            text: 'كشف حساب $name');
+      }
     }
   }
 
