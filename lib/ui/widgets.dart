@@ -110,13 +110,14 @@ class SectionLabel extends StatelessWidget {
 
 /// شريط علوي موحد بالسهم والعنوان (السهم على اليسار) + إجراء «تغيير القالب»
 AppBar simpleBar(BuildContext context, String title,
-    {List<Widget>? actions, bool showTemplate = true}) {
+    {List<Widget>? actions, bool showTemplate = true, Widget? leading}) {
   return AppBar(
     automaticallyImplyLeading: false,
-    leading: IconButton(
-      icon: const Icon(Icons.arrow_back),
-      onPressed: () => Navigator.of(context).maybePop(),
-    ),
+    leading: leading ??
+        IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
     title: Text(title),
     actions: [
       ...?actions,

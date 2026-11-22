@@ -1,9 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pdf/pdf.dart' as pdfc;
 import 'package:pdf/widgets.dart' as pdf;
 import 'package:printing/printing.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../core.dart';
 import '../words.dart' as words;
 import 'calculator.dart';
@@ -220,7 +226,568 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
-  Future<void> _exportPdf() async {
+
+  // ═══════════════════════════════════════════════════════════════════
+  // (2026-11-22) القائمة الجانبية لشاشة الحساب — ١٢ خياراً كما في التصميم.
+  // كانت الشاشة بلا أي قائمة، فلا وصول للمشاركة ولا للتحويل ولا للسقف.
+  // ═══════════════════════════════════════════════════════════════════
+
+  /// اسم الحساب الحالي (من حقل الاسم — مصدر الحقيقة في هذه الشاشة).
+  String get _accName => nameCtrl.text.trim();
+
+  String get _curLabel => kCurrencies[currency] ?? 'محلي';
+
+  /// رصيد الحساب الآن: مجموع له − عليه.
+  double get _balance => _sum(_txs, 2) - _sum(_txs, 1);
+
+  Widget _drawer(BuildContext context) {
+    return Drawer(
+      child: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+              color: AppColors.primary,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _accName.isEmpty ? 'الحساب' : _accName,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'الرصيد: ${fmtNum(_balance.abs())} $_curLabel',
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 12.5),
+                  ),
+                ],
+              ),
+            ),
+            _dItem('🔍', 'بحث متقدم', _advancedSearch),
+            _dItem('🖨️', 'طابعة حرارية', _thermalPrint),
+            _dItem('📤', 'مشاركة', _shareSheet),
+            _dItem('📊', 'إكسل', _exportExcel),
+            _dItem('✉️', 'إرسال رسالة نصية', () => _sendSms(false)),
+            _dItem('🟢', 'إرسال رسالة واتساب', () => _sendSms(true)),
+            _dItem('🟢', 'إرسال رسالة نصية+واتساب', _sendBoth),
+            _dItem('☑️', 'مصادقة على الحساب وواتساب', _approveAndShare),
+            _dItem('🔒', 'إغلاق الرصيد', _closeBalance),
+            _dItem('⇄', 'تحويل من حساب إلى حساب', _transferDialog),
+            _dItem('🔔', 'التنبيهات', _reminders),
+            _dItem('📈', 'سقف الحساب', _accountCeiling),
+            const Divider(height: 1),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dItem(String emoji, String title, VoidCallback onTap) => ListTile(
+        leading: Text(emoji, style: const TextStyle(fontSize: 18)),
+        title: Text(title,
+            style: TextStyle(fontSize: 14.5, color: AppColors.text)),
+        onTap: onTap,
+      );
+
+  // ── ١) بحث متقدم ────────────────────────────────────────────────
+  Future<void> _advancedSearch() async {
+    Navigator.pop(context);
+    final q = TextEditingController(text: _search);
+    String from = '', to = '';
+    int kind = 0; // 0 = الكل
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('بحث متقدم'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: q,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                      labelText: 'تفاصيل أو مبلغ', isDense: true),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          final d = await showDatePicker(
+                              context: ctx,
+                              initialDate: DateTime.now(),
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime(2100));
+                          if (d != null) {
+                            setD(() => from =
+                                '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}');
+                          }
+                        },
+                        child: Text(from.isEmpty ? 'من تاريخ' : from,
+                            style: const TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          final d = await showDatePicker(
+                              context: ctx,
+                              initialDate: DateTime.now(),
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime(2100));
+                          if (d != null) {
+                            setD(() => to =
+                                '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}');
+                          }
+                        },
+                        child: Text(to.isEmpty ? 'إلى تاريخ' : to,
+                            style: const TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(value: 0, label: Text('الكل')),
+                    ButtonSegment(value: 2, label: Text('له')),
+                    ButtonSegment(value: 1, label: Text('عليه')),
+                  ],
+                  selected: {kind},
+                  onSelectionChanged: (s) => setD(() => kind = s.first),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('إلغاء')),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _runAdvancedSearch(q.text.trim(), from, to, kind);
+              },
+              child: const Text('بحث'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _runAdvancedSearch(
+      String q, String from, String to, int kind) async {
+    final name = _accName;
+    if (name.isEmpty) {
+      _toast('اكتب اسم الحساب أولاً');
+      return;
+    }
+    final acc = await Db.accountByName(name);
+    if (acc == null) return;
+    var list = await Db.txsOf(acc.id);
+    if (q.isNotEmpty) {
+      list = list
+          .where((t) =>
+              t.details.contains(q) || fmtNum(t.amount).contains(q))
+          .toList();
+    }
+    if (from.isNotEmpty) {
+      list = list.where((t) => t.date.compareTo(from) >= 0).toList();
+    }
+    if (to.isNotEmpty) {
+      list = list.where((t) => t.date.compareTo(to) <= 0).toList();
+    }
+    if (kind != 0) {
+      list = list.where((t) => t.kind == kind).toList();
+    }
+    if (!mounted) return;
+    setState(() => _txs = list);
+    _toast('${list.length} نتيجة');
+  }
+
+  // ── ٢) طابعة حرارية ─────────────────────────────────────────────
+  Future<void> _thermalPrint() async {
+    Navigator.pop(context);
+    // الطباعة الحرارية تستخدم طباعة النظام مع مقاس حراري (80mm).
+    await _exportPdf(thermal: true);
+  }
+
+  // ── ٣) مشاركة ───────────────────────────────────────────────────
+  Future<void> _shareSheet() async {
+    Navigator.pop(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(14),
+              child: Text('مشاركة',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ),
+            ListTile(
+              leading: const Text('📄', style: TextStyle(fontSize: 20)),
+              title: const Text('مشاركة كشف الحساب PDF'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _exportPdf(share: true);
+              },
+            ),
+            ListTile(
+              leading: const Text('🟢', style: TextStyle(fontSize: 20)),
+              title: const Text('إرسال عبر واتساب'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _sendSms(true);
+              },
+            ),
+            ListTile(
+              leading: const Text('📊', style: TextStyle(fontSize: 20)),
+              title: const Text('تصدير إكسل (CSV)'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _exportExcel();
+              },
+            ),
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── ٤) إكسل (CSV) ───────────────────────────────────────────────
+  Future<void> _exportExcel() async {
+    if (_txs.isEmpty) {
+      _toast('لا عمليات لتصديرها');
+      return;
+    }
+    try {
+      final rows = <String>[];
+      rows.add('التاريخ,التفاصيل,العملة,مدين,دائن');
+      for (final t in _txs.reversed) {
+        final d = t.kind == 1 ? t.amount.toString() : '';
+        final c = t.kind == 2 ? t.amount.toString() : '';
+        rows.add('${t.date},${t.details.replaceAll(',', ' ')},${t.currency},$d,$c');
+      }
+      final dir = await getApplicationDocumentsDirectory();
+      final f = File(p.join(dir.path,
+          'كشف_${_accName.isEmpty ? 'حساب' : _accName}_${todayISO()}.csv'));
+      await f.writeAsString('\uFEFF${rows.join('\n')}');
+      await Share.shareXFiles([XFile(f.path)],
+          text: 'كشف حساب $_accName');
+    } catch (e) {
+      _toast('تعذّر التصدير: $e');
+    }
+  }
+
+  // ── ٥-٧) واتساب / رسائل ─────────────────────────────────────────
+  String get _statementText {
+    final b = _balance;
+    final side = b >= 0 ? Prefs.creditWord1 : Prefs.debitWord1;
+    return 'كشف حساب: $_accName\n'
+        '${b.abs() < 0 ? '' : ''}الرصيد: ${fmtNum(b.abs())} $_curLabel ($side)\n'
+        'عدد العمليات: ${_txs.length}';
+  }
+
+  Future<void> _sendSms(bool whatsapp) async {
+    Navigator.pop(context);
+    if (_accName.isEmpty) {
+      _toast('اكتب اسم الحساب أولاً');
+      return;
+    }
+    final acc = await Db.accountByName(_accName);
+    // نموذج Account لا يحمل حقلاً للهاتف — يُقرأ من التفضيلات إن حُفظ.
+    final phone = acc == null
+        ? ''
+        : Prefs.s('phone_${acc.id}').trim();
+    if (whatsapp) {
+      if (phone.isEmpty) {
+        _toast('لا يوجد رقم هاتف لهذا الحساب');
+        return;
+      }
+      final uri = Uri.parse(
+          'https://wa.me/${phone.replaceAll(RegExp(r'[^0-9]'), '')}?text=${Uri.encodeComponent(_statementText)}');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } else {
+      final uri = Uri.parse(
+          'sms:${phone.isEmpty ? '' : phone}?body=${Uri.encodeComponent(_statementText)}');
+      if (await canLaunchUrl(uri)) await launchUrl(uri);
+    }
+  }
+
+  Future<void> _sendBoth() async {
+    Navigator.pop(context);
+    await _sendSms(true);
+    await _sendSms(false);
+  }
+
+  // ── ٨) مصادقة على الحساب ────────────────────────────────────────
+  Future<void> _approveAndShare() async {
+    Navigator.pop(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('مصادقة على الحساب'),
+        content: Text(
+            'سيُطبع نص المصادقة أسفل الكشف:\n\n'
+            '«${Prefs.approvalForm.isEmpty ? 'أقر بصحة الرصيد المذكور أعلاه' : Prefs.approvalForm}»'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('متابعة')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _exportPdf(share: true);
+  }
+
+  // ── ٩) إغلاق الرصيد ─────────────────────────────────────────────
+  Future<void> _closeBalance() async {
+    Navigator.pop(context);
+    final b = _balance;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إغلاق الرصيد'),
+        content: Text(
+            'سيُسجَّل رصيد افتتاحي يساوي الرصيد الحالي '
+            '(${fmtNum(b.abs())} $_curLabel)، وتُخفى العمليات السابقة من الكشف.\n\n'
+            'العمليات لا تُحذف — تبقى محفوظة.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('إغلاق')),
+        ],
+      ),
+    );
+    if (ok != true || _accName.isEmpty) return;
+    final acc = await Db.accountByName(_accName);
+    if (acc == null) return;
+    await Prefs.setS('closing_${acc.id}', todayISO());
+    if (!mounted) return;
+    _toast('تم إغلاق الرصيد في ${isoToDisplay(todayISO())}');
+    setState(() {});
+  }
+
+  // ── ١٠) تحويل من حساب إلى حساب ──────────────────────────────────
+  Future<void> _transferDialog() async {
+    Navigator.pop(context);
+    final from = _accName;
+    if (from.isEmpty) {
+      _toast('اكتب اسم الحساب أولاً');
+      return;
+    }
+    final amount = TextEditingController();
+    String toName = '';
+    final accs = await Db.accounts();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('تحويل من حساب إلى حساب'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('من: $from',
+                  style: const TextStyle(fontSize: 13, color: AppColors.sub)),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue: toName.isEmpty ? null : toName,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                    labelText: 'إلى حساب', isDense: true),
+                items: accs
+                    .where((a) => a.name != from)
+                    .map((a) => DropdownMenuItem(
+                        value: a.name,
+                        child: Text(a.name, overflow: TextOverflow.ellipsis)))
+                    .toList(),
+                onChanged: (v) => setD(() => toName = v ?? ''),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: amount,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration:
+                    const InputDecoration(labelText: 'المبلغ', isDense: true),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('إلغاء')),
+            TextButton(
+              onPressed: () async {
+                final v = double.tryParse(
+                    amount.text.trim().replaceAll(',', ''));
+                if (toName.isEmpty || v == null || v <= 0) return;
+                Navigator.pop(ctx);
+                final src = await Db.ensureAccount(from);
+                final dst = await Db.ensureAccount(toName);
+                await Db.saveTx(Tx(
+                  accountId: dst.id,
+                  kind: 2,
+                  amount: v,
+                  details: 'تحويل من $from',
+                  date: todayISO(),
+                  time: nowHM(),
+                  currency: currency,
+                ));
+                await Db.saveTx(Tx(
+                  accountId: src.id,
+                  kind: 1,
+                  amount: v,
+                  details: 'تحويل إلى $toName',
+                  date: todayISO(),
+                  time: nowHM(),
+                  currency: currency,
+                ));
+                if (!mounted) return;
+                _toast('تم التحويل ✅');
+                _reload();
+              },
+              child: const Text('تحويل'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── ١١) التنبيهات ───────────────────────────────────────────────
+  Future<void> _reminders() async {
+    Navigator.pop(context);
+    if (_accName.isEmpty) {
+      _toast('اكتب اسم الحساب أولاً');
+      return;
+    }
+    final acc = await Db.accountByName(_accName);
+    if (acc == null) return;
+    final key = 'reminder_${acc.id}';
+    final on = Prefs.b(key);
+    final ctrl = TextEditingController(text: Prefs.s('${key}_days', '7'));
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('التنبيهات'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('تذكير عند بقاء الرصيد دون سداد لمدة محددة.',
+                style: const TextStyle(fontSize: 12.5, color: AppColors.sub)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'عدد الأيام', isDense: true),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () async {
+                await Prefs.setB(key, false);
+                if (ctx.mounted) Navigator.pop(ctx);
+                _toast('تم إيقاف التنبيه');
+              },
+              child: const Text('إيقاف')),
+          TextButton(
+            onPressed: () async {
+              await Prefs.setB(key, true);
+              await Prefs.setS('${key}_days',
+                  (int.tryParse(ctrl.text.trim()) ?? 7).toString());
+              if (ctx.mounted) Navigator.pop(ctx);
+              _toast('تم تفعيل التنبيه');
+            },
+            child: const Text('تفعيل'),
+          ),
+        ],
+      ),
+    );
+    if (on) setState(() {});
+  }
+
+  // ── ١٢) سقف الحساب ──────────────────────────────────────────────
+  Future<void> _accountCeiling() async {
+    Navigator.pop(context);
+    if (_accName.isEmpty) {
+      _toast('اكتب اسم الحساب أولاً');
+      return;
+    }
+    final acc = await Db.accountByName(_accName);
+    if (acc == null) return;
+    final key = 'ceiling_${acc.id}';
+    final ctrl =
+        TextEditingController(text: Prefs.s(key));
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('سقف الحساب'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+                'أقصى رصيد مسموح لهذا الحساب. عند تجاوزه يظهر تحذير أحمر في الكشف.',
+                style: TextStyle(fontSize: 12.5, color: AppColors.sub)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                  labelText: 'السقف (اتركه فارغاً للإلغاء)', isDense: true),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () async {
+                await Prefs.setS(key, '');
+                if (ctx.mounted) Navigator.pop(ctx);
+                _toast('تم إلغاء السقف');
+              },
+              child: const Text('إلغاء السقف')),
+          TextButton(
+            onPressed: () async {
+              await Prefs.setS(key, ctrl.text.trim());
+              if (ctx.mounted) Navigator.pop(ctx);
+              _toast('تم حفظ السقف');
+              setState(() {});
+            },
+            child: const Text('حفظ'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportPdf({bool share = false, bool thermal = false}) async {
     final name = nameCtrl.text.trim();
     if (name.isEmpty) {
       _toast('لا يوجد حساب لطباعته');
@@ -241,7 +808,11 @@ class _AccountScreenState extends State<AccountScreen> {
     final naskhFont = await _loadNaskh();
 
     doc.addPage(pdf.MultiPage(
-      pageFormat: pdfc.PdfPageFormat.a4,
+      // الطباعة الحرارية: مقاس 80mm بدل A4.
+      pageFormat: thermal
+          ? const pdfc.PdfPageFormat(80 * pdfc.PdfPageFormat.mm,
+              297 * pdfc.PdfPageFormat.mm)
+          : pdfc.PdfPageFormat.a4,
       textDirection: template == '3' ? pdf.TextDirection.ltr : pdf.TextDirection.rtl,
       theme: () {
         try {
@@ -316,7 +887,18 @@ class _AccountScreenState extends State<AccountScreen> {
               child: pdf.Text(Prefs.approvalForm)),
       ],
     ));
-    await Printing.layoutPdf(onLayout: (_) => doc.save());
+    if (share) {
+      // مشاركة الملف بدل فتح معاينة الطباعة.
+      final bytes = await doc.save();
+      final dir = await getApplicationDocumentsDirectory();
+      final f = File(p.join(dir.path,
+          'كشف_${name}_${todayISO()}.pdf'));
+      await f.writeAsBytes(bytes);
+      await Share.shareXFiles([XFile(f.path)],
+          text: 'كشف حساب $name');
+    } else {
+      await Printing.layoutPdf(onLayout: (_) => doc.save());
+    }
   }
 
   Future<ByteData?> _loadNaskh() async {
@@ -343,7 +925,16 @@ class _AccountScreenState extends State<AccountScreen> {
   Widget build(BuildContext context) {
     final dark = Prefs.darkMode;
     return Scaffold(
-      appBar: simpleBar(context, 'إضافة مبلغ', showTemplate: false, actions: [
+      drawer: _drawer(context),
+      appBar: simpleBar(context, 'إضافة مبلغ', showTemplate: false,
+          leading: Builder(
+            builder: (c) => IconButton(
+              tooltip: 'القائمة',
+              icon: const Icon(Icons.menu, color: Colors.white),
+              onPressed: () => Scaffold.of(c).openDrawer(),
+            ),
+          ),
+          actions: [
         IconButton(
           icon: const Icon(Icons.search, size: 21),
           onPressed: () async {
