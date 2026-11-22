@@ -28,14 +28,13 @@ class EmojiTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Prefs.darkMode;
     return InkWell(
       onTap: onTap,
       child: Container(
         constraints: BoxConstraints(minHeight: dense ? 52 : 62),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: dark ? Colors.white12 : AppColors.line)),
+          border: Border(bottom: BorderSide(color: AppColors.divider)),
         ),
         child: Row(
           children: [
@@ -58,7 +57,7 @@ class EmojiTile extends StatelessWidget {
                     title,
                     style: TextStyle(
                       fontSize: 15,
-                      color: grayed ? AppColors.faint : (dark ? Colors.white : AppColors.ink),
+                      color: grayed ? AppColors.textFaint : AppColors.text,
                     ),
                   ),
                   if (subtitle != null)
@@ -102,9 +101,9 @@ class SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      color: Prefs.darkMode ? Colors.white10 : const Color(0xFFF5F5F5),
+      color: AppColors.surface2,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-      child: Text(text, style: TextStyle(fontSize: 12.5, color: Prefs.darkMode ? Colors.white70 : AppColors.sub)),
+      child: Text(text, style: TextStyle(fontSize: 12.5, color: AppColors.textSub)),
     );
   }
 }

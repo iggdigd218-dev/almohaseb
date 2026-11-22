@@ -1,21 +1,45 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core.dart';
 import 'ui/home_screen.dart';
 import 'ui/security_gate.dart';
+import 'ui/reports_screens.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Prefs.init();
   await Db.open();
+  // (2026-11-22) حفظ تلقائي يومي صامت: كان مفتاح «حفظ البيانات يوميا»
+  // يُحفظ في التفضيلات بلا أي أثر. الآن يُنفَّذ عند أول فتح في اليوم.
+  unawaited(autoBackupIfDue());
   runApp(const LedgerApp());
 }
+
+/// (إصلاح 2026-11-22) ناقل تغييرات التفضيلات.
+///
+/// كان الوضع الليلي (وكل تفضيل يمسّ الثيم) يُقرأ مرة واحدة عند الإقلاع،
+/// والمفتاح في الإعدادات يستدعي setState على شاشة الإعدادات وحدها — فلا
+/// يرى التطبيق التغيير إطلاقاً حتى يُغلق ويُفتح من جديد. الآن كل تغيير
+/// يبثّ إشعاراً فيُعاد بناء الجذر والثيم فوراً.
+final ValueNotifier<int> prefsRevision = ValueNotifier<int>(0);
+
+/// يُنادى بعد حفظ أي تفضيل يمسّ المظهر.
+void notifyPrefsChanged() => prefsRevision.value++;
 
 class LedgerApp extends StatelessWidget {
   const LedgerApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: prefsRevision,
+      builder: (context, _, __) => _buildApp(),
+    );
+  }
+
+  Widget _buildApp() {
     final dark = Prefs.darkMode;
     return MaterialApp(
       title: 'دفتر الحسابات',

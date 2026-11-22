@@ -1,4 +1,5 @@
 import 'dart:ui' show Color;
+import 'package:flutter/material.dart' show Colors;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -161,6 +162,33 @@ class AppColors {
   static const driveBlue = Color(0xFF4285F4);
   static const driveGreen = Color(0xFF0F9D58);
   static const driveYellow = Color(0xFFF4B400);
+
+  // ═══ ألوان تتغيّر مع الوضع (إصلاح 2026-11-22) ═══
+  // كانت الأسطح والنصوص والأشرطة الفاصلة تُكتب بيضاء صريحة، فلا يتبدّل
+  // شيء في الوضع الليلي إلا الخلفية. هذه الخمس تُقرأ من التفضيل مباشرة.
+  static bool get _dark => Prefs.darkMode;
+
+  /// سطح البطاقات والصفوف (كان Colors.white).
+  static Color get card => _dark ? const Color(0xFF1E1E1E) : Colors.white;
+
+  /// خلفية الشاشة (كانت Colors.white في الـ Scaffold).
+  static Color get bg => _dark ? const Color(0xFF121212) : Colors.white;
+
+  /// سطر فاصل (كان AppColors.line ثابتاً).
+  static Color get divider => _dark ? const Color(0xFF333333) : line;
+
+  /// نص رئيسي.
+  static Color get text => _dark ? const Color(0xFFEDEDED) : ink;
+
+  /// نص ثانوي.
+  static Color get textSub => _dark ? const Color(0xFFB0B0B0) : sub;
+
+  /// نص خافت.
+  static Color get textFaint => _dark ? const Color(0xFF8A8A8A) : faint;
+
+  /// سطح رمادي خفيف (عناوين الأقسام).
+  static Color get surface2 =>
+      _dark ? const Color(0xFF2A2A2A) : const Color(0xFFF5F5F5);
 }
 
 const kCurrencies = <String, String>{

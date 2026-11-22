@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -362,6 +361,65 @@ Future<Directory> backupRoot() async {
   return base;
 }
 
+/// (2026-11-22) إنشاء نسخة احتياطية كاملة — منطق واحد يستخدمه الزر
+/// اليدوي والحفظ التلقائي اليومي، فلا يتفرّع السلوك بين مسارين.
+Future<String> createBackup({bool silent = false}) async {
+  final root = await backupRoot();
+  final stamp = DateTime.now()
+      .toString()
+      .replaceAll(RegExp(r'[-: .]'), '')
+      .substring(0, 14);
+  final dir = Directory(p.join(root.path, stamp));
+  await dir.create(recursive: true);
+  final dbFile = File(Db.dbPath);
+  if (await dbFile.exists()) {
+    await dbFile.copy(p.join(dir.path, 'ledger.db'));
+  }
+  final data = {
+    'accounts': (await Db.accounts()).map((a) => a.toMap()).toList(),
+    'txs': (await Db.allTxs()).map((t) => t.toMap()).toList(),
+    'categories': (await Db.categories()).map((c) => c.toMap()).toList(),
+  };
+  await File(p.join(dir.path, 'backup.json'))
+      .writeAsString(jsonEncode(data));
+  await Prefs.setS('backupFolder', dir.path);
+  await Prefs.setS('lastAutoBackup', todayISO());
+  if (!silent) {
+    await _pruneOldBackups(root, keep: 5);
+  }
+  return dir.path;
+}
+
+/// يحتفظ بآخر [keep] نسخ ويحذف الأقدم — يمنع تضخّم التخزين.
+Future<void> _pruneOldBackups(Directory root, {int keep = 5}) async {
+  try {
+    final dirs = <Directory>[];
+    await for (final e in root.list()) {
+      if (e is Directory) dirs.add(e);
+    }
+    dirs.sort((a, b) => b.path.compareTo(a.path)); // الأسماء زمنية
+    for (var i = keep; i < dirs.length; i++) {
+      try {
+        await dirs[i].delete(recursive: true);
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+
+/// (2026-11-22) حفظ تلقائي يومي: إن كان المفتاح مفعّلاً ولم تُحفظ نسخة
+/// اليوم، تُنشأ نسخة صامتة عند فتح التطبيق. كان المفتاح يُحفظ بلا أثر.
+Future<void> autoBackupIfDue() async {
+  if (!Prefs.dailyBackup) return;
+  try {
+    final last = Prefs.s('lastAutoBackup');
+    if (last == todayISO()) return; // حُفظت اليوم
+    await createBackup(silent: true);
+    await _pruneOldBackups(await backupRoot(), keep: 5);
+  } catch (_) {
+    // الحفظ التلقائي لا يجب أن يُعطّل الإقلاع أبداً.
+  }
+}
+
 /// حفظ نسخة إحتياطية
 class BackupScreen extends StatefulWidget {
   const BackupScreen({super.key});
@@ -376,27 +434,11 @@ class _BackupScreenState extends State<BackupScreen> {
   Future<void> _backup() async {
     setState(() => _status = 'جارٍ الحفظ...');
     try {
-      final root = await backupRoot();
-      final stamp = DateTime.now()
-          .toString()
-          .replaceAll(RegExp(r'[-: .]'), '')
-          .substring(0, 14);
-      final dir = Directory(p.join(root.path, stamp));
-      await dir.create(recursive: true);
-      final dbFile = File(Db.dbPath);
-      if (await dbFile.exists()) {
-        await dbFile.copy(p.join(dir.path, 'ledger.db'));
-      }
-      final data = {
-        'accounts': (await Db.accounts()).map((a) => a.toMap()).toList(),
-        'txs': (await Db.allTxs()).map((t) => t.toMap()).toList(),
-        'categories': (await Db.categories()).map((c) => c.toMap()).toList(),
-      };
-      await File(p.join(dir.path, 'backup.json')).writeAsString(jsonEncode(data));
-      Prefs.setS('backupFolder', dir.path);
-      setState(() => _status = 'تم الحفظ في:\n${dir.path}');
+      final path = await createBackup();
+      if (!mounted) return;
+      setState(() => _status = 'تم الحفظ في:\n$path');
     } catch (e) {
-      setState(() => _status = 'تعذر الحفظ: $e');
+      if (mounted) setState(() => _status = 'تعذر الحفظ: $e');
     }
   }
 
@@ -438,78 +480,243 @@ class _BackupScreenState extends State<BackupScreen> {
 }
 
 /// إسترجاع قاعدة البيانات
-class RestoreScreen extends StatelessWidget {
+/// (2026-11-22) قائمة النسخ المحفوظة — تُعرض **داخل التطبيق**.
+///
+/// سابقاً كان الاسترجاع يفتح منتقي ملفات النظام ثم يطلب من المستخدم
+/// الوصول إلى درايف يدوياً. الآن النسخ تُقرأ من مجلد النسخ المحلي وتظهر
+/// في قائمة داخل التطبيق، ويُسترجع أي منها بضغطة واحدة. التصدير الخارجي
+/// (مشاركة) يبقى خياراً ثانوياً في أسفل الشاشة.
+class _BackupEntry {
+  final String path; // مسار مجلد النسخة
+  final DateTime when;
+  final int accounts;
+  final int txs;
+  final int bytes;
+  const _BackupEntry({
+    required this.path,
+    required this.when,
+    required this.accounts,
+    required this.txs,
+    required this.bytes,
+  });
+
+  String get label {
+    final d = when;
+    final two = (int n) => n.toString().padLeft(2, '0');
+    return '${two(d.day)}-${two(d.month)}-${d.year}   ${two(d.hour)}:${two(d.minute)}';
+  }
+
+  String get summary => '$accounts حساب · $txs عملية · ${_kb(bytes)} ك.ب';
+
+  static String _kb(int b) => (b / 1024).toStringAsFixed(b > 1024 * 100 ? 0 : 1);
+}
+
+class RestoreScreen extends StatefulWidget {
   const RestoreScreen({super.key});
+
+  @override
+  State<RestoreScreen> createState() => _RestoreScreenState();
+}
+
+class _RestoreScreenState extends State<RestoreScreen> {
+  List<_BackupEntry> _items = [];
+  bool _loading = true;
+  String _note = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _scan();
+  }
+
+  /// يمسح مجلد النسخ ويعرض كل نسخة قابلة للاسترجاع — بلا أي منتقي ملفات.
+  Future<void> _scan() async {
+    setState(() => _loading = true);
+    final list = <_BackupEntry>[];
+    try {
+      final root = await backupRoot();
+      if (await root.exists()) {
+        await for (final e in root.list()) {
+          if (e is! Directory) continue;
+          final json = File(p.join(e.path, 'backup.json'));
+          if (!await json.exists()) continue;
+          var accs = 0, txs = 0;
+          try {
+            final m = jsonDecode(await json.readAsString()) as Map;
+            accs = (m['accounts'] as List?)?.length ?? 0;
+            txs = (m['txs'] as List?)?.length ?? 0;
+          } catch (_) {}
+          int bytes = 0;
+          final dbFile = File(p.join(e.path, 'ledger.db'));
+          if (await dbFile.exists()) bytes += await dbFile.length();
+          bytes += await json.length();
+          list.add(_BackupEntry(
+            path: e.path,
+            when: e.statSync().modified,
+            accounts: accs,
+            txs: txs,
+            bytes: bytes,
+          ));
+        }
+      }
+      list.sort((a, b) => b.when.compareTo(a.when));
+    } catch (e) {
+      _note = 'تعذّر قراءة مجلد النسخ: $e';
+    }
+    if (!mounted) return;
+    setState(() {
+      _items = list;
+      _loading = false;
+    });
+  }
+
+  /// استرجاع نسخة محددة: يقرأ JSON ويستبدل البيانات الحالية.
+  Future<void> _restore(_BackupEntry e) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('استرجاع نسخة'),
+        content: Text(
+            'سيتم استبدال كل البيانات الحالية ببيانات نسخة:\n${e.label}\n(${e.summary})\n\n'
+            'لا يمكن التراجع. هل تريد المتابعة؟'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء', style: TextStyle(color: AppColors.sub))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('استرجاع',
+                  style: TextStyle(color: AppColors.red))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _note = 'جارٍ الاسترجاع...');
+    try {
+      final json = File(p.join(e.path, 'backup.json'));
+      if (!await json.exists()) throw 'ملف النسخة مفقود';
+      final data = jsonDecode(await json.readAsString()) as Map<String, dynamic>;
+      final db = await Db.open();
+      await db.transaction((t) async {
+        await t.delete('txs');
+        await t.delete('accounts');
+        await t.delete('categories');
+        for (final a in (data['accounts'] as List? ?? [])) {
+          await t.insert('accounts', Map<String, dynamic>.from(a as Map));
+        }
+        for (final c in (data['categories'] as List? ?? [])) {
+          await t.insert('categories', Map<String, dynamic>.from(c as Map));
+        }
+        for (final t2 in (data['txs'] as List? ?? [])) {
+          await t.insert('txs', Map<String, dynamic>.from(t2 as Map));
+        }
+      });
+      if (!mounted) return;
+      setState(() => _note = 'تم الاسترجاع بنجاح ✅');
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم استرجاع النسخة بنجاح ✅')));
+    } catch (err) {
+      if (mounted) setState(() => _note = 'تعذّر الاسترجاع: $err');
+    }
+  }
+
+  /// تصدير نسخة للخارج (اختياري): مشاركة ملف النسخة عبر أي تطبيق.
+  Future<void> _export(_BackupEntry e) async {
+    final json = File(p.join(e.path, 'backup.json'));
+    if (!await json.exists()) return;
+    await Share.shareXFiles([XFile(json.path)],
+        text: 'نسخة ${e.label}');
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: simpleBar(context, 'إسترجاع قاعدة البيانات', showTemplate: false),
-      body: ListView(
-        children: [
-          const SizedBox(height: 30),
-          const Center(child: Text('⬇️', style: TextStyle(fontSize: 46))),
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 13)),
-              onPressed: () async {
-                final res = await FilePicker.platform.pickFiles(type: FileType.any);
-                if (res == null || res.files.isEmpty) return;
-                final path = res.files.single.path;
-                if (path == null) return;
-                try {
-                  final f = File(path);
-                  if (path.endsWith('.json')) {
-                    final data = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
-                    final db = await Db.open();
-                    await db.delete('txs');
-                    await db.delete('accounts');
-                    await db.delete('categories');
-                    for (final a in (data['accounts'] as List)) {
-                      await Db.saveAccount(Account.fromMap(Map<String, dynamic>.from(a)));
-                    }
-                    for (final t in (data['txs'] as List)) {
-                      await Db.saveTx(Tx.fromMap(Map<String, dynamic>.from(t)));
-                    }
-                    for (final c in (data['categories'] as List)) {
-                      await Db.saveCategory(Category.fromMap(Map<String, dynamic>.from(c)));
-                    }
-                  } else if (path.endsWith('.db')) {
-                    await f.copy(Db.dbPath);
-                  }
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('تم إسترجاع البيانات بنجاح', style: TextStyle(fontSize: 13))));
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text('تعذر الإسترجاع: $e', style: const TextStyle(fontSize: 13))));
-                  }
-                }
-              },
-              child: const Text('إختيار ملف النسخة الإحتياطية', style: TextStyle(fontSize: 16)),
+      appBar: simpleBar(context, 'إسترجاع قاعدة البيانات', showTemplate: false,
+          actions: [
+            IconButton(
+              tooltip: 'تحديث القائمة',
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _scan,
             ),
-          ),
-          const SizedBox(height: 16),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              'إختار ملف backup.json أو ledger.db من مجلد النسخ الإحتياطية.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: AppColors.sub),
+          ]),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              children: [
+                if (_note.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Text(_note,
+                        style: TextStyle(
+                            fontSize: 12.5, color: AppColors.textSub)),
+                  ),
+                if (_items.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 60, horizontal: 30),
+                    child: Column(
+                      children: [
+                        Text('📂', style: TextStyle(fontSize: 46)),
+                        SizedBox(height: 14),
+                        Text('لا توجد نسخ محفوظة',
+                            style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.navy)),
+                        SizedBox(height: 6),
+                        Text('اذهب إلى «حفظ نسخة إحتياطية» لتُنشئ أول نسخة.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                fontSize: 12.5, color: AppColors.sub)),
+                      ],
+                    ),
+                  )
+                else ...[
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
+                    child: Text('النسخ المحفوظة على هذا الجهاز',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.navy)),
+                  ),
+                  for (final e in _items)
+                    EmojiTile(
+                      emoji: '🗂️',
+                      title: e.label,
+                      subtitle: e.summary,
+                      dense: false,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'تصدير',
+                            icon: const Icon(Icons.ios_share,
+                                size: 19, color: AppColors.primary),
+                            onPressed: () => _export(e),
+                          ),
+                          TextButton(
+                            onPressed: () => _restore(e),
+                            child: const Text('استرجاع',
+                                style: TextStyle(color: AppColors.primary)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 18, 16, 8),
+                    child: Text(
+                        'الاسترجاع يستبدل كل البيانات الحالية. صدّر نسخة احتياطية قبل المتابعة إن كنت غير متأكد.',
+                        style: TextStyle(fontSize: 11.5, color: AppColors.faint)),
+                  ),
+                ],
+                const SizedBox(height: 24),
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 }
 
-/// مجلد درايف
 class DriveScreen extends StatelessWidget {
   const DriveScreen({super.key});
 

@@ -341,8 +341,8 @@ class _HomeScreenState extends State<HomeScreen> {
             height: 52,
             margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: Prefs.darkMode ? const Color(0xFF1E1E1E) : Colors.white,
-              border: Border.all(color: Prefs.darkMode ? Colors.white12 : AppColors.line),
+              color: AppColors.card,
+              border: Border.all(color: AppColors.divider),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Row(

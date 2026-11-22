@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../core.dart';
+import '../main.dart';
 import 'widgets.dart';
 
 /// شاشة الإعدادات
@@ -60,7 +61,7 @@ class _PersonalScreenState extends State<PersonalScreen> {
                 height: 74,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.white,
+                  color: AppColors.card,
                   border: Border.all(color: AppColors.primary, width: 2),
                   boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 5)],
                 ),
@@ -222,6 +223,9 @@ class _PrinterScreenState extends State<PrinterScreen> {
 
   void _set(String k, bool v) {
     Prefs.setB(k, v);
+    // إخطار جذر التطبيق: تفضيلات المظهر (الوضع الليلي وجمع المبالغ
+    // وترتيب الأسماء) تُطبَّق فوراً بدل انتظار إعادة التشغيل.
+    notifyPrefsChanged();
     setState(() {});
   }
 }
@@ -484,6 +488,9 @@ class _BackupOptionsScreenState extends State<BackupOptionsScreen> {
 
   void _set(String k, bool v) {
     Prefs.setB(k, v);
+    // إخطار جذر التطبيق: تفضيلات المظهر (الوضع الليلي وجمع المبالغ
+    // وترتيب الأسماء) تُطبَّق فوراً بدل انتظار إعادة التشغيل.
+    notifyPrefsChanged();
     setState(() {});
   }
 }
@@ -633,6 +640,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   void _set(String k, bool v) {
     Prefs.setB(k, v);
+    // إخطار جذر التطبيق: تفضيلات المظهر (الوضع الليلي وجمع المبالغ
+    // وترتيب الأسماء) تُطبَّق فوراً بدل انتظار إعادة التشغيل.
+    notifyPrefsChanged();
     setState(() {});
   }
 }
@@ -786,6 +796,9 @@ class _OtherOptionsScreenState extends State<OtherOptionsScreen> {
 
   void _set(String k, bool v) {
     Prefs.setB(k, v);
+    // إخطار جذر التطبيق: تفضيلات المظهر (الوضع الليلي وجمع المبالغ
+    // وترتيب الأسماء) تُطبَّق فوراً بدل انتظار إعادة التشغيل.
+    notifyPrefsChanged();
     setState(() {});
   }
 }
