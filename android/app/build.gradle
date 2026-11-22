@@ -34,9 +34,6 @@ android {
         multiDexEnabled = true
         // (4.10) الحجم قبل كل شيء: APK لكل معالج (split-per-abi) مع ضغط
         // المكتبات — كل حزمة ≤ 20MB. الحزمة الشاملة القديمة كانت 62MB.
-        ndk {
-            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
-        }
     }
 
     // ضغط المكتبات الأصلية داخل APK لتقليل الحجم (إلزامي: حد 20MB).
