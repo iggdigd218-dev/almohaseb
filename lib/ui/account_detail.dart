@@ -137,127 +137,129 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
           body: ListView(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 90),
             children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 46,
-                            height: 46,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: AppColors.teal.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              a.kind.icon,
-                              style: const TextStyle(fontSize: 21),
-                            ),
+              // بطاقة الحساب بنمط «دفتر الحسابات»: حدود رقيقة بلا ظل،
+              // أيقونة النوع في مربع أزرق باهت، والرصيد بخط كبير.
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: AppColors.primarySoft,
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  a.name,
-                                  style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  '${a.kind.label} · ${c.name}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Theme.of(context).hintColor,
-                                  ),
-                                ),
-                              ],
-                            ),
+                          child: Text(
+                            a.kind.icon,
+                            style: const TextStyle(fontSize: 20),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      const Divider(height: 1),
-                      const SizedBox(height: 14),
-                      // كبسولات العملات: رصيد مستقل لكل عملة، والنقر
-                      // يفلتر السجل أدناه على تلك العملة فقط.
-                      if (curCodes.length > 1) ...[
-                        SizedBox(
-                          height: 40,
-                          child: ListView(
-                            scrollDirection: Axis.horizontal,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              for (final code in curCodes)
-                                Padding(
-                                  padding:
-                                      const EdgeInsetsDirectional.only(end: 7),
-                                  child: _CurrencyCapsule(
-                                    code: code,
-                                    def: defOf(code),
-                                    balance: balByCur[code] ?? 0.0,
-                                    hidden: hidden,
-                                    selected: _capsuleCur == code,
-                                    onTap: () => setState(() => _capsuleCur =
-                                        _capsuleCur == code ? null : code),
-                                  ),
+                              Text(
+                                a.name,
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.navy,
                                 ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${a.kind.label} · ${c.name}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.text3,
+                                ),
+                              ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 12),
                       ],
-                      Text(
-                        _capsuleCur == null
-                            ? 'الرصيد الحالي'
-                            : 'الرصيد الحالي (${c.name})',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: Theme.of(context).hintColor,
+                    ),
+                    const SizedBox(height: 14),
+                    const Divider(height: 1, color: AppColors.border),
+                    const SizedBox(height: 12),
+                    if (curCodes.length > 1) ...[
+                      SizedBox(
+                        height: 38,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            for (final code in curCodes)
+                              Padding(
+                                padding:
+                                    const EdgeInsetsDirectional.only(end: 7),
+                                child: _CurrencyCapsule(
+                                  code: code,
+                                  def: defOf(code),
+                                  balance: balByCur[code] ?? 0.0,
+                                  hidden: hidden,
+                                  selected: _capsuleCur == code,
+                                  onTap: () => setState(() => _capsuleCur =
+                                      _capsuleCur == code ? null : code),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      BalanceText(
-                        value: balance,
-                        currency: c,
-                        hidden: hidden,
-                        size: 26,
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _MiniStat(
-                              label: 'إجمالي عليه',
-                              value: hidden
-                                  ? '••••'
-                                  : Fmt.money(totalDebit, c.decimal),
-                              color: AppColors.green,
-                            ),
-                          ),
-                          Container(
-                            width: 1,
-                            height: 32,
-                            color: Theme.of(context).dividerColor,
-                          ),
-                          Expanded(
-                            child: _MiniStat(
-                              label: 'إجمالي له',
-                              value: hidden
-                                  ? '••••'
-                                  : Fmt.money(totalCredit, c.decimal),
-                              color: AppColors.red,
-                            ),
-                          ),
-                        ],
-                      ),
+                      const SizedBox(height: 10),
                     ],
-                  ),
+                    Text(
+                      _capsuleCur == null
+                          ? 'الرصيد الحالي'
+                          : 'الرصيد الحالي (${c.name})',
+                      style: const TextStyle(
+                          fontSize: 12.5, color: AppColors.text3),
+                    ),
+                    const SizedBox(height: 4),
+                    BalanceText(
+                      value: balance,
+                      currency: c,
+                      hidden: hidden,
+                      size: 26,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _MiniStat(
+                            label: 'إجمالي عليه',
+                            value: hidden
+                                ? '••••'
+                                : Fmt.money(totalDebit, c.decimal),
+                            color: AppColors.danger,
+                          ),
+                        ),
+                        const SizedBox(
+                          width: 1,
+                          height: 32,
+                          child: ColoredBox(color: AppColors.border),
+                        ),
+                        Expanded(
+                          child: _MiniStat(
+                            label: 'إجمالي له',
+                            value: hidden
+                                ? '••••'
+                                : Fmt.money(totalCredit, c.decimal),
+                            color: AppColors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 12),
@@ -293,18 +295,21 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                 ),
               if (a.address.isNotEmpty || a.notes.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (a.address.isNotEmpty)
-                          _InfoRow(icon: Icons.place_outlined, text: a.address),
-                        if (a.notes.isNotEmpty)
-                          _InfoRow(icon: Icons.notes, text: a.notes),
-                      ],
-                    ),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (a.address.isNotEmpty)
+                        _InfoRow(icon: Icons.place_outlined, text: a.address),
+                      if (a.notes.isNotEmpty)
+                        _InfoRow(icon: Icons.notes, text: a.notes),
+                    ],
                   ),
                 ),
               ],
@@ -313,17 +318,20 @@ class _AccountDetailScreenState extends ConsumerState<AccountDetailScreen> {
                   ? 'سجل العمليات (${txs.length})'
                   : 'سجل عمليات ${c.name} (${txs.length})'),
               if (txs.isEmpty)
-                const Card(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 28),
-                    child: EmptyState(
-                      icon: Icons.receipt_long_outlined,
-                      title: 'لا عمليات على هذا الحساب',
-                    ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 34),
+                  child: Center(
+                    child: Text('لا عمليات على هذا الحساب',
+                        style: TextStyle(
+                            fontSize: 13.5, color: AppColors.text2)),
                   ),
                 )
               else
-                Card(
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.border),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   child: Column(
                     children: [
                       for (var i = 0; i < txs.length; i++) ...[
