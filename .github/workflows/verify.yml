@@ -104,6 +104,11 @@ jobs:
 
       - name: Ensure app_version.dart matches pubspec.yaml
         run: |
+          # (نسخة «دفتر الحسابات») لا يوجد app_version.dart — تخطّي بلطف.
+          if [ ! -f lib/core/app_version.dart ]; then
+            echo "لا يوجد lib/core/app_version.dart — تخطّي المزامنة"
+            exit 0
+          fi
           VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
           NAME="${VER%%+*}"; BUILD="${VER##*+}"
           IFS='.' read -r MAJ MIN PAT <<< "$NAME"
