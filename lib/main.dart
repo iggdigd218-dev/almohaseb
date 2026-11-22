@@ -6,6 +6,7 @@ import 'core.dart';
 import 'ui/home_screen.dart';
 import 'ui/security_gate.dart';
 import 'ui/reports_screens.dart';
+import 'update.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +29,28 @@ final ValueNotifier<int> prefsRevision = ValueNotifier<int>(0);
 /// يُنادى بعد حفظ أي تفضيل يمسّ المظهر.
 void notifyPrefsChanged() => prefsRevision.value++;
 
+/// جسر يمنح الفحص الصامت سياقاً صالحاً بعد بناء الشاشة الأولى.
+class _UpdateProbe extends StatefulWidget {
+  final Widget child;
+  const _UpdateProbe({required this.child});
+  @override
+  State<_UpdateProbe> createState() => _UpdateProbeState();
+}
+
+class _UpdateProbeState extends State<_UpdateProbe> {
+  @override
+  void initState() {
+    super.initState();
+    // بعد إطار كامل: لا نُبطئ فتح التطبيق ولا نزاحم بناء الواجهة.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(checkForUpdateOnStart(context));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 class LedgerApp extends StatelessWidget {
   const LedgerApp({super.key});
 
@@ -49,7 +72,9 @@ class LedgerApp extends StatelessWidget {
         child: child!,
       ),
       theme: _theme(dark),
-      home: const SecurityGate(child: HomeScreen()),
+      home: const _UpdateProbe(
+        child: SecurityGate(child: HomeScreen()),
+      ),
     );
   }
 

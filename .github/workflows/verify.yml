@@ -37,20 +37,21 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Ensure app_version.dart matches pubspec.yaml
+      - name: Ensure update.dart version matches pubspec.yaml
         run: |
-          # (نسخة «دفتر الحسابات») هذا الشكل لا يحمل app_version.dart
-          # بل lib/core.dart وحده — نتخطّى بلطف بدل إفشال البناء.
-          if [ ! -f lib/core/app_version.dart ]; then
-            echo "لا يوجد lib/core/app_version.dart — تخطّي المزامنة"
+          # (2026-11-22) رقم الإصدار يعيش الآن في lib/update.dart، وتزامنه
+          # واجب: لو انفصل عن pubspec.yaml لما رأى التطبيق تحديثاً أبداً
+          # (يقارن رقمه المدمج برقم الخادم، فالتطابق = «محدَّث» دائماً).
+          if [ ! -f lib/update.dart ]; then
+            echo "لا يوجد lib/update.dart — تخطّي المزامنة"
             exit 0
           fi
           VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
           NAME="${VER%%+*}"; BUILD="${VER##*+}"
-          IFS='.' read -r MAJ MIN PAT <<< "$NAME"
-          sed -i "s/const String kAppVersion = .*/const String kAppVersion = '$NAME';/" lib/core/app_version.dart
-          sed -i "s/const int kAppBuild = .*/const int kAppBuild = $BUILD;/" lib/core/app_version.dart
-          sed -i "s/AppSemVer([0-9]*, [0-9]*, [0-9]*, kAppBuild)/AppSemVer($MAJ, $MIN, $PAT, kAppBuild)/" lib/core/app_version.dart
+          sed -i "s/const String kAppVersion = .*/const String kAppVersion = '$NAME';/" lib/update.dart
+          sed -i "s/const int kAppBuild = .*/const int kAppBuild = $BUILD;/" lib/update.dart
+          grep -E "kAppVersion|kAppBuild" lib/update.dart
+          echo "Verified update.dart matches $NAME+$BUILD"
 
       - name: Static analysis
         run: |
@@ -102,19 +103,21 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Ensure app_version.dart matches pubspec.yaml
+      - name: Ensure update.dart version matches pubspec.yaml
         run: |
-          # (نسخة «دفتر الحسابات») لا يوجد app_version.dart — تخطّي بلطف.
-          if [ ! -f lib/core/app_version.dart ]; then
-            echo "لا يوجد lib/core/app_version.dart — تخطّي المزامنة"
+          # (2026-11-22) رقم الإصدار يعيش الآن في lib/update.dart، وتزامنه
+          # واجب: لو انفصل عن pubspec.yaml لما رأى التطبيق تحديثاً أبداً
+          # (يقارن رقمه المدمج برقم الخادم، فالتطابق = «محدَّث» دائماً).
+          if [ ! -f lib/update.dart ]; then
+            echo "لا يوجد lib/update.dart — تخطّي المزامنة"
             exit 0
           fi
           VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
           NAME="${VER%%+*}"; BUILD="${VER##*+}"
-          IFS='.' read -r MAJ MIN PAT <<< "$NAME"
-          sed -i "s/const String kAppVersion = .*/const String kAppVersion = '$NAME';/" lib/core/app_version.dart
-          sed -i "s/const int kAppBuild = .*/const int kAppBuild = $BUILD;/" lib/core/app_version.dart
-          sed -i "s/AppSemVer([0-9]*, [0-9]*, [0-9]*, kAppBuild)/AppSemVer($MAJ, $MIN, $PAT, kAppBuild)/" lib/core/app_version.dart
+          sed -i "s/const String kAppVersion = .*/const String kAppVersion = '$NAME';/" lib/update.dart
+          sed -i "s/const int kAppBuild = .*/const int kAppBuild = $BUILD;/" lib/update.dart
+          grep -E "kAppVersion|kAppBuild" lib/update.dart
+          echo "Verified update.dart matches $NAME+$BUILD"
 
       - name: Run test shard
         run: |

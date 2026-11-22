@@ -83,76 +83,87 @@ jobs:
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      - name: Ensure app_version.dart matches pubspec.yaml
+      - name: Ensure update.dart version matches pubspec.yaml
         run: |
-          # (نسخة «دفتر الحسابات») هذا الشكل لا يحمل app_version.dart
-          # بل lib/core.dart وحده — نتخطّى بلطف بدل إفشال البناء.
-          if [ ! -f lib/core/app_version.dart ]; then
-            echo "لا يوجد lib/core/app_version.dart — تخطّي المزامنة"
+          # (2026-11-22) رقم الإصدار يعيش الآن في lib/update.dart، وتزامنه
+          # واجب: لو انفصل عن pubspec.yaml لما رأى التطبيق تحديثاً أبداً
+          # (يقارن رقمه المدمج برقم الخادم، فالتطابق = «محدَّث» دائماً).
+          if [ ! -f lib/update.dart ]; then
+            echo "لا يوجد lib/update.dart — تخطّي المزامنة"
             exit 0
           fi
           VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
           NAME="${VER%%+*}"; BUILD="${VER##*+}"
-          IFS='.' read -r MAJ MIN PAT <<< "$NAME"
-          sed -i "s/const String kAppVersion = .*/const String kAppVersion = '$NAME';/" lib/core/app_version.dart
-          sed -i "s/const int kAppBuild = .*/const int kAppBuild = $BUILD;/" lib/core/app_version.dart
-          sed -i "s/AppSemVer([0-9]*, [0-9]*, [0-9]*, kAppBuild)/AppSemVer($MAJ, $MIN, $PAT, kAppBuild)/" lib/core/app_version.dart
-          echo "Verified app_version.dart matches $NAME+$BUILD"
+          sed -i "s/const String kAppVersion = .*/const String kAppVersion = '$NAME';/" lib/update.dart
+          sed -i "s/const int kAppBuild = .*/const int kAppBuild = $BUILD;/" lib/update.dart
+          grep -E "kAppVersion|kAppBuild" lib/update.dart
+          echo "Verified update.dart matches $NAME+$BUILD"
 
       - name: Build Android APK (Universal — كل المعالجات)
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g"
           JAVA_OPTS: "-Xmx3g"
         run: |
-          # (3.70) حزمة شاملة: بلا --target-platform فتُدمج كل ABIs
-          # (armeabi-v7a + arm64-v8a + x86_64) — إصلاح «الحزمة تبدو غير صالحة».
-          # تُبقى للعملاء القدامى (≤ 3.75.0+151) الذين يقرأون downloads.android.
-          flutter build apk --release --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
-          cp build/app/outputs/flutter-apk/app-release.apk nexora-universal.apk
-          ls -lh nexora-universal.apk
+          # (2026-11-22) بناء مقسّم حسب المعالج: كل حزمة ~18MB بدل 61MB
+          # للحزمة الشاملة — شرط صارم: لا تتجاوز أي حزمة 20MB.
+          flutter build apk --release --split-per-abi \
+            --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk almohaseb-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk   almohaseb-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk      almohaseb-x86_64.apk
+          ls -lh almohaseb-*.apk
 
       - name: Verify APK (zipalign + apksigner)
         run: |
           # (3.70 — المرحلة 7) التحقق من سلامة المحاذاة والتوقيع قبل النشر.
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          for f in nexora-universal.apk; do
+          for f in almohaseb-armeabi-v7a.apk almohaseb-arm64-v8a.apk almohaseb-x86_64.apk; do
             echo "— $f"
             "$BT/zipalign" -c -v 4 "$f" | tail -1
             "$BT/apksigner" verify --print-certs "$f" | head -3
           done
           echo "كل الحزم محاذية وموقعة توقيعاً صالحاً"
 
+      - name: Enforce APK size gate (20 MB)
+        run: |
+          # شرط صارم: لا تتجاوز أي حزمة 20,000,000 بايت. البناء المقسّم
+          # حسب المعالج يحقق ذلك (~18MB)، وهذا الحارس يمنع أي انحدار.
+          FAIL=0
+          for f in almohaseb-armeabi-v7a.apk almohaseb-arm64-v8a.apk almohaseb-x86_64.apk; do
+            SZ=$(stat -c%s "$f")
+            MB=$((SZ / 1048576))
+            echo "$f = $SZ بايت (~${MB}MB)"
+            if [ "$SZ" -gt 20000000 ]; then
+              echo "::error::$f تجاوز الحد المسموح 20MB ($SZ بايت)"
+              FAIL=1
+            fi
+          done
+          [ "$FAIL" = "0" ] && echo "✔ كل الحزم تحت 20MB" || exit 1
+
       - name: Generate version manifest (version.json)
         run: |
+          set -euo pipefail
           VER=$(grep -E '^version:' pubspec.yaml | awk '{print $2}')
-          NAME="${VER%%+*}"; BUILD="${VER##*+}"
-          # ملاحظات الإصدار تُقرأ من release_notes.txt وتُهرَّب كسلسلة JSON
-          # عبر python (قصّ عند حدود المحارف لا البايتات + تهريب آمن).
-          # (2026-09-24) السجل مقتضب ودائم: أحدث إصدار فقط — أول ٣ أسطر
-          # غير فارغة من release_notes.txt، وكل سطر يُقصّ عند 220 محرفاً.
-          NOTES=$(python3 -c "import json; lines=[l.strip() for l in open('release_notes.txt',encoding='utf-8').read().splitlines() if l.strip()]; lines=lines[:3]; lines=[(l[:219].rstrip()+'…') if len(l)>220 else l for l in lines]; t='\\n'.join(lines); print(json.dumps(t,ensure_ascii=False)[1:-1])")
+          NAME="${VER%%+*}"
+          BUILD="${VER##*+}"
           echo "إصدار البناء: $NAME (build $BUILD)"
-          cat > version.json <<EOF
-          {
-            "version": "$NAME+$BUILD",
-            "minSupported": "3.13.0",
-            "releaseUrl": "https://github.com/${{ github.repository }}/releases/tag/latest",
-            "downloads": {
-              "android": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-universal.apk"
-            },
-            "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "notes": "$NOTES"
-          }
-          EOF
-          cat version.json
+          # (إصلاح 2026-11-22) كان الملف يُبنى بـ heredoc مع تهريب ثلاثي
+          # فتخرج علامات مهرَّبة وJSON غير صالح — والتطبيق يعجز عن تحليله
+          # فلا يرى أي تحديث. وكذلك كان رابط التنزيل يشير إلى حزمة شاملة
+          # بحجم 61MB بدل حزم ABI (18MB). السكربت يضمن الاثنين.
+          NAME="$NAME" BUILD="$BUILD" REPO="${{ github.repository }}" \
+            python3 tool/gen_version_manifest.py
+          python3 -c "import json; d=json.load(open('version.json',encoding='utf-8')); print('JSON صالح ✔ |', d['version'], '| روابط:', len(d['downloads']))"
 
-          # مزامنة فورية وموثوقة لبيان التحديث إلى Firebase RTDB العام
-          curl -s -X PATCH -H "Content-Type: application/json; charset=utf-8" \
-            -d @version.json \
-            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/force_update.json" || true
-          curl -s -X PUT -H "Content-Type: application/json; charset=utf-8" \
-            -d @version.json \
-            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/version_manifest.json" || true
+          # مزامنة البيان إلى Firebase — بكشف الفشل بدل || true الصامت.
+          for KEY in force_update version_manifest; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+              -H "Content-Type: application/json; charset=utf-8" \
+              -d @version.json \
+              "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/$KEY.json" || echo 000)
+            echo "Firebase $KEY → HTTP $CODE"
+            [ "$CODE" = "200" ] || echo "::warning::تعذّرت مزامنة $KEY (HTTP $CODE)"
+          done
 
       # الأصل الواحد يحمل ملفي النشر معاً: APK + version.json، فلا حاجة
       # لإعادة توليد أي شيء في وظيفة النشر، ولا لرفع مزدود للملف الكبير.
@@ -161,7 +172,9 @@ jobs:
         with:
           name: nexora-flutter-universal
           path: |
-            nexora-universal.apk
+            almohaseb-armeabi-v7a.apk
+            almohaseb-arm64-v8a.apk
+            almohaseb-x86_64.apk
             version.json
           retention-days: 30
 
@@ -194,7 +207,7 @@ jobs:
         run: |
           find dist -type f -exec mv -f {} . \;
           rm -rf dist
-          ls -lh nexora-universal.apk version.json
+          ls -lh almohaseb-*.apk version.json
 
       - name: Build upload list (existing files only)
         id: filelist
@@ -205,7 +218,7 @@ jobs:
           # للحذف بلا تعويض إن فشل تنزيله — وبهذا فُقدت nexora-windows.zip ثم
           # أُفرغ الإصدار كاملاً (0 أصول). لا تنزيل، لا مساس بغير أصولنا.
           files=""
-          for f in nexora-universal.apk version.json; do
+          for f in almohaseb-armeabi-v7a.apk almohaseb-arm64-v8a.apk almohaseb-x86_64.apk version.json; do
             if [ -s "$f" ]; then files="${files}${f}"$'\n'; fi
           done
           {
@@ -219,15 +232,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: Nexora — الإصدار الرسمي الأحدث
+          name: المحاسب — الإصدار الرسمي الأحدث
           body: |
             ## 📥 التحميل المباشر
 
             **هذا هو الإصدار الرسمي الأحدث من التطبيق.**
 
             ### 📱 للأندرويد
-            - `nexora-universal.apk` — حزمة واحدة شاملة تعمل على **كل** الأجهزة
-              (32 و64 بت) — لا خطأ «الحزمة غير صالحة» بعد اليوم.
+              - `almohaseb-arm64-v8a.apk` — للأجهزة الحديثة (الأغلب)
+              - `almohaseb-armeabi-v7a.apk` — للأجهزة القديمة (32 بت)
+              - `almohaseb-x86_64.apk` — للمحاكيات
 
             > يتم تحديث هذه الصفحة تلقائيًا بعد كل بناء ناجح.
           prerelease: false
@@ -248,7 +262,7 @@ jobs:
           # مسار رفع أصول الإصدار لدى softprops تحديداً. gh الرسمي أنجح،
           # ومع حلقة إعادة محاولة لا يبقى مجال لضياع أصل.
           files=()
-          for f in nexora-universal.apk version.json; do
+          for f in almohaseb-armeabi-v7a.apk almohaseb-arm64-v8a.apk almohaseb-x86_64.apk version.json; do
             [ -s "$f" ] && files+=("$f")
           done
           if [ ${#files[@]} -eq 0 ]; then

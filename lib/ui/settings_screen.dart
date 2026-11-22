@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../core.dart';
 import '../main.dart';
+import '../update.dart';
 import 'widgets.dart';
 
 /// شاشة الإعدادات
@@ -26,6 +27,10 @@ class SettingsScreen extends StatelessWidget {
           EmojiTile(emoji: '💻', title: 'إستعراض البيانات من الكمبيوتر', onTap: () => _go(context, const ComputerScreen())),
           EmojiTile(emoji: '📧', title: 'خيارات الإشعارات', onTap: () => _go(context, const NotificationsScreen())),
           EmojiTile(emoji: '🔧', title: 'خيارات أخرى', onTap: () => _go(context, const OtherOptionsScreen())),
+          const Divider(height: 1, color: AppColors.line),
+          // (2026-11-22) صف التحديثات: النسخة الأصلية لم تكن تملك أي آلية
+          // تحديث، فأي إصلاح يبقى خارج أجهزة المستخدمين إلى الأبد.
+          const UpdateTile(),
           EmojiTile(emoji: '💵', title: 'شراء النسخة الكاملة', onTap: () => _go(context, const PurchaseScreen())),
         ],
       ),
