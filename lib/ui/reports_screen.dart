@@ -69,24 +69,44 @@ class ReportsScreen extends ConsumerWidget {
     return Column(
       children: [
         const _ScopeBar(),
-        SizedBox(
-          height: 42,
+        // شريط تبويبات بنمط «دفتر الحسابات»: سطر واحد، المؤشر خط سفلي
+        // بلون الشريط، بلا شرائح ملوّنة أو حشو ثقيل.
+        Container(
+          height: 43,
+          decoration: const BoxDecoration(
+            border: Border(
+                bottom: BorderSide(color: AppColors.border, width: 0.8)),
+          ),
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            children: ReportTab.values
-                .map(
-                  (t) => Padding(
-                    padding: const EdgeInsetsDirectional.only(end: 8),
-                    child: ChoiceChip(
-                      selected: tab == t,
-                      onSelected: (_) =>
-                          ref.read(reportTabProvider.notifier).state = t,
-                      label: Text(t.label),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            children: ReportTab.values.map((t) {
+              final sel = tab == t;
+              return InkWell(
+                onTap: () =>
+                    ref.read(reportTabProvider.notifier).state = t,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: sel ? AppColors.pinkDark : Colors.transparent,
+                        width: 2.4,
+                      ),
                     ),
                   ),
-                )
-                .toList(),
+                  alignment: Alignment.center,
+                  child: Text(
+                    t.label,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                      color: sel ? AppColors.text : AppColors.text2,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
           ),
         ),
         const SizedBox(height: 6),
@@ -635,21 +655,42 @@ class _ReportView extends ConsumerWidget {
       children: [
         if (tab == ReportTab.period)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
             child: Row(
-              children: PeriodUnit.values
-                  .map(
-                    (u) => Padding(
-                      padding: const EdgeInsetsDirectional.only(end: 8),
-                      child: ChoiceChip(
-                        selected: ref.watch(periodUnitProvider) == u,
-                        onSelected: (_) =>
-                            ref.read(periodUnitProvider.notifier).state = u,
-                        label: Text(u.label),
+              children: PeriodUnit.values.map((u) {
+                final sel = ref.watch(periodUnitProvider) == u;
+                return Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 6),
+                  child: InkWell(
+                    onTap: () =>
+                        ref.read(periodUnitProvider.notifier).state = u,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: sel
+                            ? AppColors.primarySoft
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                            color: sel
+                                ? AppColors.primary
+                                : AppColors.border),
+                      ),
+                      child: Text(
+                        u.label,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight:
+                              sel ? FontWeight.w700 : FontWeight.w500,
+                          color: sel ? AppColors.primary : AppColors.text2,
+                        ),
                       ),
                     ),
-                  )
-                  .toList(),
+                  ),
+                );
+              }).toList(),
             ),
           ),
         Expanded(
@@ -659,65 +700,102 @@ class _ReportView extends ConsumerWidget {
             child: ListView(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 96),
             children: [
-              if (table.summary.isNotEmpty) ...[
-                StatCardGrid(
-                  children: table.summary
-                      .map(
-                        (e) => StatCard(
-                          title: e.$1,
-                          value: e.$2,
-                          icon: Icons.analytics_outlined,
-                          color: AppColors.primaryOf(context),
-                        ),
-                      )
-                      .toList(),
+              // ملخّص التقرير بنمط «دفتر الحسابات»: شريط أزرق واحد
+              // بخطين مفصولين ثم صفوف إيموجي — بلا بطاقات ملوّنة ولا جدول
+              // ثقيل. الأعمدة تُدمج في سطرين داخل الصف (عنوان + تفاصيل).
+              if (table.summary.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Wrap(
+                    spacing: 18,
+                    runSpacing: 6,
+                    alignment: WrapAlignment.center,
+                    children: table.summary
+                        .map((e) => Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('${e.$1}: ',
+                                    style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 13)),
+                                Text(e.$2,
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700)),
+                              ],
+                            ))
+                        .toList(),
+                  ),
                 ),
-                const SizedBox(height: 14),
-              ],
               if (table.rows.isEmpty)
-                const EmptyState(
-                  icon: Icons.bar_chart_outlined,
-                  title: 'لا بيانات في هذه الفترة',
-                  message: 'وسّع الفترة أو غيّر المرشّحات.',
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: Center(
+                    child: Text('لا بيانات في هذه الفترة',
+                        style: TextStyle(
+                            fontSize: 14, color: AppColors.text2)),
+                  ),
                 )
               else
-                Card(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      headingRowHeight: 42,
-                      dataRowMinHeight: 38,
-                      dataRowMaxHeight: 48,
-                      columns: table.headers
-                          .map(
-                            (h) => DataColumn(
-                              label: Text(
-                                h,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 12.5,
-                                ),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      rows: table.rows
-                          .map(
-                            (r) => DataRow(
-                              cells: r
-                                  .map(
-                                    (c) => DataCell(
-                                      Text(
-                                        c.isEmpty ? '—' : c,
-                                        style: const TextStyle(fontSize: 12.5),
-                                      ),
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.border),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    children: [
+                      // ترويسة الأعمدة: رمادية خفيفة كما في التصميم.
+                      Container(
+                        color: AppColors.bg2,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                        child: Row(
+                          children: table.headers
+                              .map((h) => Expanded(
+                                    child: Text(
+                                      h,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.text2),
                                     ),
-                                  )
-                                  .toList(),
-                            ),
-                          )
-                          .toList(),
-                    ),
+                                  ))
+                              .toList(),
+                        ),
+                      ),
+                      ...table.rows.map(
+                        (r) => Container(
+                          decoration: const BoxDecoration(
+                            border: Border(
+                                top: BorderSide(
+                                    color: AppColors.border, width: 0.7)),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 9),
+                          child: Row(
+                            children: r
+                                .map((c) => Expanded(
+                                      child: Text(
+                                        c.isEmpty ? '—' : c,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                            fontSize: 12.5,
+                                            color: AppColors.text),
+                                      ),
+                                    ))
+                                .toList(),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               const SizedBox(height: 14),

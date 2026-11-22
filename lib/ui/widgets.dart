@@ -715,3 +715,137 @@ Future<double?> showQuickAmountPad(
     },
   );
 }
+
+
+/// شريط علوي موحّد بنمط «دفتر الحسابات»: سهم الرجوع يسار + عنوان أبيض،
+/// وإجراءات اختيارية يمين — يُستخدم في كل الشاشات الفرعية لتوحيد المظهر.
+AppBar simpleBar(BuildContext context, String title,
+    {List<Widget>? actions, bool showTemplate = true}) {
+  return AppBar(
+    automaticallyImplyLeading: false,
+    leading: IconButton(
+      icon: const Icon(Icons.arrow_back),
+      onPressed: () => Navigator.of(context).maybePop(),
+    ),
+    title: Text(title, style: const TextStyle(color: Colors.white)),
+    iconTheme: const IconThemeData(color: Colors.white),
+    actions: actions,
+  );
+}
+
+/// صف بإيموجي وعنوان وسطر فرعي — النمط الأساسي لشاشات «دفتر الحسابات»:
+/// القوائم، التقارير، الإعدادات، المهملات، السندات، العملات.
+class EmojiTile extends StatelessWidget {
+  final String emoji;
+  final String title;
+  final String? subtitle;
+  final Widget? trailing;
+  final Widget? leadingWidget;
+  final VoidCallback? onTap;
+  final double emojiSize;
+  final bool dense;
+  final bool grayed;
+  final Color? color;
+
+  const EmojiTile({
+    super.key,
+    required this.emoji,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+    this.leadingWidget,
+    this.onTap,
+    this.emojiSize = 21,
+    this.dense = true,
+    this.grayed = false,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        constraints: BoxConstraints(minHeight: dense ? 52 : 62),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: color,
+          border: const Border(
+              bottom: BorderSide(color: AppColors.border, width: 0.7)),
+        ),
+        child: Row(
+          children: [
+            if (leadingWidget != null)
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: 14),
+                child: leadingWidget!,
+              )
+            else if (emoji.isNotEmpty)
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: 14),
+                child: Text(emoji, style: TextStyle(fontSize: emojiSize)),
+              ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: grayed ? AppColors.text3 : AppColors.text,
+                    ),
+                  ),
+                  if (subtitle != null && subtitle!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        subtitle!,
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            color:
+                                grayed ? AppColors.text3 : AppColors.text2),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (trailing != null) trailing!,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// مفتاح تبديل وردي بنمط التصميم (يُستخدم في الإعدادات).
+Widget pinkSwitch({required bool value, required ValueChanged<bool> onChanged}) {
+  return Switch(
+    value: value,
+    onChanged: onChanged,
+    activeColor: Colors.white,
+    activeTrackColor: AppColors.pinkDark,
+    inactiveThumbColor: AppColors.toggleOff,
+    inactiveTrackColor: AppColors.toggleOffTrack,
+    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  );
+}
+
+/// عنوان قسم رمادي داخل الإعدادات والقوائم.
+class SectionLabel extends StatelessWidget {
+  final String text;
+  const SectionLabel(this.text, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: AppColors.bg2,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+      child: Text(text,
+          style:
+              const TextStyle(fontSize: 12.5, color: AppColors.text2)),
+    );
+  }
+}
