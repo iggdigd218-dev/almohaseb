@@ -27,8 +27,8 @@ import 'core.dart';
 /// صيغة ثابتة يتعرّف عليها sed: `const String kAppVersion = '4.6.0';`
 const String kAppVersion = '4.6.0';
 
-/// رقم البناء: `const int kAppBuild = 309;`
-const int kAppBuild = 309;
+/// رقم البناء: `const int kAppBuild = 310;`
+const int kAppBuild = 310;
 
 String get appVersionLabel => 'الإصدار $kAppVersion';
 

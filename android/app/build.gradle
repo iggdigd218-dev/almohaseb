@@ -68,8 +68,11 @@ android {
                     "التوقيع بمفتاح debug يمنع تثبيت التحديث فوق النسخة السابقة.")
             }
             signingConfig = signingConfigs.release
-            minifyEnabled = false
-            shrinkResources = false
+            // (2026-11-22) تفعيل R8: تعطيله أبقى كل رموز المكتبات داخل الحزمة
+            // فبلغت 25-28MB وتجاوزت حدّ 20MB. القواعد في proguard-rules.pro.
+            minifyEnabled = true
+            shrinkResources = true
+            // إبقاء أسماء الأصناف المطلوبة عبر الانعكاس (Flutter + الإضافات).
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
                           'proguard-rules.pro'
         }

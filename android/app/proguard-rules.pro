@@ -32,3 +32,19 @@
 
 # الحفاظ على أسماء الأسطر لتتبّع الأعطال
 -keepattributes SourceFile,LineNumberTable,*Annotation*,Signature
+
+# ============ (2026-11-22) قواعد تفعيل R8 ============
+# كان minifyEnabled=false فبقيت الحزم 25-28MB وتجاوزت حدّ 20MB.
+# هذه القواعد تحفظ ما يُستدعى بالانعكاس فقط.
+-keep class com.tekartik.** { *; }
+-keep class io.flutter.plugins.pathprovider.** { *; }
+-keep class io.flutter.plugins.sharedpreferences.** { *; }
+-keep class io.flutter.plugins.urllauncher.** { *; }
+-keep class com.baseflow.** { *; }
+-keep class android.print.** { *; }
+-dontwarn org.jetbrains.annotations.**
+-dontwarn kotlin.**
+-dontwarn kotlinx.**
+-dontwarn com.google.android.play.core.**
+-dontwarn androidx.camera.**
+-keepattributes *Annotation*, Signature, InnerClasses, EnclosingMethod

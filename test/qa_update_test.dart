@@ -74,6 +74,15 @@ void main() {
         reason: 'مسار فتح/مشاركة الـPDF يجب أن يبقى عاملاً');
   });
 
+  test('UPD-09 R8 مُفعّل (تعطيله سبب تضخّم الحزم إلى 25MB)', () {
+    final g = File('android/app/build.gradle').readAsStringSync();
+    expect(g.contains('minifyEnabled = true'), isTrue,
+        reason: 'minifyEnabled=false يبقي كل رموز المكتبات داخل APK');
+    expect(g.contains('shrinkResources = true'), isTrue);
+    final pr = File('android/app/proguard-rules.pro');
+    expect(pr.existsSync(), isTrue, reason: 'R8 بلا قواعد يحذف أصنافاً حرجة');
+  });
+
   test('UPD-07 بوابة الحجم 20MB موجودة في الـ workflow', () {
     final wf = File('.github/workflows/build-flutter-apk.yml').readAsStringSync();
     expect(wf, contains('20000000'), reason: 'بوابة الحجم شرط صارم');
