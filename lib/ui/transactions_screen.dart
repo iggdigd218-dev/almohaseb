@@ -523,51 +523,97 @@ class _Totals extends StatelessWidget {
     }.toList();
     if (codes.isEmpty) return const SizedBox.shrink();
 
+    // ملخّص بنمط «دفتر الحسابات»: سطر أزرق واحد يجمع الوارد/الصادر
+    // لكل عملة، ثم عدّاد العمليات الرمادي — بلا بطاقات إحصاء ملوّنة.
+    return OpTotalsBar(
+      codes: codes,
+      inflow: page.inflowByCurrency,
+      outflow: page.outflowByCurrency,
+      count: page.items.length,
+      hidden: hidden,
+    );
+  }
+}
+
+/// شريط إجماليات العمليات — نمط موحّد مع بقية الشاشات.
+class OpTotalsBar extends StatelessWidget {
+  final List<String> codes;
+  final Map<String, double> inflow;
+  final Map<String, double> outflow;
+  final int count;
+  final bool hidden;
+
+  const OpTotalsBar({
+    super.key,
+    required this.codes,
+    required this.inflow,
+    required this.outflow,
+    required this.count,
+    this.hidden = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 2),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final code in codes)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Wrap(
+                spacing: 16,
+                runSpacing: 6,
+                alignment: WrapAlignment.center,
                 children: [
-                  Expanded(
-                    child: StatCard(
-                      title: 'وارد ($code)',
-                      value: hidden
-                          ? '••••'
-                          : Fmt.money(page.inflowByCurrency[code] ?? 0),
-                      icon: Icons.south_west,
-                      color: AppColors.greenOf(context),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: StatCard(
-                      title: 'صادر ($code)',
-                      value: hidden
-                          ? '••••'
-                          : Fmt.money(page.outflowByCurrency[code] ?? 0),
-                      icon: Icons.north_east,
-                      color: AppColors.dangerOf(context),
-                    ),
-                  ),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Text('▲ ',
+                        style: TextStyle(
+                            fontSize: 15, color: Color(0xFF7BEF7B))),
+                    Text('وارد: ',
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 13)),
+                    Text(hidden ? '••••' : Fmt.money(inflow[code] ?? 0),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700)),
+                  ]),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Text('▼ ',
+                        style: TextStyle(
+                            fontSize: 15, color: Color(0xFFFF9A92))),
+                    Text('صادر: ',
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 13)),
+                    Text(hidden ? '••••' : Fmt.money(outflow[code] ?? 0),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700)),
+                  ]),
+                  Text('($code)',
+                      style: const TextStyle(
+                          color: Colors.white60, fontSize: 11.5)),
                 ],
               ),
             ),
-          Row(
-            children: [
-              Text(
-                '${page.items.length} عملية',
-                style: TextStyle(
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              '$count عملية',
+              style: const TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.text2Of(context),
-                ),
-              ),
-              const Spacer(),
-            ],
+                  color: AppColors.text2),
+            ),
           ),
         ],
       ),
@@ -591,112 +637,117 @@ class _TxCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isTransfer = tx.type == OpType.transfer;
     final group = opGroup(tx.type);
-    final color = switch (group) {
-      'inflow' => AppColors.greenOf(context),
-      'outflow' => AppColors.dangerOf(context),
-      'receivable' => AppColors.infoOf(context),
-      'payable' => AppColors.accentOf(context),
-      _ => AppColors.violetOf(context),
-    };
+    // اتجاه العملية بنمط «دفتر الحسابات»: له = ▲ أخضر، عليه = ▼ أحمر.
+    final isIn = group == 'inflow';
+    final color = isIn ? AppColors.green : AppColors.danger;
 
-    final title = isTransfer
+    final who = isTransfer
         ? '${account?.name ?? '—'}  ←  ${toAccount?.name ?? '—'}'
         : (account?.name ?? '—');
 
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => _menu(context, ref),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                alignment: Alignment.center,
-                child: Text(tx.type.icon, style: const TextStyle(fontSize: 19)),
+    // صف مسطّح بخط فاصل رقيق — بدل بطاقة مرفوعة بظل وزوايا.
+    return InkWell(
+      onTap: () => _menu(context, ref),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+        decoration: const BoxDecoration(
+          border: Border(
+              bottom: BorderSide(color: AppColors.border, width: 0.7)),
+        ),
+        child: Row(
+          children: [
+            // 1) المثلث الملوّن (اتجاه العملية).
+            SizedBox(
+              width: 26,
+              child: Text(
+                isIn ? '▲' : '▼',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 15,
+                    height: 1,
+                    color: color,
+                    fontWeight: FontWeight.w700),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14.5,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        Pill(tx.type.label, color: color),
-                        const SizedBox(width: 6),
-                        // (دفعة 58 — متطلب 10) وقت التنفيذ HH:MM بجانب
-                        // التاريخ في بطاقة العملية.
-                        Flexible(
-                          child: Text(
-                            tx.description.isEmpty
-                                ? '${Fmt.date(tx.date)} · ${Fmt.clock(tx.createdAt)}'
-                                : '${tx.description} · ${Fmt.clock(tx.createdAt)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.text3Of(context),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.check_circle_rounded,
-                          size: 13,
-                          color: Color(0xFF10B981),
-                        ),
-                        const SizedBox(width: 4),
-                        _deliveryBadge(context, ref),
-                      ],
-                    ),
-                  ],
+            ),
+            // 2) المبلغ — الرقم هو بطل الصف.
+            SizedBox(
+              width: 92,
+              child: Text(
+                hidden ? '••••' : Fmt.money(tx.amount),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  color: AppColors.text,
                 ),
               ),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+            ),
+            const SizedBox(width: 4),
+            // 3) التفاصيل + اسم الحساب.
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    hidden ? '••••' : Fmt.money(tx.amount),
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15.5,
-                      color: color,
-                    ),
+                    tx.description.isEmpty ? tx.type.label : tx.description,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12.5, color: AppColors.text),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    tx.currency,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.text3Of(context),
-                    ),
+                  const SizedBox(height: 1),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          who,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 11.5, color: AppColors.text3),
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      _deliveryBadge(context, ref),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+            // 4) العملة + الوقت.
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  tx.currency,
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.text3),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  Fmt.clock(tx.createdAt),
+                  style: const TextStyle(
+                      fontSize: 10.5, color: AppColors.text3),
+                ),
+              ],
+            ),
+            // 5) التاريخ — آخر الخلية كما في جدول التصميم.
+            SizedBox(
+              width: 78,
+              child: Text(
+                Fmt.date(tx.date),
+                textAlign: TextAlign.end,
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.text3),
+              ),
+            ),
+          ],
         ),
       ),
     );
