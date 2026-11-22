@@ -232,9 +232,9 @@ class AppTheme {
       canvasColor: bg,
       fontFamily: uiFontFamily,
       appBarTheme: AppBarTheme(
-        backgroundColor: surface,
+        backgroundColor: primary,
         surfaceTintColor: Colors.transparent,
-        foregroundColor: text,
+        foregroundColor: Colors.white,
         elevation: 0,
         scrolledUnderElevation: .5,
         centerTitle: false,
@@ -242,7 +242,7 @@ class AppTheme {
           fontFamily: uiFontFamily,
           fontSize: 19,
           fontWeight: FontWeight.w700,
-          color: text,
+          color: Colors.white,
         ),
       ),
       textTheme: (dark ? ThemeData.dark() : ThemeData.light())

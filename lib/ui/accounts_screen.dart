@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/accounting.dart';
 import '../core/format.dart';
+import '../core/theme.dart';
+import 'tx_form.dart';
 import '../core/models.dart';
 import '../core/sfx.dart';
 import '../data/providers.dart';
@@ -22,6 +24,9 @@ final _kindPageProvider = StateProvider<int>((ref) => 0);
 /// شاشة الحسابات: تصنيف **نوع الحساب** (الكل / عملاء / موردين /
 /// حساب عام) — الشاشة كلها قابلة للسحب للتنقل بين التصنيفات،
 /// والبحث أيقونة في شريط التطبيق (لا خانة دائمة أعلى القائمة).
+/// رقم صفحة التصنيف المطلوبة من حوار الفلترة في الشريط العلوي.
+final accountsFilterPage = ValueNotifier<int>(-1);
+
 class AccountsScreen extends ConsumerStatefulWidget {
   const AccountsScreen({super.key});
 
@@ -40,7 +45,22 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> {
   final _pageController = PageController(initialPage: 0);
 
   @override
+  void initState() {
+    super.initState();
+    accountsFilterPage.addListener(_onFilter);
+  }
+
+  void _onFilter() {
+    final i = accountsFilterPage.value;
+    if (i >= 0 && _pageController.hasClients) {
+      _pageController.animateToPage(i,
+          duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    }
+  }
+
+  @override
   void dispose() {
+    accountsFilterPage.removeListener(_onFilter);
     _pageController.dispose();
     super.dispose();
   }
@@ -333,7 +353,7 @@ class _SearchBar extends ConsumerWidget {
 
 /// بطاقة الحساب النحيفة — اسم بار بخط أسود عريض بلا دائرة مجاورة،
 /// والرصيد بلونه (عليه/له/مسدد) بعملة الحساب.
-class _AccountCard extends StatelessWidget {
+class _AccountCard extends ConsumerWidget {
   final AccountWithBalance item;
   final List<CurrencyDef> currencies;
   final bool hidden;
@@ -347,7 +367,7 @@ class _AccountCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final a = item.account;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final c = currencies.firstWhere(
@@ -369,24 +389,17 @@ class _AccountCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFAFAFA),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE6E6E6),
           width: 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.15 : 0.03),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           onTap: () {
             Sfx.tap();
             Navigator.push(
@@ -397,109 +410,107 @@ class _AccountCard extends StatelessWidget {
             );
           },
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
-                // اسم الحساب واضحًا (w700 بلا تشبع يطمس التفاصيل) وبجواره
-                // سهم حالة بارز: ▲ أخضر «عليه» / ▼ أحمر «له» / • مسدد.
-                Icon(
-                  stateIcon,
-                  size: 26,
-                  color: stateColor ??
-                      (isDark
-                          ? const Color(0xFF64748B)
-                          : const Color(0xFF94A3B8)),
-                ),
-                const SizedBox(width: 8),
+                // ▼ أحمر «عليه» / ▲ أخضر «له» — كالمخطط المعتمد
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        a.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.w700,
-                          height: 1.2,
-                          color: isDark
-                              ? const Color(0xFFF1F5F9)
-                              : const Color(0xFF0F172A),
-                          fontFamily: 'AppNaskh',
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        [
-                          if (a.phone.isNotEmpty) a.phone,
-                          if (txCount > 0) '$txCount حركة' else 'لا حركات',
-                          c.name,
-                        ].join(' • '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark
-                              ? const Color(0xFF94A3B8)
-                              : const Color(0xFF64748B),
-                          fontFamily: 'AppNaskh',
-                        ),
-                      ),
-                    ],
-                  ),
+                  flex: 12,
+                  child: isOwe
+                      ? const Text('▼',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontSize: 22,
+                              color: Color(0xFFE8352B),
+                              height: 1))
+                      : (isOwed
+                          ? const Text('▲',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 22,
+                                  color: Color(0xFF3CCC3C),
+                                  height: 1))
+                          : const Text('•',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 22,
+                                  color: AppColors.text3,
+                                  height: 1))),
                 ),
-                const SizedBox(width: 10),
-                // الرصيد الواضح باللون الأحمر أو الأخضر مع العملة
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (hidden)
-                      const Text(
-                        '••••••',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 2,
+                // الرصيد
+                Expanded(
+                  flex: 17,
+                  child: hidden
+                      ? const Text('••••••',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 2))
+                      : Text(
+                          Fmt.moneyFor(item.balance.abs(), c),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.text,
+                          ),
                         ),
-                      )
-                    else
-                      Text(
-                        isOwe
-                            ? '${Fmt.moneyFor(item.balance, c)} ${c.symbol}'
-                            : (isOwed
-                                ? '${Fmt.moneyFor(item.balance.abs(), c)} ${c.symbol}'
-                                : '0 ${c.symbol}'),
-                        style: TextStyle(
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.w800,
-                          color: isOwe
-                              ? const Color(0xFF059669)
-                              : (isOwed
-                                  ? const Color(0xFFDC2626)
-                                  : (isDark
-                                      ? const Color(0xFF94A3B8)
-                                      : const Color(0xFF64748B))),
-                          fontFamily: 'AppNaskh',
-                        ),
+                ),
+                // شارة عدد العمليات
+                Expanded(
+                  flex: 12,
+                  child: Center(
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.badgeBg,
                       ),
-                    const SizedBox(height: 2),
-                    Text(
-                      isOwe ? 'عليه' : (isOwed ? 'له' : 'مسدد'),
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: isOwe
-                            ? const Color(0xFF059669)
-                            : (isOwed
-                                ? const Color(0xFFDC2626)
-                                : (isDark
-                                    ? const Color(0xFF64748B)
-                                    : const Color(0xFF94A3B8))),
-                        fontFamily: 'AppNaskh',
+                      child: Text(
+                        '$txCount',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.navy,
+                        ),
                       ),
                     ),
-                  ],
+                  ),
+                ),
+                // الاسم كحلي
+                Expanded(
+                  flex: 20,
+                  child: Text(
+                    a.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                ),
+                // + كحلي غليظ — إضافة مبلغ لهذا الحساب
+                Expanded(
+                  flex: 12,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () async {
+                      Sfx.tap();
+                      await openTxForm(context, ref, presetAccountId: a.id);
+                    },
+                    icon: const Text('+',
+                        style: TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.navy,
+                            height: 1)),
+                  ),
                 ),
               ],
             ),

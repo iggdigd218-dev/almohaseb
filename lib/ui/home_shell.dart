@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/accounting.dart';
@@ -1008,6 +1009,27 @@ class _HomeShellState extends ConsumerState<HomeShell>
 
 
   @override
+  Future<void> _filterDialog(BuildContext context) async {
+    final sel = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('تصفية الحسابات'),
+        children: [
+          SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, 3),
+              child: const Text('عام (محلي)')),
+          SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, 1),
+              child: const Text('عملاء (محلي)')),
+          SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, 2),
+              child: const Text('موردين (محلي)')),
+        ],
+      ),
+    );
+    if (sel != null) accountsFilterPage.value = sel;
+  }
+
   Widget build(BuildContext context) {
     ref.watch(hideBalancesProvider);
 
@@ -1036,6 +1058,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
                   child: Scaffold(
                     key: _scaffoldKey,
         appBar: AppBar(
+          backgroundColor: const Color(0xFF192048),
+          foregroundColor: Colors.white,
           leading: Builder(
             builder: (ctx) {
               final isDark = Theme.of(ctx).brightness == Brightness.dark;
@@ -1057,8 +1081,18 @@ class _HomeShellState extends ConsumerState<HomeShell>
               );
             },
           ),
-          title: Text(_screen.title),
+          title: Text(_screen.title,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700)),
           actions: [
+            // زر الفلترة (☰ ▾) — عام/عملاء/موردين (محلي)
+            IconButton(
+              tooltip: 'تصفية',
+              onPressed: () => _filterDialog(context),
+              icon: const Icon(Icons.filter_list, color: Colors.white, size: 26),
+            ),
             // (تصحيح 2026-11-03) البحث أيقونة بجوار الجرس أعلى يسار
             // الشاشة — تظهر في شاشة الحسابات، وتفتح شريط البحث الذي
             // حُذف من أعلى القائمة ليوفر مساحة الصفحة.
@@ -1273,128 +1307,82 @@ class _SummaryBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final hidden = ref.watch(hideBalancesProvider);
     final summary = ref.watch(summaryProvider).valueOrNull;
     final curs =
         ref.watch(currenciesProvider).valueOrNull ?? kDefaultCurrencies;
-
-    final rows = curs.where((c) {
-      final toUs = summary?.owedToUs[c.code] ?? 0;
-      final byUs = summary?.owedByUs[c.code] ?? 0;
-      return toUs.abs() > Fmt.moneyEpsilon ||
-          byUs.abs() > Fmt.moneyEpsilon;
-    }).toList();
-    if (rows.isEmpty && curs.isNotEmpty) rows.add(curs.first);
+    if (curs.isEmpty) return const SizedBox.shrink();
+    final c = curs.first;
+    final toUs = summary?.owedToUs[c.code] ?? 0; // لــك
+    final byUs = summary?.owedByUs[c.code] ?? 0; // عليــك
 
     return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF0F172A) : Colors.white,
-        border: Border(
-          top: BorderSide(
-            color:
-                isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
-            width: 1,
-          ),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, -3),
-          ),
-        ],
-      ),
+      color: const Color(0xFF14244A),
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 64,
+          height: 58,
           child: Row(
             children: [
-              Expanded(
-                child: rows.isEmpty
-                    ? const SizedBox.shrink()
-                    : ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        itemCount: rows.length,
-                        separatorBuilder: (_, __) => const VerticalDivider(
-                          width: 20,
-                          indent: 14,
-                          endIndent: 14,
-                        ),
-                        itemBuilder: (_, i) {
-                          final c = rows[i];
-                          final toUs =
-                              summary?.owedToUs[c.code] ?? 0; // لك
-                          final byUs =
-                              summary?.owedByUs[c.code] ?? 0; // عليك
-                          final net = summary?.net[c.code] ?? 0;
-                          return Row(
-                            children: [
-                              _SummaryCell(
-                                label: 'لك',
-                                value: hidden
-                                    ? '•••'
-                                    : Fmt.moneyFor(toUs, c),
-                                color: const Color(0xFF059669),
-                                symbol: c.symbol,
-                              ),
-                              const SizedBox(width: 14),
-                              _SummaryCell(
-                                label: 'عليك',
-                                value: hidden
-                                    ? '•••'
-                                    : Fmt.moneyFor(byUs, c),
-                                color: const Color(0xFFDC2626),
-                                symbol: c.symbol,
-                              ),
-                              const SizedBox(width: 14),
-                              _SummaryCell(
-                                label: 'الإجمالي',
-                                value: hidden
-                                    ? '•••'
-                                    : Fmt.moneyFor(net, c),
-                                color: net.abs() <= Fmt.moneyEpsilon
-                                    ? (isDark
-                                        ? const Color(0xFF94A3B8)
-                                        : const Color(0xFF64748B))
-                                    : (net > 0
-                                        ? const Color(0xFF059669)
-                                        : const Color(0xFFDC2626)),
-                                symbol: c.symbol,
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-              ),
-              // اختصار + لإضافة حساب جديد
-              Padding(
-                padding: const EdgeInsetsDirectional.only(start: 4, end: 10),
-                child: Tooltip(
-                  message: 'حساب جديد',
-                  child: Material(
-                    color: const Color(0xFF0284C7),
-                    borderRadius: BorderRadius.circular(13),
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      onTap: () {
-                        Sfx.click();
-                        openAccountForm(context, ref);
-                      },
-                      child: const SizedBox(
-                        width: 38,
-                        height: 38,
-                        child: Icon(
-                          Icons.person_add_alt_outlined,
-                          size: 21,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
+              // ؟ — شرح المعادلة
+              IconButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('الملخص'),
+                    content: const Text(
+                        'لــك: صافي ما هو مستحق لك من الحسابات.\nعليــك: صافي ما هو مستحق عليك.'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('حسناً')),
+                    ],
                   ),
                 ),
+                icon: const Text('؟',
+                    style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white70)),
+              ),
+              // الملخص بالنص الحرفي كما في التصميم
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      textDirection: TextDirection.ltr,
+                      children: [
+                        Text(hidden ? '••••' : Fmt.money(toUs),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700)),
+                        const Text(' = لــك: ',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 16)),
+                        Text(hidden ? '••••' : Fmt.money(byUs),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700)),
+                        const Text(' = عليــك',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 16)),
+                      ],
+                    ),
+                    Text(c.name,
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 12.5)),
+                  ],
+                ),
+              ),
+              // ⊕ — إضافة مبلغ
+              IconButton(
+                onPressed: () => openTxForm(context, ref),
+                icon: const Icon(Icons.add_circle_outline,
+                    color: Colors.white, size: 30),
               ),
             ],
           ),
@@ -1404,7 +1392,6 @@ class _SummaryBar extends ConsumerWidget {
   }
 }
 
-/// خلية واحدة في بطاقة الملخص: تسمية صغيرة وقيمة ملونة.
 class _SummaryCell extends StatelessWidget {
   final String label;
   final String value;
@@ -1456,303 +1443,158 @@ class _Drawer extends ConsumerWidget {
   final void Function(AppScreen) onSelect;
   const _Drawer({required this.current, required this.onSelect});
 
-  /// (3.70.0) قسم في الدرج: عنوان صغير بارز + بلاطات الشاشات المسموحة
-  /// (تصفية الصلاحيات/الوضع من _DrawerItems + بوابة Google للمجموعة).
-  List<Widget> _drawerSection(
-    BuildContext context,
-    String title,
-    List<AppScreen> order,
-    AppScreen current,
-    bool dark,
-    void Function(AppScreen) onSelect,
-  ) {
-    if (order.isEmpty) return const [];
-    return [
-      Builder(
-        builder: (ctx) => Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-          child: Text(
-            title,
-            style: TextStyle(
-              color: AppColors.text3Of(ctx),
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: .2,
-            ),
-          ),
-        ),
-      ),
-      for (final s in order)
-        _DrawerTile(
-          screen: s,
-          active: current == s,
-          color: _colorOf(s),
-          dark: dark,
-          onTap: () {
-            Navigator.pop(context);
-            scheduleMicrotask(() => onSelect(s));
-          },
-        ),
-    ];
-  }
-
-  /// لون مميز لكل قسم (كما في التصميم المرجعي).
-  Color _colorOf(AppScreen s) => switch (s) {
-        AppScreen.transactions => const Color(0xFF0EA5E9),
-        AppScreen.accounts => const Color(0xFF2563EB),
-        AppScreen.reports => const Color(0xFF6366F1),
-        AppScreen.settings => const Color(0xFF64748B),
-        AppScreen.currencies => AppColors.primary2,
-        AppScreen.vouchers => const Color(0xFFF59E0B),
-        AppScreen.trash => const Color(0xFFE11D48),
-        AppScreen.activity => const Color(0xFF64748B),
-        AppScreen.backup => AppColors.primary2,
-        AppScreen.syncOps => const Color(0xFF0284C7),
-      };
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-
     return Drawer(
       backgroundColor: AppColors.surfaceOf(context),
       child: SafeArea(
-        child: Column(
+        child: ListView(
+          padding: EdgeInsets.zero,
           children: [
-            // ---------- ترويسة التطبيق الأنيقة والنظيفة ----------
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 24, 16, 18),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFF1E3A5F), AppColors.primary],
-                ),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(22),
-                  bottomRight: Radius.circular(22),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: Colors.white24,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.account_balance_wallet_rounded,
-                      color: Colors.white,
-                      size: 28,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'مدير الحسابات',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16.5,
-                          ),
-                        ),
-                        SizedBox(height: 3),
-                        Text(
-                          'دفتر الحسابات والديون',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+            const DrawerHeader(
+              decoration: BoxDecoration(color: AppColors.primary),
+              child: Align(
+                alignment: Alignment.bottomRight,
+                child: Text('المحاسب',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700)),
               ),
             ),
-
-            // ---------- عناصر القائمة حسب الوضع النشط ----------
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                children: [
-                  // (تصحيح 2026-11-03) القسم الرئيسي أولاً — دفتر متكامل:
-                  // كل الوجهات في الدرج لا التبويبات السفلية وحدها.
-                  ..._drawerSection(
-                    context,
-                    'الرئيسية',
-                    const [
-                      AppScreen.accounts,
-                      AppScreen.transactions,
-                      AppScreen.reports,
-                      AppScreen.settings,
-                    ],
-                    current,
-                    dark,
-                    onSelect,
-                  ),
-                  ..._drawerSection(
-                    context,
-                    'الدفاتر والمحاسبة',
-                    const [
-                      AppScreen.vouchers,
-                      AppScreen.currencies,
-                    ],
-                    current,
-                    dark,
-                    onSelect,
-                  ),
-                  // عناصر النظام
-                  ..._drawerSection(
-                    context,
-                    'النظام',
-                    const [
-                      AppScreen.backup,
-                      AppScreen.trash,
-                      AppScreen.activity,
-                    ],
-                    current,
-                    dark,
-                    onSelect,
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            // ---------- التحديثات (الإصدار وسجل التغييرات 3 أسطر) ----------
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-              child: Consumer(
-                builder: (ctx, rref, _) {
-                  final updateAsync = rref.watch(updateCheckProvider);
-                  final info = updateAsync.valueOrNull;
-                  final hasUpdate = info?.hasUpdate ?? false;
-                  return Material(
-                    color: hasUpdate
-                        ? const Color(0xFFFEF3C7)
-                        : AppColors.surface2Of(context),
-                    borderRadius: BorderRadius.circular(16),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () {
-                        Navigator.pop(context);
-                        showModalBottomSheet(
-                          context: context,
-                          isScrollControlled: true,
-                          backgroundColor: Colors.transparent,
-                          builder: (_) => DraggableScrollableSheet(
-                            initialChildSize: .7,
-                            minChildSize: .4,
-                            maxChildSize: .9,
-                            builder: (c, s) => SingleChildScrollView(
-                              controller: s,
-                              child: const Padding(
-                                padding: EdgeInsets.all(16),
-                                child: UpdateSection(),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: hasUpdate
-                                    ? const Color(0xFFF59E0B)
-                                    : AppColors.primary.withValues(alpha: .14),
-                                borderRadius: BorderRadius.circular(11),
-                              ),
-                              child: Icon(
-                                hasUpdate
-                                    ? Icons.system_update_rounded
-                                    : Icons.system_update_alt_rounded,
-                                color: hasUpdate ? Colors.white : AppColors.primary,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'التحديثات',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 13.5,
-                                    ),
-                                  ),
-                                  Text(
-                                    hasUpdate
-                                        ? 'يتوفر تحديث جديد: ${info?.latest}'
-                                        : 'الإصدار $appVersionLabel (محدث)',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: hasUpdate
-                                          ? const Color(0xFFB45309)
-                                          : AppColors.text3Of(context),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (hasUpdate)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF59E0B),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Text(
-                                  'تحديث',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                appVersionLabel,
-                style: TextStyle(
-                  fontSize: 10.5,
-                  color: AppColors.text3Of(context),
-                ),
-              ),
-            ),
+            _item(context, '➕', 'إضافة مبلغ',
+                color: AppColors.green, onTap: () {
+              Navigator.pop(context);
+              openTxForm(context, ref);
+            }),
+            _item(context, '📊', 'تقرير-إجمالي المبالغ', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.reports);
+            }),
+            _item(context, '📈', 'تقرير-تفاصيل كل المبالغ', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.reports);
+            }),
+            _item(context, '📉', 'تقرير-إجمالي المبالغ شهرياً', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.reports);
+            }),
+            _item(context, '📊', 'تقرير-إجمالي التصنيفات', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.reports);
+            }),
+            _item(context, '📅', 'تقرير-حركة الحسابات', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.reports);
+            }),
+            const Divider(height: 1, color: AppColors.border),
+            _item(context, '💰', 'التذكر التلقائي', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.activity);
+            }),
+            _item(context, '⬆️', 'حفظ نسخة احتياطية', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.backup);
+            }),
+            _item(context, '⬇️', 'إسترجاع قاعدة البيانات', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.backup);
+            }),
+            _item(context, '☁️', 'مجلد درايف', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.syncOps);
+            }),
+            const Divider(height: 1, color: AppColors.border),
+            _item(context, '⚙️', 'إعدادات', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.settings);
+            }),
+            _item(context, '💬', 'للاتصال والدعم', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.settings);
+            }),
+            _item(context, 'ℹ️', 'حول البرنامج', onTap: () {
+              Navigator.pop(context);
+              _about(context);
+            }),
+            _item(context, '📤', 'مشاركة البرنامج', onTap: () {
+              Navigator.pop(context);
+              Share.share(
+                  'تطبيق المحاسب لسجل المبيعات والديون\nhttps://github.com/iggdigd218-dev/almohaseb');
+            }),
+            _item(context, '🚪', 'خروج', onTap: () {
+              Navigator.pop(context);
+              _confirmExit(context);
+            }),
+            const Divider(height: 1, color: AppColors.border),
+            // إضافات نيكسورا المحافظ عليها
+            _item(context, '🧾', 'السندات', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.vouchers);
+            }),
+            _item(context, '🗑️', 'السلة', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.trash);
+            }),
+            _item(context, '💱', 'العملات', onTap: () {
+              Navigator.pop(context);
+              onSelect(AppScreen.currencies);
+            }),
           ],
         ),
       ),
     );
   }
+
+  Widget _item(BuildContext context, String emoji, String title,
+      {VoidCallback? onTap, Color? color}) {
+    return ListTile(
+      onTap: onTap,
+      leading: Text(emoji, style: const TextStyle(fontSize: 20)),
+      title: Text(title,
+          style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: color ?? AppColors.text)),
+    );
+  }
+
+  void _about(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حول البرنامج'),
+        content: Text('المحاسب — سجل المبيعات والديون\n$kAppVersion'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('حسناً')),
+        ],
+      ),
+    );
+  }
+
+  void _confirmExit(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تأكيد الخروج'),
+        content: const Text('هل تريد الخروج من التطبيق؟'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('لا')),
+          TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                SystemNavigator.pop();
+              },
+              child: const Text('نعم',
+                  style: TextStyle(color: AppColors.danger))),
+        ],
+      ),
+    );
+  }
 }
 
-/// صف عنصر في القائمة الجانبية بتصميم البطاقة النشطة.
 class _DrawerTile extends StatelessWidget {
   final AppScreen screen;
   final bool active;
