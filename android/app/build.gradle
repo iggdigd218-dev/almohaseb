@@ -37,10 +37,13 @@ android {
         // غير صالحة» على الأجهزة غير arm64. لا فلترة ABI بعد اليوم.
     }
 
-    // ضغط المكتبات الأصلية داخل APK لتقليل الحجم.
+    // (2026-11-22) ضغط المكتبات الأصلية داخل APK.
+    // useLegacyPackaging=false يخزّن libflutter.so (10.5MB) وlibapp.so (7.75MB)
+    // دون ضغط (page-aligned) فتبلغ الحزمة 22.4MB. مع true تُضغط داخل APK
+    // (~13MB) ويستخرجها النظام عند التثبيت. الفرق: تنزيل أصغر، تثبيت أبطأ قليلاً.
     packagingOptions {
         jniLibs {
-            useLegacyPackaging = false
+            useLegacyPackaging = true
         }
     }
 
