@@ -169,6 +169,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               title: Text(o.$2),
               onChanged: (v) async {
                 await ref.read(repoProvider).setSetting('tpl.style', v!);
+                ref.invalidate(settingsProvider);
                 if (ctx.mounted) Navigator.pop(ctx);
                 setState(() {});
               },
@@ -294,6 +295,7 @@ class _PersonalDataScreenState extends ConsumerState<_PersonalDataScreen> {
     if (x == null) return;
     final b64 = base64Encode(await File(x.path).readAsBytes());
     await ref.read(repoProvider).setSetting('org.icon.b64', b64);
+    ref.invalidate(settingsProvider);
     if (mounted) setState(() {});
   }
 
@@ -304,6 +306,7 @@ class _PersonalDataScreenState extends ConsumerState<_PersonalDataScreen> {
     await r.setSetting('phone', _phone.text.trim());
     await r.setSetting('en.name', _enName.text.trim());
     await r.setSetting('en.address', _enAddress.text.trim());
+    ref.invalidate(settingsProvider);
     if (mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('تم الحفظ ✅')));
@@ -437,6 +440,11 @@ class _PrinterOptionsScreenState
   Future<void> _set(String k, dynamic v, {bool silent = false}) async {
     final s = v is bool ? (v ? '1' : '0') : '$v';
     await ref.read(repoProvider).setSetting(k, s);
+    // (إصلاح 2026-11-21) كان setState وحده لا يكفي: الشاشة تقرأ القيم من
+    // `settingsProvider`، فبدون إبطاله يبقى المفتاح معروضاً على حالته
+    // القديمة ولا يبدو أن التفعيل استجاب إطلاقاً. الإبطال يُعيد الجلب
+    // فتظهر القيمة الجديدة فوراً.
+    ref.invalidate(settingsProvider);
     if (!silent && mounted) setState(() {});
   }
 
@@ -488,6 +496,7 @@ class _SecurityOptionsScreenState
             await ref
                 .read(repoProvider)
                 .setSetting('password.required', v ? '1' : '0');
+            ref.invalidate(settingsProvider);
             setState(() => _req = v);
           }, sub: 'طلب كلمة السر عند الدخول'),
           const Divider(height: 1, color: AppColors.border),
@@ -511,6 +520,7 @@ class _SecurityOptionsScreenState
 
   Future<void> _set(String k, String v) async {
     await ref.read(repoProvider).setSetting(k, v);
+    ref.invalidate(settingsProvider);
     if (mounted) setState(() {});
   }
 
@@ -539,6 +549,7 @@ class _SecurityOptionsScreenState
     final r = ref.read(repoProvider);
     await r.setSetting('password.hash', Security.hash(ctrl.text.trim()));
     await r.setSetting('password.required', '1');
+    ref.invalidate(settingsProvider);
     if (mounted) setState(() => _req = true);
   }
 }
@@ -692,6 +703,7 @@ class _DataSaveOptionsScreenState
 
   Future<void> _set(String k, String v, {bool silent = false}) async {
     await ref.read(repoProvider).setSetting(k, v);
+    ref.invalidate(settingsProvider);
     if (!silent && mounted) setState(() {});
   }
 }
@@ -858,6 +870,7 @@ class _NotificationsOptionsScreenState
 
   Future<void> _set(String k, String v) async {
     await ref.read(repoProvider).setSetting(k, v);
+    ref.invalidate(settingsProvider);
     if (mounted) setState(() {});
   }
 }
@@ -959,6 +972,7 @@ class _OtherOptionsScreenState extends ConsumerState<_OtherOptionsScreen> {
   Future<void> _set(String k, dynamic v) async {
     final s = v is bool ? (v ? '1' : '0') : '$v';
     await ref.read(repoProvider).setSetting(k, s);
+    ref.invalidate(settingsProvider);
     if (mounted) setState(() {});
   }
 
@@ -983,6 +997,7 @@ class _OtherOptionsScreenState extends ConsumerState<_OtherOptionsScreen> {
     if (ok != true) return;
     // يُنفَّذ عبر مستودع البيانات: ترحيل الأرصدة إلى رصيد افتتاحي.
     await ref.read(repoProvider).setSetting('closing.year', DateTime.now().year.toString());
+    ref.invalidate(settingsProvider);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تم الإغلاق السنوي ✅')));
