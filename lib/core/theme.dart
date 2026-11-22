@@ -5,29 +5,39 @@ String? get uiFontFamily => 'AppNaskh';
 
 /// ألوان نكسورا — متطابقة تماماً مع تصميم نسخة الويب الأنيقة والعصرية.
 class AppColors {
-  // ===== الوضع الفاتح (نسخة الويب الحديثة) =====
-  static const bg = Color(0xFFF4F6F9); // خلفية نقية وناعمة
-  static const bg2 = Color(0xFFF1F5F9); // Slate-100
-  static const surface = Color(0xFFFFFFFF); // أبيض ناصع للكروت
-  static const surface2 = Color(0xFFF8FAFC); // أوف وايت للبطاقات الداخلية
-  static const text = Color(0xFF0F172A); // Slate-900 — نصوص داكنة حادة ومريحة
-  static const text2 = Color(0xFF475569); // Slate-600
-  static const text3 = Color(0xFF94A3B8); // Slate-400
-  static const border = Color(0xFFE2E8F0); // Slate-200
+  // ===== الوضع الفاتح — لوحة «دفتر الحسابات» (مأخوذة من التصميم المعتمد) =====
+  static const bg = Color(0xFFFFFFFF); // خلفية بيضاء ناصعة
+  static const bg2 = Color(0xFFF5F6F8); // رمادي فاتح جداً
+  static const surface = Color(0xFFFFFFFF); // أبيض للكروت
+  static const surface2 = Color(0xFFFAFAFA); // أوف وايت للبطاقات الداخلية
+  static const text = Color(0xFF212121); // رمادي داكن — النص الأساسي
+  static const text2 = Color(0xFF757575); // رمادي متوسط
+  static const text3 = Color(0xFF9E9E9E); // رمادي فاتح — ثانوي
+  static const border = Color(0xFFE6E6E6); // فاصل
 
-  static const primary = Color(0xFF0D6EFD); // أزرق ملكي عصري
-  static const primary2 = Color(0xFF0066FF);
-  static const primarySoft = Color(0xFFE0F2FE); // Sky-100
+  static const primary = Color(0xFF3F51B5); // أزرق الأشرطة العلوية
+  static const primary2 = Color(0xFF335AB8); // أزرق الشريط السفلي والأزرار
+  static const primarySoft = Color(0xFFE8EDF9); // أزرق باهت
   static const accent = Color(0xFFF59E0B); // Amber-500
   static const accentSoft = Color(0xFFFEF3C7); // Amber-100
-  static const danger = Color(0xFFEF4444); // Red-500
-  static const dangerSoft = Color(0xFFFEE2E2); // Red-100
-  static const green = Color(0xFF16A34A); // أخضر زمردي إيجابي
-  static const greenSoft = Color(0xFFD1FAE5); // Emerald-100
-  static const info = Color(0xFF0EA5E9); // Sky-500
-  static const infoSoft = Color(0xFFE0F2FE); // Sky-100
+  static const danger = Color(0xFFE8352B); // أحمر ▼ (مدين/عليه)
+  static const dangerSoft = Color(0xFFFDE8E6); // Red-100
+  static const green = Color(0xFF3CCC3C); // أخضر ▲ (دائن/له)
+  static const greenSoft = Color(0xFFE4F8E4); // Green-100
+  static const info = Color(0xFF2196F3); // Blue-500
+  static const infoSoft = Color(0xFFE3F2FD); // Blue-100
   static const violet = Color(0xFF8B5CF6); // Violet-500
   static const violetSoft = Color(0xFFEDE9FE); // Violet-100
+
+  // ===== ألوان «دفتر الحسابات» المميزة =====
+  static const pink = Color(0xFFFF4081); // الوردي الأساسي (أزرار/تبديل)
+  static const pinkDark = Color(0xFFFA3F7F); // تبديل مفعّل
+  static const pinkSoft = Color(0xFFFFCEDE); // مسار التبديل المفعّل
+  static const toggleOff = Color(0xFFBDBDBD); // تبديل مطفأ — الإبهام
+  static const toggleOffTrack = Color(0xFFECECEC); // تبديل مطفأ — المسار
+  static const navy = Color(0xFF1A237E); // كحلي (اسم الحساب/الشعار)
+  static const pdfRed = Color(0xFFE94C3A); // أيقونة PDF
+  static const badgeBg = Color(0xFF9BB8DC); // خلفية شارة عدد العمليات
 
   // ===== الوضع الداكن =====
   static const dBg = Color(0xFF0F172A); // Slate-900
@@ -39,8 +49,8 @@ class AppColors {
   static const dText3 = Color(0xFF94A3B8); // Slate-400
   static const dBorder = Color(0xFF334155); // Slate-700
 
-  static const dPrimary = Color(0xFF38BDF8); // Sky-400
-  static const dPrimary2 = Color(0xFF7DD3FC); // Sky-300
+  static const dPrimary = Color(0xFF7986CB); // Indigo-300
+  static const dPrimary2 = Color(0xFF9FA8DA); // Indigo-200
   static const dPrimarySoft = Color(0xFF0C4A6E); // Sky-900
   static const dAccent = Color(0xFFFBBF24); // Amber-400
   static const dAccentSoft = Color(0xFF451A03);

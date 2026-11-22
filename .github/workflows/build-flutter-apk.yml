@@ -93,23 +93,33 @@ jobs:
           sed -i "s/AppSemVer([0-9]*, [0-9]*, [0-9]*, kAppBuild)/AppSemVer($MAJ, $MIN, $PAT, kAppBuild)/" lib/core/app_version.dart
           echo "Verified app_version.dart matches $NAME+$BUILD"
 
-      - name: Build Android APK (Universal — كل المعالجات)
+      - name: Build Android APKs (لكل معالج — ≤20MB)
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g"
           JAVA_OPTS: "-Xmx3g"
         run: |
-          # (3.70) حزمة شاملة: بلا --target-platform فتُدمج كل ABIs
-          # (armeabi-v7a + arm64-v8a + x86_64) — إصلاح «الحزمة تبدو غير صالحة».
-          # تُبقى للعملاء القدامى (≤ 3.75.0+151) الذين يقرأون downloads.android.
-          flutter build apk --release --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
-          cp build/app/outputs/flutter-apk/app-release.apk nexora-universal.apk
-          ls -lh nexora-universal.apk
+          # (4.10) حزمة لكل معالج (split-per-abi) مع ضغط المكتبات —
+          # كل حزمة ≤ 20MB بدل 62MB للحزمة الشاملة القديمة.
+          flutter build apk --release --split-per-abi --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk nexora-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk nexora-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk nexora-x86_64.apk
+          ls -lh nexora-*.apk
+          # بوابة الحجم الإلزامية: أي حزمة تتجاوز 20MB تُفشل البناء فوراً.
+          for f in nexora-*.apk; do
+            SIZE=$(stat -c%s "$f")
+            if [ "$SIZE" -gt 20000000 ]; then
+              echo "::error::$f تجاوز الحد الأقصى 20MB ($((SIZE/1000000))MB)"
+              exit 1
+            fi
+            echo "✔ $f = $((SIZE/1000000))MB (≤20MB)"
+          done
 
       - name: Verify APK (zipalign + apksigner)
         run: |
           # (3.70 — المرحلة 7) التحقق من سلامة المحاذاة والتوقيع قبل النشر.
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          for f in nexora-universal.apk; do
+          for f in nexora-armeabi-v7a.apk nexora-arm64-v8a.apk nexora-x86_64.apk; do
             echo "— $f"
             "$BT/zipalign" -c -v 4 "$f" | tail -1
             "$BT/apksigner" verify --print-certs "$f" | head -3
@@ -132,7 +142,9 @@ jobs:
             "minSupported": "3.13.0",
             "releaseUrl": "https://github.com/${{ github.repository }}/releases/tag/latest",
             "downloads": {
-              "android": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-universal.apk"
+              \"android\": \"https://github.com/${{ github.repository }}/releases/download/latest/nexora-arm64-v8a.apk\",
+              \"androidArm32\": \"https://github.com/${{ github.repository }}/releases/download/latest/nexora-armeabi-v7a.apk\",
+              \"androidX64\": \"https://github.com/${{ github.repository }}/releases/download/latest/nexora-x86_64.apk\"
             },
             "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "notes": "$NOTES"
@@ -155,7 +167,9 @@ jobs:
         with:
           name: nexora-flutter-universal
           path: |
-            nexora-universal.apk
+            nexora-armeabi-v7a.apk
+            nexora-arm64-v8a.apk
+            nexora-x86_64.apk
             version.json
           retention-days: 30
 
@@ -188,7 +202,7 @@ jobs:
         run: |
           find dist -type f -exec mv -f {} . \;
           rm -rf dist
-          ls -lh nexora-universal.apk version.json
+          ls -lh nexora-*.apk version.json
 
       - name: Build upload list (existing files only)
         id: filelist
@@ -199,7 +213,7 @@ jobs:
           # للحذف بلا تعويض إن فشل تنزيله — وبهذا فُقدت nexora-windows.zip ثم
           # أُفرغ الإصدار كاملاً (0 أصول). لا تنزيل، لا مساس بغير أصولنا.
           files=""
-          for f in nexora-universal.apk version.json; do
+          for f in nexora-armeabi-v7a.apk nexora-arm64-v8a.apk nexora-x86_64.apk version.json; do
             if [ -s "$f" ]; then files="${files}${f}"$'\n'; fi
           done
           {
@@ -220,8 +234,8 @@ jobs:
             **هذا هو الإصدار الرسمي الأحدث من التطبيق.**
 
             ### 📱 للأندرويد
-            - `nexora-universal.apk` — حزمة واحدة شاملة تعمل على **كل** الأجهزة
-              (32 و64 بت) — لا خطأ «الحزمة غير صالحة» بعد اليوم.
+            - حزم مخصصة لكل معالج (كلها ≤ 20MB): `nexora-arm64-v8a.apk` (حديثة) ·
+              `nexora-armeabi-v7a.apk` (32-بت) · `nexora-x86_64.apk` (محاكيات).
 
             > يتم تحديث هذه الصفحة تلقائيًا بعد كل بناء ناجح.
           prerelease: false
@@ -235,6 +249,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # تنظيف الأصل الشامل القديم (>20MB) لمنع ارتباك المستخدمين.
+          gh release delete-asset latest nexora-universal.apk -y --repo "${{ github.repository }}" || true
           # ❗ السبب الجذري لتكرار "Error saving asset": softprops/action-gh-release
           # يحذف الأصل القديم أولاً ثم يرفع البديل، ورفع ملف 24MB ينتهي
           # بالفشل بعد ~39 ثانية في كل مرة — فيُفقد الأصل بلا تعويض.
@@ -242,7 +258,7 @@ jobs:
           # مسار رفع أصول الإصدار لدى softprops تحديداً. gh الرسمي أنجح،
           # ومع حلقة إعادة محاولة لا يبقى مجال لضياع أصل.
           files=()
-          for f in nexora-universal.apk version.json; do
+          for f in nexora-armeabi-v7a.apk nexora-arm64-v8a.apk nexora-x86_64.apk version.json; do
             [ -s "$f" ] && files+=("$f")
           done
           if [ ${#files[@]} -eq 0 ]; then
