@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/format.dart';
+import '../core/theme.dart';
 import '../data/providers.dart';
 import '../data/sync/sync_activity.dart';
 import 'widgets.dart';
@@ -102,11 +103,16 @@ class _SyncOpsScreenState extends ConsumerState<SyncOpsScreen> {
           padding: const EdgeInsets.all(12),
           children: [
             // بطاقة الحالة العامة — بلا أي عدادات عمليات خام.
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
+            Container(
+              margin: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
                     Container(
                       width: 48,
                       height: 48,
@@ -173,8 +179,7 @@ class _SyncOpsScreenState extends ConsumerState<SyncOpsScreen> {
                           : const Icon(Icons.sync, size: 18),
                       label: const Text('مزامنة الآن'),
                     ),
-                  ],
-                ),
+                ],
               ),
             ),
             const SizedBox(height: 12),

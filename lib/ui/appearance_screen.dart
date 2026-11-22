@@ -1,10 +1,13 @@
 // شاشة المظهر المستقلة: حجم الخط، والأصوات/الاهتزاز.
+// (2026-11-21) أُعيد تنسيقها بنمط «دفتر الحسابات»: صفوف إيموجي مسطّحة
+// بمفاتيح وردية، بلا بطاقات مرفوعة ولا أيقونات رمادية.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/sfx.dart';
 import '../core/theme.dart';
 import '../data/providers.dart';
+import 'widgets.dart';
 
 class AppearanceScreen extends ConsumerWidget {
   const AppearanceScreen({super.key});
@@ -12,123 +15,130 @@ class AppearanceScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final st = ref.watch(settingsProvider).valueOrNull ?? {};
-    return Scaffold(
-      appBar: AppBar(title: const Text('المظهر والأصوات')),
-      body: ListView(
-        padding: const EdgeInsets.all(14),
+
+    Future<void> save(String key, bool v) async {
+      await ref.read(repoProvider).setSetting(key, v ? '1' : '0');
+      ref.invalidate(settingsProvider);
+    }
+
+    Widget row({
+      required String emoji,
+      required String title,
+      required String sub,
+      required String key,
+      String on = '1',
+      void Function(bool)? after,
+    }) {
+      final v = (st[key] ?? on) == '1';
+      return Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Card(
-            child: Column(
-              children: [
-                SwitchListTile(
-                  secondary: const Icon(Icons.format_size),
-                  title: const Text('خط أكبر في لوحة التحكم'),
-                  subtitle: const Text('تكبير الأرقام والعناوين'),
-                  value: (st['bigText'] ?? '1') == '1',
-                  onChanged: (v) async {
-                    await ref
-                        .read(repoProvider)
-                        .setSetting('bigText', v ? '1' : '0');
-                    ref.invalidate(settingsProvider);
-                  },
-                ),
-                const Divider(height: 1),
-                // (دفعة 58 — متطلب 7) الوضع الصامت الشامل: يكتم كل الأصوات
-                // والاهتزازات وحتى صوت إشعارات النظام الخارجية بمفتاح واحد.
-                SwitchListTile(
-                  secondary: const Icon(Icons.volume_off_outlined),
-                  title: const Text('الوضع الصامت'),
-                  subtitle: const Text(
-                      'كتم كل الأصوات والاهتزازات — تصل الإشعارات صامتة'),
-                  value: (st['sfxMute'] ?? '0') == '1',
-                  onChanged: (v) async {
-                    await ref
-                        .read(repoProvider)
-                        .setSetting('sfxMute', v ? '1' : '0');
-                    Sfx.applySettings(
-                      sound: (st['sfxSound'] ?? '1') == '1',
-                      haptic: (st['sfxHaptic'] ?? '1') == '1',
-                      mute: v,
-                    );
-                    if (!v) Sfx.pop();
-                    ref.invalidate(settingsProvider);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.volume_up_outlined),
-                  title: const Text('الأصوات'),
-                  subtitle: const Text('نغمات النجاح والخطأ والأزرار'),
-                  value: (st['sfxSound'] ?? '1') == '1',
-                  onChanged: (v) async {
-                    await ref
-                        .read(repoProvider)
-                        .setSetting('sfxSound', v ? '1' : '0');
-                    Sfx.applySettings(
-                        sound: v, haptic: (st['sfxHaptic'] ?? '1') == '1');
-                    if (v) Sfx.pop();
-                    ref.invalidate(settingsProvider);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: const Icon(Icons.vibration_outlined),
-                  title: const Text('الاهتزاز'),
-                  subtitle: const Text('ردود اهتزازية عند الحفظ والدفع'),
-                  value: (st['sfxHaptic'] ?? '1') == '1',
-                  onChanged: (v) async {
-                    await ref
-                        .read(repoProvider)
-                        .setSetting('sfxHaptic', v ? '1' : '0');
-                    Sfx.applySettings(
-                        sound: (st['sfxSound'] ?? '1') == '1', haptic: v);
-                    if (v) Sfx.success();
-                    ref.invalidate(settingsProvider);
-                  },
-                ),
-              ],
+          EmojiTile(
+            emoji: emoji,
+            title: title,
+            subtitle: sub,
+            trailing: pinkSwitch(
+              value: v,
+              onChanged: (x) async {
+                await save(key, x);
+                after?.call(x);
+              },
             ),
           ),
-          const SizedBox(height: 12),
-          // معاينة الأصوات: جرّب كل نوع تفاعل قبل استخدامه فعلياً.
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.music_note_outlined,
-                          color: AppColors.primaryOf(context), size: 20),
-                      const SizedBox(width: 8),
-                      const Text('معاينة الأصوات والاهتزازات',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 14.5)),
-                    ],
+          const Divider(height: 0.7, color: AppColors.border),
+        ],
+      );
+    }
+
+    return Scaffold(
+      appBar: simpleBar(context, 'المظهر والأصوات'),
+      body: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          const SectionLabel('العرض'),
+          row(
+            emoji: '🔠',
+            title: 'خط أكبر في لوحة التحكم',
+            sub: 'تكبير الأرقام والعناوين',
+            key: 'bigText',
+          ),
+          const SectionLabel('الأصوات والاهتزاز'),
+          row(
+            emoji: '🔇',
+            title: 'الوضع الصامت',
+            sub: 'كتم كل الأصوات والاهتزازات — تصل الإشعارات صامتة',
+            key: 'sfxMute',
+            on: '0',
+            after: (v) {
+              Sfx.applySettings(
+                sound: (st['sfxSound'] ?? '1') == '1',
+                haptic: (st['sfxHaptic'] ?? '1') == '1',
+                mute: v,
+              );
+              if (!v) Sfx.pop();
+            },
+          ),
+          row(
+            emoji: '🔊',
+            title: 'الأصوات',
+            sub: 'نغمات النجاح والخطأ والأزرار',
+            key: 'sfxSound',
+            after: (v) {
+              Sfx.applySettings(
+                  sound: v, haptic: (st['sfxHaptic'] ?? '1') == '1');
+              if (v) Sfx.pop();
+            },
+          ),
+          row(
+            emoji: '📳',
+            title: 'الاهتزاز',
+            sub: 'ردود اهتزازية عند الحفظ والدفع',
+            key: 'sfxHaptic',
+            after: (v) {
+              Sfx.applySettings(
+                  sound: (st['sfxSound'] ?? '1') == '1', haptic: v);
+              if (v) Sfx.success();
+            },
+          ),
+          const SectionLabel('معاينة'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+            child: Text(
+              'لكل نوع تفاعل صوت مميز — اضغط أي زر لتجربته.',
+              style: const TextStyle(fontSize: 12, color: AppColors.text3),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 20),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final (_, label, play) in Sfx.previewable())
+                  InkWell(
+                    onTap: play,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 7),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.border),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.play_arrow,
+                              size: 15, color: AppColors.primary),
+                          const SizedBox(width: 4),
+                          Text(label,
+                              style: const TextStyle(
+                                  fontSize: 12, color: AppColors.text)),
+                        ],
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'لكل نوع تفاعل صوت مميز — اضغط أي زر لتجربته.',
-                    style: TextStyle(
-                        fontSize: 12, color: AppColors.text3Of(context)),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final (_, label, play) in Sfx.previewable())
-                        ActionChip(
-                          avatar: const Icon(Icons.play_arrow, size: 16),
-                          label: Text(label,
-                              style: const TextStyle(fontSize: 12)),
-                          onPressed: play,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
+              ],
             ),
           ),
         ],
