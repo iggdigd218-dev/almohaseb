@@ -35,13 +35,3 @@ subprojects {
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
-
-// تعطيل lint في كل الوحدات (بما فيها الوحدات الخارجية): يتعارض إصدار lint
-// مع AGP 9.3.1 في هذه البيئة (NoSuchMethodError في JavaDocParser).
-subprojects {
-    tasks.configureEach { task ->
-        if (task.name.toLowerCase().contains("lint")) {
-            task.enabled = false
-        }
-    }
-}

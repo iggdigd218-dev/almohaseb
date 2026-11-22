@@ -58,11 +58,11 @@
     <uses-feature android:name="android.hardware.wifi" android:required="false"/>
 
     <application
-        android:label="دفتر الحسابات"
+        android:label="مدير الحسابات"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-       >
+        android:extractNativeLibs="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

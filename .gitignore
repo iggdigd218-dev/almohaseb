@@ -43,4 +43,3 @@ server.ts
 src/
 tsconfig.json
 vite.config.ts
-*.hprof
