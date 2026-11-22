@@ -389,7 +389,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (android.os.Build.VERSION.SDK_INT >= 26) {
             val ch = android.app.NotificationChannel(
                 channelId,
-                if (silent) "تنبيهات نكسورا (صامتة)" else "تنبيهات نكسورا",
+                if (silent) "تنبيهات المحاسب (صامتة)" else "تنبيهات المحاسب",
                 if (silent) android.app.NotificationManager.IMPORTANCE_LOW
                 else android.app.NotificationManager.IMPORTANCE_HIGH
             ).apply {

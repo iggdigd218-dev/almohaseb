@@ -94,7 +94,7 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
     final dir = await getTemporaryDirectory();
     final stamp =
         DateTime.now().toIso8601String().substring(0, 19).replaceAll(':', '-');
-    final file = File('${dir.path}/nexora-backup-$stamp.nexora');
+    final file = File('${dir.path}/almohaseb-backup-$stamp.almohaseb');
     await file.writeAsString(json, flush: true);
     return file;
   }
@@ -185,7 +185,7 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
       title: '⚠️ استعادة نسخة احتياطية',
       message:
           'سيتم استبدال كل البيانات الحالية بمحتوى الملف. لا يمكن التراجع.\n\n'
-          'يقبل التطبيق ملفات مدير الحسابات (‎.nexora‎) وملفات JSON من مدير الملفات '
+          'يقبل التطبيق ملفات المحاسب (.almohaseb) والقديمة (.nexora) وملفات JSON من مدير الملفات '
           'ومزوّدي التخزين السحابي. الاستعادة ذرّية: إذا كان أي صف أو مرجع '
           'غير صالح فستظهر رسالة خطأ ولن تُطبّق استعادة جزئية.\n\nهل تريد المتابعة؟',
       confirmText: 'استعادة',
@@ -373,7 +373,7 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
       setState(() => _busy = true);
       final dir = await getTemporaryDirectory();
       final file = File(
-        '${dir.path}/nexora-drive-${DateTime.now().millisecondsSinceEpoch}.nexora',
+        '${dir.path}/almohaseb-drive-${DateTime.now().millisecondsSinceEpoch}.almohaseb',
       );
       if (selected.id.isNotEmpty) {
         await _drive.downloadBackupById(selected.id, file);

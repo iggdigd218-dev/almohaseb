@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'theme.dart';
 
-/// أيقونة واحدة في كتالوج نكسورا.
+/// أيقونة واحدة في كتالوج المحاسب.
 ///
 /// [key] هو ما يُخزَّن في قاعدة البيانات (`icon_key`) فلا نعتمد على
 /// نقطة رمز (codePoint) قد تتغيّر بين إصدارات Flutter.

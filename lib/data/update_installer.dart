@@ -311,14 +311,14 @@ class UpdateInstaller {
 
   // ------------------------- مسار ويندوز -------------------------
 
-  /// ويندوز: ينزّل مُثبّت NexoraSetup.exe (أو الملف المتاح) داخل التطبيق
+  /// ويندوز: ينزّل مُثبّت AlMuhasibSetup.exe (أو الملف المتاح) داخل التطبيق
   /// ثم يشغّله — معالج التثبيت يحدّث النسخة فوق الحالية مع بقاء البيانات.
   Stream<InstallProgress> _windowsDownloadAndInstall(String url) async* {
     yield const InstallProgress(InstallPhase.downloading, progress: 0);
     final segs = Uri.tryParse(url)?.pathSegments ?? const <String>[];
     final name = segs.isEmpty ? '' : segs.last;
     final isExe = name.toLowerCase().endsWith('.exe');
-    final fileName = isExe ? 'NexoraSetup.exe' : 'nexora-update.zip';
+    final fileName = isExe ? 'AlMuhasibSetup.exe' : 'almohaseb-update.zip';
     yield* _httpDownload(url, fileName, (file) async* {
       if (file.lengthSync() < 512 * 1024) {
         yield const InstallProgress(InstallPhase.failed,

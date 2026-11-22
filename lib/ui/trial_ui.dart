@@ -838,7 +838,7 @@ class _PurchaseScreenState extends ConsumerState<PurchaseScreen> {
       } catch (_) {}
 
       final msg =
-          'مرحباً، أود طلب ترخيص وتفعيل اشتراك تطبيق مدير الحسابات (Nexora):\n'
+          'مرحباً، أود طلب ترخيص وتفعيل اشتراك تطبيق المحاسب:\n'
           '🏢 اسم المنشأة: $storeName\n'
           '👤 اسم العميل / المسؤول: $clientName\n'
           '📱 رقم الهاتف: $phone\n'

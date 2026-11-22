@@ -83,7 +83,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           .replaceAll(':', '-')
           .split('.')
           .first;
-      final f = File('${dir.path}/nexora-local-backup-$ts.nexora');
+      final f = File('${dir.path}/almohaseb-local-backup-$ts.almohaseb');
       await f.writeAsString(jsonEncode(payload));
       if (context.mounted) {
         showSnack(context, '✅ حُفظت نسخة محلية: ${f.path.split('/').last}');

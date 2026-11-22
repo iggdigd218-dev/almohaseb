@@ -55,7 +55,7 @@ class BackupService {
     final data = <String, Object?>{};
     for (final t in dataTables) {
       final rows = await db.query(t);
-      // إزالة الأعمدة الحساسة من النسخة الاحتياطية (لا تُخزَّن في .nexora).
+      // إزالة الأعمدة الحساسة من النسخة الاحتياطية (لا تُخزَّن في .almohaseb).
       final scrubbed = rows.map((r) {
         final copy = Map<String, Object?>.from(r);
         for (final c in _scrubColumns) {
