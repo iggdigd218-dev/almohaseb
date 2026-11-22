@@ -1352,29 +1352,47 @@ class _SummaryBar extends ConsumerWidget {
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
-                      textDirection: TextDirection.ltr,
+                      textDirection: TextDirection.rtl,
                       children: [
+                        const Text('لك',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 15.5)),
+                        const Text(' : ',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 15.5)),
                         Text(hidden ? '••••' : Fmt.money(toUs),
                             style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700)),
-                        const Text(' = لــك: ',
+                        const Text(' = ',
                             style: TextStyle(
-                                color: Colors.white70, fontSize: 16)),
+                                color: Colors.white70, fontSize: 15.5)),
+                        const Text('عليك',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 15.5)),
+                        const Text(' : ',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 15.5)),
                         Text(hidden ? '••••' : Fmt.money(byUs),
                             style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700)),
-                        const Text(' = عليــك',
-                            style: TextStyle(
-                                color: Colors.white70, fontSize: 16)),
                       ],
                     ),
-                    Text(c.name,
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 12.5)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('الإجمالي',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 12.5)),
+                        const SizedBox(width: 6),
+                        Text(c.name,
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 12.5)),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -1467,32 +1485,24 @@ class _Drawer extends ConsumerWidget {
               Navigator.pop(context);
               openTxForm(context, ref);
             }),
-            _item(context, '📊', 'تقرير-إجمالي المبالغ', onTap: () {
+            _item(context, '📊', 'الحسابات', onTap: () {
               Navigator.pop(context);
-              onSelect(AppScreen.reports);
+              onSelect(AppScreen.accounts);
             }),
-            _item(context, '📈', 'تقرير-تفاصيل كل المبالغ', onTap: () {
+            _item(context, '📈', 'العمليات', onTap: () {
               Navigator.pop(context);
-              onSelect(AppScreen.reports);
+              onSelect(AppScreen.transactions);
             }),
-            _item(context, '📉', 'تقرير-إجمالي المبالغ شهرياً', onTap: () {
-              Navigator.pop(context);
-              onSelect(AppScreen.reports);
-            }),
-            _item(context, '📊', 'تقرير-إجمالي التصنيفات', onTap: () {
-              Navigator.pop(context);
-              onSelect(AppScreen.reports);
-            }),
-            _item(context, '📅', 'تقرير-حركة الحسابات', onTap: () {
+            _item(context, '📉', 'التقارير', onTap: () {
               Navigator.pop(context);
               onSelect(AppScreen.reports);
             }),
             const Divider(height: 1, color: AppColors.border),
-            _item(context, '💰', 'التذكر التلقائي', onTap: () {
+            _item(context, '💰', 'سجل النشاط', onTap: () {
               Navigator.pop(context);
               onSelect(AppScreen.activity);
             }),
-            _item(context, '⬆️', 'حفظ نسخة احتياطية', onTap: () {
+            _item(context, '⬆️', 'النسخ الاحتياطي', onTap: () {
               Navigator.pop(context);
               onSelect(AppScreen.backup);
             }),
@@ -1505,7 +1515,7 @@ class _Drawer extends ConsumerWidget {
               onSelect(AppScreen.syncOps);
             }),
             const Divider(height: 1, color: AppColors.border),
-            _item(context, '⚙️', 'إعدادات', onTap: () {
+            _item(context, '⚙️', 'الإعدادات', onTap: () {
               Navigator.pop(context);
               onSelect(AppScreen.settings);
             }),
@@ -1532,7 +1542,7 @@ class _Drawer extends ConsumerWidget {
               Navigator.pop(context);
               onSelect(AppScreen.vouchers);
             }),
-            _item(context, '🗑️', 'السلة', onTap: () {
+            _item(context, '🗑️', 'سلة المهملات', onTap: () {
               Navigator.pop(context);
               onSelect(AppScreen.trash);
             }),

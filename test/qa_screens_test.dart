@@ -319,11 +319,11 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       // «الكل» افتراضيًا: الحسابان معًا — مع سهم حالة بجوار كل اسم:
-      // العميل رصيده سالب (له) → ▼ أحمر، والمورد موجب (عليه) → ▲ أخضر.
+      // التصميم المعتمد: له (سالب) → ▲ أخضر، عليه (موجب) → ▼ أحمر.
       expect(find.text('عميل الاختبار'), findsOneWidget);
       expect(find.text('مورد الاختبار'), findsOneWidget);
-      expect(find.byIcon(Icons.arrow_circle_down), findsOneWidget);
-      expect(find.byIcon(Icons.arrow_circle_up), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_drop_up), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_drop_down), findsOneWidget);
       // لا فلاتر عملة في الرأس ولا فرز أرصدة.
       expect(find.text('كل العملات'), findsNothing);
       expect(find.text('مسدد'), findsNothing);
@@ -346,13 +346,13 @@ void main() {
       expect(find.text('عميل الاختبار'), findsOneWidget);
       expect(find.text('مورد الاختبار'), findsNothing);
 
-      // «موردين»: المورد فقط (نقر الشريحة) — وسهمه ▲ الأخضر وحده.
+      // «موردين»: المورد فقط (نقر الشريحة) — وسهمه ▼ الأحمر وحده.
       await tester.tap(find.text('موردين'));
       await settle();
       expect(find.text('مورد الاختبار'), findsOneWidget);
       expect(find.text('عميل الاختبار'), findsNothing);
-      expect(find.byIcon(Icons.arrow_circle_up), findsOneWidget);
-      expect(find.byIcon(Icons.arrow_circle_down), findsNothing);
+      expect(find.byIcon(Icons.arrow_drop_down), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_drop_up), findsNothing);
       // «عملاء»: العميل فقط.
       await tester.tap(find.text('عملاء').first);
       await settle();

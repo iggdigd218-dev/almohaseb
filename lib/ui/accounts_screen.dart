@@ -417,25 +417,13 @@ class _AccountCard extends ConsumerWidget {
                 Expanded(
                   flex: 12,
                   child: isOwe
-                      ? const Text('▼',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              fontSize: 22,
-                              color: Color(0xFFE8352B),
-                              height: 1))
+                      ? const Icon(Icons.arrow_drop_down,
+                          size: 34, color: Color(0xFFE8352B))
                       : (isOwed
-                          ? const Text('▲',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  fontSize: 22,
-                                  color: Color(0xFF3CCC3C),
-                                  height: 1))
-                          : const Text('•',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  fontSize: 22,
-                                  color: AppColors.text3,
-                                  height: 1))),
+                          ? const Icon(Icons.arrow_drop_up,
+                              size: 34, color: Color(0xFF3CCC3C))
+                          : const Icon(Icons.remove,
+                              size: 22, color: AppColors.text3)),
                 ),
                 // الرصيد
                 Expanded(
