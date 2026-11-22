@@ -193,14 +193,17 @@ class _VoucherCard extends ConsumerWidget {
       _ => AppColors.accentOf(context),
     };
 
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => openVoucherPreview(context, ref, voucher),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
+    // صف مسطّح بخط فاصل رقيق بنمط «دفتر الحسابات» — بدل بطاقة مرفوعة.
+    return InkWell(
+      onTap: () => openVoucherPreview(context, ref, voucher),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: const BoxDecoration(
+          border: Border(
+              bottom: BorderSide(color: AppColors.border, width: 0.7)),
+        ),
+        child: Row(
+          children: [
               Container(
                 width: 46,
                 height: 46,
@@ -277,8 +280,7 @@ class _VoucherCard extends ConsumerWidget {
                   ),
                 ],
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

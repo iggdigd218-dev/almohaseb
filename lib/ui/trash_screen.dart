@@ -97,13 +97,15 @@ class TrashScreen extends ConsumerWidget {
                   );
                   final label = (t['label'] ?? '') as String;
 
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
+                  // صف مسطّح بخط فاصل بنمط «دفتر الحسابات» — بلا بطاقة.
+                  return Container(
+                    decoration: const BoxDecoration(
+                      border: Border(
+                          bottom: BorderSide(
+                              color: AppColors.border, width: 0.7)),
+                    ),
                     child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: meta.$3.withValues(alpha: .12),
-                        child: Icon(meta.$2, color: meta.$3),
-                      ),
+                      leading: Icon(meta.$2, color: meta.$3, size: 22),
                       title: Text(
                         label.isEmpty ? meta.$1 : label,
                         maxLines: 1,

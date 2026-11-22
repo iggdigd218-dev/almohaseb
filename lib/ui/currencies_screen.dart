@@ -168,12 +168,16 @@ class _CurrencyCardState extends ConsumerState<_CurrencyCard> {
     final me = ref.watch(currentUserProvider).valueOrNull;
     final canEdit = me != null && me.can('edit_tx');
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+    // صف مسطّح بخط فاصل رقيق بنمط «دفتر الحسابات» — بدل بطاقة مرفوعة.
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: const BoxDecoration(
+        border: Border(
+            bottom: BorderSide(color: AppColors.border, width: 0.7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
             Row(
               children: [
                 Container(
@@ -278,7 +282,6 @@ class _CurrencyCardState extends ConsumerState<_CurrencyCard> {
             ],
           ],
         ),
-      ),
     );
   }
 
