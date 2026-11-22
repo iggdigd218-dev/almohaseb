@@ -37,7 +37,10 @@ class AppSemVer implements Comparable<AppSemVer> {
   final int major, minor, patch, build;
   const AppSemVer(this.major, this.minor, this.patch, [this.build = 0]);
 
-  static const AppSemVer current = AppSemVer(4, 5, 0, kAppBuild);
+  /// الإصدار الحالي — يُشتق من `kAppVersion` تلقائياً، لا رقم مضبوط يدوياً.
+  /// (2026-11-22) كان مضبوطاً على 4.5.0 يدوياً، فتجاهل رفع الرقم إلى 4.6.0
+  /// وأبقى التطبيق يظن نفسه قديماً/حديثاً خطأً. الاختبار UPD-05 يحرس ذلك.
+  static final AppSemVer current = tryParse('$kAppVersion+$kAppBuild')!;
 
   /// يقبل `4.5.0` و`4.5.0+307` و`v4.5.0`.
   static AppSemVer? tryParse(String? raw) {
