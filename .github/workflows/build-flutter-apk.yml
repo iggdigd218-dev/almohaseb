@@ -101,20 +101,36 @@ jobs:
           # (3.70) حزمة شاملة: بلا --target-platform فتُدمج كل ABIs
           # (armeabi-v7a + arm64-v8a + x86_64) — إصلاح «الحزمة تبدو غير صالحة».
           # تُبقى للعملاء القدامى (≤ 3.75.0+151) الذين يقرأون downloads.android.
-          flutter build apk --release --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
-          cp build/app/outputs/flutter-apk/app-release.apk nexora-universal.apk
-          ls -lh nexora-universal.apk
+          # (2026-11-23) حزم مقسّمة حسب المعالج لنسخة 4.1.0+301
+          flutter build apk --release --split-per-abi \
+            --dart-define=NEXORA_FIREBASE_API_KEY=${{ secrets.NEXORA_FIREBASE_API_KEY }}
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk almohaseb-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk   almohaseb-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk      almohaseb-x86_64.apk
+          ls -lh almohaseb-*.apk
 
       - name: Verify APK (zipalign + apksigner)
         run: |
           # (3.70 — المرحلة 7) التحقق من سلامة المحاذاة والتوقيع قبل النشر.
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          for f in nexora-universal.apk; do
+          for f in almohaseb-armeabi-v7a.apk almohaseb-arm64-v8a.apk almohaseb-x86_64.apk; do
             echo "— $f"
             "$BT/zipalign" -c -v 4 "$f" | tail -1
             "$BT/apksigner" verify --print-certs "$f" | head -3
           done
           echo "كل الحزم محاذية وموقعة توقيعاً صالحاً"
+
+      - name: Enforce APK size gate (20 MB)
+        run: |
+          FAIL=0
+          for f in almohaseb-armeabi-v7a.apk almohaseb-arm64-v8a.apk almohaseb-x86_64.apk; do
+            SZ=$(stat -c%s "$f")
+            echo "$f = $SZ بايت (~$((SZ / 1048576))MB)"
+            if [ "$SZ" -gt 20000000 ]; then
+              echo "::error::$f تجاوز الحد 20MB"; FAIL=1
+            fi
+          done
+          [ "$FAIL" = "0" ] && echo "✔ كل الحزم تحت 20MB" || exit 1
 
       - name: Generate version manifest (version.json)
         run: |
@@ -132,21 +148,19 @@ jobs:
             "minSupported": "3.13.0",
             "releaseUrl": "https://github.com/${{ github.repository }}/releases/tag/latest",
             "downloads": {
-              "android": "https://github.com/${{ github.repository }}/releases/download/latest/nexora-universal.apk"
+              "android": "https://github.com/${{ github.repository }}/releases/download/v4.1.0-split/almohaseb-arm64-v8a.apk",
+              "androidArm32": "https://github.com/${{ github.repository }}/releases/download/v4.1.0-split/almohaseb-armeabi-v7a.apk",
+              "androidX64": "https://github.com/${{ github.repository }}/releases/download/v4.1.0-split/almohaseb-x86_64.apk"
             },
             "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "notes": "$NOTES"
           }
           EOF
           cat version.json
-
-          # مزامنة فورية وموثوقة لبيان التحديث إلى Firebase RTDB العام
-          curl -s -X PATCH -H "Content-Type: application/json; charset=utf-8" \
-            -d @version.json \
-            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/force_update.json" || true
-          curl -s -X PUT -H "Content-Type: application/json; charset=utf-8" \
-            -d @version.json \
-            "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/version_manifest.json" || true
+          # (2026-11-23) ❗ لا نكتب بيان التحديث إلى Firebase من هذا الفرع:
+          # يقرأه تطبيق «المحاسب» الحالي فيُدفع إلى «تحديث» نحو نسخة أقدم.
+          echo "تخطّي مزامنة Firebase (فرع مستقل)"
+          echo "تخطّي مزامنة Firebase (فرع مستقل)"
 
       # الأصل الواحد يحمل ملفي النشر معاً: APK + version.json، فلا حاجة
       # لإعادة توليد أي شيء في وظيفة النشر، ولا لرفع مزدود للملف الكبير.
@@ -155,7 +169,9 @@ jobs:
         with:
           name: nexora-flutter-universal
           path: |
-            nexora-universal.apk
+            almohaseb-armeabi-v7a.apk
+            almohaseb-arm64-v8a.apk
+            almohaseb-x86_64.apk
             version.json
           retention-days: 30
 
@@ -168,7 +184,7 @@ jobs:
   publish:
     name: Publish APK to latest release
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/legacy-410'
     runs-on: ubuntu-latest
     concurrency:
       group: publish-latest-release
@@ -188,7 +204,7 @@ jobs:
         run: |
           find dist -type f -exec mv -f {} . \;
           rm -rf dist
-          ls -lh nexora-universal.apk version.json
+          ls -lh almohaseb-armeabi-v7a.apk almohaseb-arm64-v8a.apk almohaseb-x86_64.apk version.json
 
       - name: Build upload list (existing files only)
         id: filelist
@@ -199,7 +215,7 @@ jobs:
           # للحذف بلا تعويض إن فشل تنزيله — وبهذا فُقدت nexora-windows.zip ثم
           # أُفرغ الإصدار كاملاً (0 أصول). لا تنزيل، لا مساس بغير أصولنا.
           files=""
-          for f in nexora-universal.apk version.json; do
+          for f in almohaseb-armeabi-v7a.apk almohaseb-arm64-v8a.apk almohaseb-x86_64.apk version.json; do
             if [ -s "$f" ]; then files="${files}${f}"$'\n'; fi
           done
           {
@@ -212,20 +228,22 @@ jobs:
       - name: Update unified latest release (APK + version.json)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Nexora — الإصدار الرسمي الأحدث
+          tag_name: v4.1.0-split
+          name: مدير الحسابات 4.1.0 — نسخة مقسّمة
           body: |
             ## 📥 التحميل المباشر
 
             **هذا هو الإصدار الرسمي الأحدث من التطبيق.**
 
             ### 📱 للأندرويد
-            - `nexora-universal.apk` — حزمة واحدة شاملة تعمل على **كل** الأجهزة
+            - `almohaseb-arm64-v8a.apk` — للأجهزة الحديثة (الأغلب)
+            - `almohaseb-armeabi-v7a.apk` — للأجهزة القديمة (32 بت)
+            - `almohaseb-x86_64.apk` — للمحاكيات
               (32 و64 بت) — لا خطأ «الحزمة غير صالحة» بعد اليوم.
 
             > يتم تحديث هذه الصفحة تلقائيًا بعد كل بناء ناجح.
           prerelease: false
-          make_latest: true
+          make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -242,7 +260,7 @@ jobs:
           # مسار رفع أصول الإصدار لدى softprops تحديداً. gh الرسمي أنجح،
           # ومع حلقة إعادة محاولة لا يبقى مجال لضياع أصل.
           files=()
-          for f in nexora-universal.apk version.json; do
+          for f in almohaseb-armeabi-v7a.apk almohaseb-arm64-v8a.apk almohaseb-x86_64.apk version.json; do
             [ -s "$f" ] && files+=("$f")
           done
           if [ ${#files[@]} -eq 0 ]; then

@@ -40,7 +40,7 @@ android {
     // ضغط المكتبات الأصلية داخل APK لتقليل الحجم.
     packagingOptions {
         jniLibs {
-            useLegacyPackaging = false
+            useLegacyPackaging = true
         }
     }
 
@@ -68,8 +68,10 @@ android {
                     "التوقيع بمفتاح debug يمنع تثبيت التحديث فوق النسخة السابقة.")
             }
             signingConfig = signingConfigs.release
-            minifyEnabled = false
-            shrinkResources = false
+            // (2026-11-23) تفعيل R8 + الضغط: كانا معطّلين فانتفت الفائدة
+            // من تقسيم المعالجات (25MB لكل حزمة).
+            minifyEnabled = true
+            shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
                           'proguard-rules.pro'
         }
