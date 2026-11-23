@@ -24,11 +24,11 @@ import 'core.dart';
 /// رقم الإصدار المدمج في البناء. تحدّثه خطوة CI تلقائياً من pubspec.yaml
 /// (الخطوة موجودة في .github/workflows/build-flutter-apk.yml).
 ///
-/// صيغة ثابتة يتعرّف عليها sed: `const String kAppVersion = '4.6.0';`
-const String kAppVersion = '4.6.0';
+/// صيغة ثابتة يتعرّف عليها sed: `const String kAppVersion = '4.7.0';`
+const String kAppVersion = '4.7.0';
 
-/// رقم البناء: `const int kAppBuild = 314;`
-const int kAppBuild = 314;
+/// رقم البناء: `const int kAppBuild = 315;`
+const int kAppBuild = 315;
 
 String get appVersionLabel => 'الإصدار $kAppVersion';
 

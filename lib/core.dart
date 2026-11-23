@@ -163,6 +163,12 @@ class AppColors {
   static const driveGreen = Color(0xFF0F9D58);
   static const driveYellow = Color(0xFFF4B400);
 
+  /// خلفية/إطار تنبيه محايد — تُستخدم لبيان «ميزة غير مُفعّلة» بصدق.
+  static Color get warnBg =>
+      _dark ? const Color(0xFF33280A) : const Color(0xFFFFF7E0);
+  static Color get warnLine =>
+      _dark ? const Color(0xFF6B5410) : const Color(0xFFE8D9A8);
+
   // ═══ ألوان تتغيّر مع الوضع (إصلاح 2026-11-22) ═══
   // كانت الأسطح والنصوص والأشرطة الفاصلة تُكتب بيضاء صريحة، فلا يتبدّل
   // شيء في الوضع الليلي إلا الخلفية. هذه الخمس تُقرأ من التفضيل مباشرة.

@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../core.dart';
 import '../main.dart';
 import '../update.dart';
+import 'reports_screens.dart' show DriveScreen;
 import 'widgets.dart';
 
 /// شاشة الإعدادات
@@ -454,32 +455,16 @@ class _BackupOptionsScreenState extends State<BackupOptionsScreen> {
               }
             },
           ),
+          // (2026-11-22) أُزيلت خانة «تغيير الحساب» الوهمية: كانت تحفظ
+          // بريداً في التفضيلات بلا أي تسجيل دخول ولا رفع. وصار المدخل
+          // الحقيقي «النسخ الاحتياطي السحابي» أدناه.
           EmojiTile(
             emoji: '☁️',
-            title: 'تغيير الحساب',
+            title: 'النسخ الاحتياطي السحابي',
+            subtitle: 'إرسال نسخة إلى درايف أو استرجاع نسخة محفوظة',
             trailing: const DriveIcon(size: 22),
-            onTap: () async {
-              final v = await textDialog(context, 'حساب الدرايف', initial: Prefs.driveAccount, hint: 'البريد الإلكتروني');
-              if (v != null) {
-                await Prefs.setS('driveAccount', v.trim());
-                setState(() {});
-              }
-            },
-          ),
-          EmojiTile(
-            emoji: '📁',
-            title: 'اسم المجلد في مجلد درايف',
-            subtitle: Prefs.driveFolder,
-            grayed: Prefs.driveAccount.isEmpty,
-            onTap: Prefs.driveAccount.isEmpty
-                ? null
-                : () async {
-                    final v = await textDialog(context, 'اسم المجلد في مجلد درايف', initial: Prefs.driveFolder);
-                    if (v != null && v.trim().isNotEmpty) {
-                      await Prefs.setS('driveFolder', v.trim());
-                      setState(() {});
-                    }
-                  },
+            onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const DriveScreen())),
           ),
           EmojiTile(
             emoji: '🔔',

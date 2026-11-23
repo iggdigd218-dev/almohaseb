@@ -717,66 +717,127 @@ class _RestoreScreenState extends State<RestoreScreen> {
   }
 }
 
-class DriveScreen extends StatelessWidget {
+/// ============ النسخ الاحتياطي على جوجل درايف ============
+///
+/// (2026-11-22) كانت هذه الشاشة **وهمية بالكامل**: حقل «حساب الدرايف» مجرد
+/// خانة نص تُحفظ في التفضيلات بلا أي أثر، وزر «فتح جوجل درايف» يفتح المتصفح
+/// على drive.google.com ولا يرفع شيئاً. فأوهمت المستخدم بأن بياناته محفوظة
+/// سحابياً وهي ليست كذلك — وهذا أخطر من غياب الميزة.
+///
+/// القرار: تُعرض الآن حالة صادقة + وجهة بديلة تعمل فعلاً (مشاركة الملف
+/// إلى درايف عبر تطبيق Drive المثبّت، أو استعراض النسخ المحلي داخل التطبيق).
+class DriveScreen extends StatefulWidget {
   const DriveScreen({super.key});
+
+  @override
+  State<DriveScreen> createState() => _DriveScreenState();
+}
+
+class _DriveScreenState extends State<DriveScreen> {
+  bool _busy = false;
+
+  /// يشارك أحدث نسخة احتياطية محلية عبر تطبيق Drive المثبّت على الجهاز.
+  /// هذا يعمل بلا أي تسجيل دخول داخل التطبيق: المستخدم يختار الحساب في
+  /// نافذة المشاركة التي يعرضها نظام أندرويد نفسه.
+  Future<void> _shareLatestToDrive() async {
+    setState(() => _busy = true);
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final folder = Directory(dir.path);
+      final files = <File>[];
+      if (await folder.exists()) {
+        await for (final e in folder.list()) {
+          if (e is File && e.path.endsWith('.nexora')) files.add(e);
+        }
+      }
+      if (files.isEmpty) {
+        // لا نسخة بعد: ننشئ واحدة الآن ثم نشاركها.
+        await createBackup(silent: true);
+        await for (final e in folder.list()) {
+          if (e is File && e.path.endsWith('.nexora')) files.add(e);
+        }
+      }
+      if (files.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('تعذّر إنشاء نسخة احتياطية')));
+        }
+        return;
+      }
+      files.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+      await Share.shareXFiles([XFile(files.first.path)],
+          text: 'نسخة احتياطية — المحاسب');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('تعذّر المشاركة: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: simpleBar(context, 'مجلد درايف', showTemplate: false),
+      appBar: simpleBar(context, 'النسخ الاحتياطي السحابي', showTemplate: false),
       body: ListView(
         children: [
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           const Center(child: DriveIcon(size: 54)),
-          const SizedBox(height: 18),
-          EmojiTile(
-            emoji: '👤',
-            title: 'حساب الدرايف',
-            subtitle: Prefs.driveAccount.isEmpty ? 'غير محدد' : Prefs.driveAccount,
-            trailing: TextButton(
-              onPressed: () async {
-                final v = await textDialog(context, 'حساب الدرايف', initial: Prefs.driveAccount, hint: 'البريد الإلكتروني');
-                if (v != null) {
-                  await Prefs.setS('driveAccount', v.trim());
-                  if (context.mounted) (context as Element).markNeedsBuild();
-                }
-              },
-              child: const Text('تغيير', style: TextStyle(color: AppColors.primary)),
-            ),
-          ),
-          EmojiTile(
-            emoji: '📁',
-            title: 'اسم المجلد في مجلد درايف',
-            subtitle: Prefs.driveFolder,
-            grayed: Prefs.driveAccount.isEmpty,
-            trailing: TextButton(
-              onPressed: Prefs.driveAccount.isEmpty
-                  ? null
-                  : () async {
-                      final v = await textDialog(context, 'اسم المجلد', initial: Prefs.driveFolder);
-                      if (v != null && v.trim().isNotEmpty) {
-                        await Prefs.setS('driveFolder', v.trim());
-                        if (context.mounted) (context as Element).markNeedsBuild();
-                      }
-                    },
-              child: const Text('تغيير', style: TextStyle(color: AppColors.primary)),
-            ),
-          ),
+          const SizedBox(height: 16),
+          // حالة صادقة بدل الوهم السابق.
           Padding(
-            padding: const EdgeInsets.all(24),
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.driveBlue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 12)),
-              icon: const Icon(Icons.cloud_upload),
-              label: const Text('فتح جوجل درايف', style: TextStyle(fontSize: 15)),
-              onPressed: () async {
-                final uri = Uri.parse('https://drive.google.com');
-                if (await canLaunchUrl(uri)) {
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                }
-              },
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.warnBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.warnLine),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('الرفع التلقائي إلى درايف غير مُفعّل',
+                      style: TextStyle(
+                          fontSize: 13.5, fontWeight: FontWeight.w700)),
+                  SizedBox(height: 6),
+                  Text(
+                    'التطبيق لا يسجّل دخولاً إلى جوجل ولا يرفع شيئاً تلقائياً. '
+                    'ما يلي طريقة تعمل فعلاً: تُشارك النسخة إلى تطبيق Drive '
+                    'المثبّت على جهازك، وتختار الحساب في نافذة المشاركة.',
+                    style: TextStyle(fontSize: 11.5, height: 1.6),
+                  ),
+                ],
+              ),
             ),
           ),
+          const SizedBox(height: 8),
+          EmojiTile(
+            emoji: '📤',
+            title: 'إرسال أحدث نسخة إلى درايف',
+            subtitle: _busy
+                ? 'جارٍ التحضير…'
+                : 'ينشئ نسخة ويفتح نافذة المشاركة — اختر Drive ثم الحساب',
+            onTap: _busy ? null : _shareLatestToDrive,
+          ),
+          EmojiTile(
+            emoji: '🗂️',
+            title: 'النسخ المحفوظة على الجهاز',
+            subtitle: 'استعراض واسترجاع داخل التطبيق — لا يحتاج إنترنت',
+            onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const RestoreScreen())),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 18, 20, 8),
+            child: Text(
+              'الرفع التلقائي إلى درايف يحتاج تسجيل دخول جوجل وموافقة '
+              'Drive API — ميزة غير مبنية بعد.',
+              style: TextStyle(fontSize: 11, color: AppColors.faint, height: 1.6),
+            ),
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
