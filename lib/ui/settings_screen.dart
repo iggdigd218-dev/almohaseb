@@ -512,10 +512,10 @@ class _ComputerScreenState extends State<ComputerScreen> {
       srv.listen((req) async {
         final accs = await Db.accounts();
         final buf = StringBuffer(
-            '<html dir="rtl"><head><meta charset="utf-8"><title>دفتر الحسابات</title>'
+            '<html dir="rtl"><head><meta charset="utf-8"><title>المحاسب</title>'
             '<style>body{font-family:sans-serif;padding:20px}table{width:100%;border-collapse:collapse}'
             'td,th{border:1px solid #ccc;padding:8px;text-align:right}</style></head><body>'
-            '<h2>دفتر الحسابات — عرض من الكمبيوتر</h2><table>'
+            '<h2>المحاسب — عرض من الكمبيوتر</h2><table>'
             '<tr><th>الحساب</th><th>النوع</th><th>الرصيد</th></tr>');
         for (final a in accs) {
           final bal = await Db.balanceOf(a.id);

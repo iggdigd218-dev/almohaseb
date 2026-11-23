@@ -65,7 +65,7 @@ class LedgerApp extends StatelessWidget {
   Widget _buildApp() {
     final dark = Prefs.darkMode;
     return MaterialApp(
-      title: 'دفتر الحسابات',
+      title: 'المحاسب',
       debugShowCheckedModeBanner: false,
       builder: (ctx, child) => Directionality(
         textDirection: TextDirection.ltr,

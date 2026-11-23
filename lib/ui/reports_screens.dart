@@ -9,7 +9,7 @@ import '../core.dart';
 import 'widgets.dart';
 
 Future<void> shareApp() async {
-  await Share.share('دفتر الحسابات — سجل الديون والحسابات\n'
+  await Share.share('المحاسب — سجل الديون والحسابات\n'
       'تطبيق متكامل لإدارة الحسابات والديون مع التقارير والنسخ الاحتياطي.');
 }
 
@@ -906,7 +906,7 @@ class AboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Center(
-            child: Text('دفتر الحسابات',
+            child: Text('المحاسب',
                 style: TextStyle(fontSize: 21, fontWeight: FontWeight.w600, color: AppColors.navy)),
           ),
           const SizedBox(height: 6),

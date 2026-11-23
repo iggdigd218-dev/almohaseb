@@ -314,7 +314,7 @@ class Prefs {
   static bool get backupPhotos => b('backupPhotos', false);
   static String get backupTime => s('backupTime', '00:00');
   static String get driveAccount => s('driveAccount');
-  static String get driveFolder => s('driveFolder', 'دفتر الحسابات');
+  static String get driveFolder => s('driveFolder', 'المحاسب');
   static bool get notifOnAdd => b('notifOnAdd', true);
 
   // الإشعارات
