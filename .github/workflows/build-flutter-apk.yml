@@ -251,6 +251,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # (2026-11-23) ❗ وسم الرفع يجب أن يكون صريحاً: gh لا يقرأ tag_name
+          # من softprops، وكان يرفع إلى latest فيستبدل أصول «المحاسب».
+          RELEASE_TAG: v4.1.0-split
         run: |
           set -euo pipefail
           # ❗ السبب الجذري لتكرار "Error saving asset": softprops/action-gh-release
@@ -268,10 +271,10 @@ jobs:
           fi
           for attempt in 1 2 3; do
             echo "محاولة رفع ${attempt}/3 إلى ${{ github.repository }}: ${files[*]}"
-            if gh release upload latest "${files[@]}" --clobber --repo "${{ github.repository }}"; then
+            if gh release upload "$RELEASE_TAG" "${files[@]}" --clobber --repo "${{ github.repository }}"; then
               echo "✔ تم رفع الأصول في المحاولة ${attempt} إلى ${{ github.repository }}"
               # رفع متزامن إلى المستودع الرديف iggdigd218-dev/Nexora لضمان عدم تأثر أي مستخدم بإصدار سابق
-              gh release upload latest "${files[@]}" --clobber --repo "iggdigd218-dev/Nexora" || true
+              # لا مرآة للمستودع الآخر من هذا الفرع (أصوله تخص المحاسب)
               exit 0
             fi
             echo "⚠️ فشلت المحاولة ${attempt} — إعادة المحاولة بعد 20 ثانية"
