@@ -157,10 +157,15 @@ jobs:
           }
           EOF
           cat version.json
-          # (2026-11-23) ❗ لا نكتب بيان التحديث إلى Firebase من هذا الفرع:
-          # يقرأه تطبيق «المحاسب» الحالي فيُدفع إلى «تحديث» نحو نسخة أقدم.
-          echo "تخطّي مزامنة Firebase (فرع مستقل)"
-          echo "تخطّي مزامنة Firebase (فرع مستقل)"
+          # (2026-11-23) هذا هو الإصدار الرسمي الآن، فبيان التحديث يُكتب
+          # إلى Firebase ليقرأه التطبيق المثبّت عند الإقلاع.
+          for KEY in force_update version_manifest; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+              -H "Content-Type: application/json; charset=utf-8" \
+              --data-binary @version.json \
+              "https://nexora-ledger-default-rtdb.europe-west1.firebasedatabase.app/workspaces/_registry/system/$KEY.json" || echo 000)
+            echo "Firebase $KEY → HTTP $CODE"
+          done
 
       # الأصل الواحد يحمل ملفي النشر معاً: APK + version.json، فلا حاجة
       # لإعادة توليد أي شيء في وظيفة النشر، ولا لرفع مزدود للملف الكبير.
