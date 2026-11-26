@@ -148,9 +148,9 @@ jobs:
             "minSupported": "3.13.0",
             "releaseUrl": "https://github.com/${{ github.repository }}/releases/tag/latest",
             "downloads": {
-              "android": "https://github.com/${{ github.repository }}/releases/download/v4.1.0-split/almohaseb-arm64-v8a.apk",
-              "androidArm32": "https://github.com/${{ github.repository }}/releases/download/v4.1.0-split/almohaseb-armeabi-v7a.apk",
-              "androidX64": "https://github.com/${{ github.repository }}/releases/download/v4.1.0-split/almohaseb-x86_64.apk"
+              "android": "https://github.com/${{ github.repository }}/releases/download/official/almohaseb-arm64-v8a.apk",
+              "androidArm32": "https://github.com/${{ github.repository }}/releases/download/official/almohaseb-armeabi-v7a.apk",
+              "androidX64": "https://github.com/${{ github.repository }}/releases/download/official/almohaseb-x86_64.apk"
             },
             "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "notes": "$NOTES"
@@ -184,7 +184,7 @@ jobs:
   publish:
     name: Publish APK to latest release
     needs: build
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/legacy-410'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/official'
     runs-on: ubuntu-latest
     concurrency:
       group: publish-latest-release
@@ -228,8 +228,8 @@ jobs:
       - name: Update unified latest release (APK + version.json)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.1.0-split
-          name: مدير الحسابات 4.1.0 — نسخة مقسّمة
+          tag_name: official
+          name: مدير الحسابات — الإصدار الرسمي (4.1.0+301)
           body: |
             ## 📥 التحميل المباشر
 
@@ -243,7 +243,7 @@ jobs:
 
             > يتم تحديث هذه الصفحة تلقائيًا بعد كل بناء ناجح.
           prerelease: false
-          make_latest: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -253,7 +253,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # (2026-11-23) ❗ وسم الرفع يجب أن يكون صريحاً: gh لا يقرأ tag_name
           # من softprops، وكان يرفع إلى latest فيستبدل أصول «المحاسب».
-          RELEASE_TAG: v4.1.0-split
+          RELEASE_TAG: official
         run: |
           set -euo pipefail
           # ❗ السبب الجذري لتكرار "Error saving asset": softprops/action-gh-release
